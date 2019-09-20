@@ -67,27 +67,20 @@ void HDF5Loader::nameFilterChanged(int index)
 
 			_normalizeCheck->setVisible(true);
 			_normalizeLabel->setVisible(true);
-			_speedLabel->setVisible(false);
 			
-			_memoryLabel->setVisible(false);
 			break;
 		}
 		case local::H510X:
 		{
 			_normalizeCheck->setVisible(false);
 			_normalizeLabel->setVisible(false);
-			_speedLabel->setVisible(true);
 			
-			_memoryLabel->setVisible(true);
 			break;
 		}
 		case local::H5AD:
 		{
 			_normalizeCheck->setVisible(false);
 			_normalizeLabel->setVisible(false);
-			_speedLabel->setVisible(false);
-			
-			_memoryLabel->setVisible(false);
 			break;
 		}
 	}

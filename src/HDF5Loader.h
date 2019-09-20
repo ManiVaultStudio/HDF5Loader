@@ -40,7 +40,4 @@ private:
 	QCheckBox *_normalizeCheck;
 	QLabel *_normalizeLabel;
 	
-	QLabel *_speedLabel;
-	QLabel *_memoryLabel;
-    
 };
