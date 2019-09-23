@@ -298,11 +298,15 @@ PointsPlugin *HDF5_TOME_Loader::open(const QString &fileName, int conversionInde
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
 
-		if (ok && !dataSetName.isEmpty()) {
-			QString name = _core->addData("Points", dataSetName);
-			const IndexSet& set = dynamic_cast<const IndexSet&>(_core->requestSet(name));
-			pointsPlugin = &(set.getData());
+		if (!ok || dataSetName.isEmpty())
+		{
+			return nullptr;
 		}
+
+		const QString name = _core->addData("Points", dataSetName);
+		const IndexSet& set = dynamic_cast<const IndexSet&>(_core->requestSet(name));
+		pointsPlugin = &(set.getData());
+
 		if (pointsPlugin == nullptr)
 			return nullptr;
 
@@ -359,7 +363,7 @@ PointsPlugin *HDF5_TOME_Loader::open(const QString &fileName, int conversionInde
 // 		}
 
 
-		_core->notifyDataAdded(pointsPlugin->getName());
+		_core->notifyDataAdded(name);
 		QGuiApplication::restoreOverrideCursor();
 		return pointsPlugin;
 	}
