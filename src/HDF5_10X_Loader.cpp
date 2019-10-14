@@ -28,6 +28,12 @@ indptr	uint32	Index into data / indices of the start of each column
 shape	uint64	Tuple of (n_rows, n_columns)
 */
 
+
+	union bfloat16_conversion {
+		float fraw;
+		uint16_t iraw[2];
+	};
+
 	int loadFromFile(std::string _fileName, std::shared_ptr<DataContainerInterface> &rawData, int optimization, int conversionOption)
 	{
 
@@ -87,6 +93,24 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				{
 					if (!H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT))
 						result = false;
+				}
+				else if(result & group.exists("data16"))
+				{
+					std::vector<uint16_t> data16;
+					if (!H5Utils::read_vector(group, "data16", &data16, H5::PredType::NATIVE_UINT16))
+						result = false;
+					else
+					{
+						data.resize(data16.size());
+						#pragma omp parallel for
+						for(std::int64_t i=0; i < data.size(); ++i)
+						{ 
+							bfloat16_conversion fr;
+							fr.iraw[0] = data16[i];
+							fr.iraw[1] = 0;
+							data[i] = fr.fraw;
+						}
+					}
 				}
 				else
 					result = false;
