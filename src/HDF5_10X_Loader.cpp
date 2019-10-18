@@ -103,11 +103,11 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					{
 						data.resize(data16.size());
 						#pragma omp parallel for
-						for(std::int64_t i=0; i < data.size(); ++i)
+						for(std::int64_t i=0; i < data16.size(); ++i)
 						{ 
 							bfloat16_conversion fr;
-							fr.iraw[0] = data16[i];
-							fr.iraw[1] = 0;
+							fr.iraw[1] = data16[i];
+							fr.iraw[0] = 0;
 							data[i] = fr.fraw;
 						}
 					}
@@ -118,6 +118,8 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				if (!result)
 					return false;
 
+
+				
 				std::size_t rows = barcodes.size();
 				assert(indptr.size() == (rows + 1));
 				std::size_t columns = genes.size();
