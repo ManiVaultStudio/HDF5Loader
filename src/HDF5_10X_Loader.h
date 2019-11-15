@@ -6,7 +6,7 @@ namespace hdps
 	class CoreInterface;
 }
 
-class PointsPlugin;
+class PointData;
 
 class HDF5_10X_Loader 
 {
@@ -18,6 +18,6 @@ class HDF5_10X_Loader
 public:
 	HDF5_10X_Loader(hdps::CoreInterface *core);
 
-	PointsPlugin* open(const QString &fileName, int conversionIndex, int speedIndex);
+	PointData* open(const QString &fileName, int conversionIndex, int speedIndex);
 
 };

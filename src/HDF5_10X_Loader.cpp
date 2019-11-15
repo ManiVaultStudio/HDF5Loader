@@ -14,6 +14,8 @@
 #include "DataContainerInterface.h"
 #include <iostream>
 
+using namespace hdps;
+
 namespace HDF5_10X
 {
 
@@ -125,7 +127,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				std::size_t columns = genes.size();
 				rawData->resize(rows, columns);
 				rawData->set_sparse_row_data(indices, indptr, data, conversionOption);
-				PointsPlugin *pointsPlugin = rawData->pointsPlugin();
+				PointData *pointsPlugin = rawData->pointsPlugin();
 				
 				std::vector<QString> dimensionNames(genes.size());
 				#pragma omp parallel for
@@ -164,13 +166,13 @@ HDF5_10X_Loader::HDF5_10X_Loader(hdps::CoreInterface *core)
 	_core = core;
 }
 
-PointsPlugin * HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, int speedIndex)
+PointData * HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, int speedIndex)
 {
 
 
 	
 	
-	PointsPlugin *pointsPlugin = nullptr;
+	PointData *pointData = nullptr;
 	try
 	{
 		bool ok;
@@ -183,13 +185,13 @@ PointsPlugin * HDF5_10X_Loader::open(const QString &fileName, int conversionInde
 		}
 		
 		const QString name = _core->addData("Points", dataSetName);
-		const IndexSet& set = dynamic_cast<const IndexSet&>(_core->requestSet(name));
-		pointsPlugin = &(set.getData());
+		const IndexSet& set = _core->requestSet<IndexSet>(name);
+		pointData = &(set.getData<PointData>());
 
-		if (pointsPlugin == nullptr)
+		if (pointData == nullptr)
 			return nullptr;
 		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(pointsPlugin));
+		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(pointData));
 
 		HDF5_10X::loadFromFile(fileName.toStdString(), rawData, speedIndex, conversionIndex);
 
@@ -203,7 +205,7 @@ PointsPlugin * HDF5_10X_Loader::open(const QString &fileName, int conversionInde
 	}
 
 	QGuiApplication::restoreOverrideCursor();
-	return pointsPlugin;
+	return pointData;
 }
 	
 

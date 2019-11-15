@@ -14,7 +14,7 @@
 #include "DataContainerInterface.h"
 #include <iostream>
 
-
+using namespace hdps;
 
 namespace H5AD
 {
@@ -54,7 +54,7 @@ namespace H5AD
 	};
 
 
-	void LoadData(const H5::DataSet &dataset, PointsPlugin *pointsPlugin, TRANSFORM::Type transformType, bool normalize_and_cpm)
+	void LoadData(const H5::DataSet &dataset, PointData *pointsPlugin, TRANSFORM::Type transformType, bool normalize_and_cpm)
 	{
 		H5Utils::MultiDimensionalData<float> data;
 
@@ -68,7 +68,7 @@ namespace H5AD
 	}
 
 
-	void LoadGeneNames(H5::DataSet &dataset, PointsPlugin *pointsPlugin)
+	void LoadGeneNames(H5::DataSet &dataset, PointData *pointsPlugin)
 	{
 		std::map<std::string, std::vector<QVariant> > compoundMap;
 		if (H5Utils::read_compound(dataset, compoundMap))
@@ -88,7 +88,7 @@ namespace H5AD
 		}
 	}
 
-	void LoadSampleNamesAndMetaData(H5::DataSet dataset, PointsPlugin *pointsPlugin)
+	void LoadSampleNamesAndMetaData(H5::DataSet dataset, PointData *pointsPlugin)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl; // and sample names
@@ -213,23 +213,23 @@ HDF5_AD_Loader::HDF5_AD_Loader(hdps::CoreInterface *core)
 	_core = core;
 }
 
-PointsPlugin* HDF5_AD_Loader::open(const QString &fileName)
+PointData* HDF5_AD_Loader::open(const QString &fileName)
 {
 	QGuiApplication::setOverrideCursor(Qt::WaitCursor);
 
 	try
 	{
-		PointsPlugin *pointsPlugin = nullptr;
+		PointData *pointData = nullptr;
 		bool ok;
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
 
 		if (ok && !dataSetName.isEmpty()) {
 			QString name = _core->addData("Points", dataSetName);
-			const IndexSet& set = dynamic_cast<const IndexSet&>(_core->requestSet(name));
-			pointsPlugin = &(set.getData());
+			const IndexSet& set = _core->requestSet<IndexSet>(name);
+			pointData = &(set.getData<PointData>());
 		}
-		if (pointsPlugin == nullptr)
+		if (pointData == nullptr)
 			return nullptr;
 		
 
@@ -248,17 +248,17 @@ PointsPlugin* HDF5_AD_Loader::open(const QString &fileName)
 				if (objectName1 == "X")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadData(dataset, pointsPlugin, 0, false);
+					H5AD::LoadData(dataset, pointData, 0, false);
 				}
 				else if (objectName1 == "var")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadGeneNames(dataset, pointsPlugin);
+					H5AD::LoadGeneNames(dataset, pointData);
 				}
 				else if (objectName1 == "obs")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadSampleNamesAndMetaData(dataset, pointsPlugin);
+					H5AD::LoadSampleNamesAndMetaData(dataset, pointData);
 				}
 			}
 		}
@@ -273,12 +273,12 @@ PointsPlugin* HDF5_AD_Loader::open(const QString &fileName)
 				if (objectName1 == "obsm")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadSampleNamesAndMetaData(dataset, pointsPlugin);
+					H5AD::LoadSampleNamesAndMetaData(dataset, pointData);
 				}
 			}
 		}
 
-		return pointsPlugin;
+		return pointData;
 	}
 	catch (std::exception &e)
 	{

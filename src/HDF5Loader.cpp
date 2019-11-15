@@ -11,7 +11,7 @@
 #include <QLabel>
 #include <QCheckBox>
 #include <QStringList>
-#include "PointsPlugin.h"
+#include "PointData.h"
 
 Q_PLUGIN_METADATA(IID "nl.lumc.HDF5Loader")
 
@@ -148,7 +148,7 @@ void HDF5Loader::loadData()
 		else 
 			return;
 
-		PointsPlugin *result = nullptr;
+		PointData *result = nullptr;
 		QString selectedNameFilter = _openFileDialog->selectedNameFilter();
 		
 		if (selectedNameFilter == "TOME (*.tome)")

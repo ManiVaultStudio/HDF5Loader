@@ -13,6 +13,7 @@
 #include "DataContainerInterface.h"
 #include <iostream>
 
+using namespace hdps;
 
 namespace TOME
 {
@@ -151,7 +152,7 @@ namespace TOME
 			rawData->applyTransform(transformType, normalize_and_cpm);
 	}
 
-	void LoadGeneNames(H5::DataSet &dataset, PointsPlugin *pointsPlugin)
+	void LoadGeneNames(H5::DataSet &dataset, PointData *pointsPlugin)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Gene Names" << std::endl;
@@ -167,7 +168,7 @@ namespace TOME
 		pointsPlugin->setDimensionNames(dimensionNames);
 	}
 
-	void LoadSampleNames(H5::DataSet &dataset, PointsPlugin *pointsPlugin)
+	void LoadSampleNames(H5::DataSet &dataset, PointData *pointsPlugin)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Sample Names" << std::endl;
@@ -184,7 +185,7 @@ namespace TOME
 		
 	}
 
-	bool LoadSampleMeta(H5::Group &group, PointsPlugin *pointsPlugin)
+	bool LoadSampleMeta(H5::Group &group, PointData *pointsPlugin)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl;
@@ -286,14 +287,14 @@ HDF5_TOME_Loader::HDF5_TOME_Loader(hdps::CoreInterface *core)
 	_core = core;
 }
 
-PointsPlugin *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, bool normalize) 
+PointData *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, bool normalize) 
 {
 
 	
 
 	try
 	{
-		PointsPlugin *pointsPlugin = nullptr;
+		PointData *pointData = nullptr;
 		bool ok;
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
@@ -304,14 +305,14 @@ PointsPlugin *HDF5_TOME_Loader::open(const QString &fileName, int conversionInde
 		}
 
 		const QString name = _core->addData("Points", dataSetName);
-		const IndexSet& set = dynamic_cast<const IndexSet&>(_core->requestSet(name));
-		pointsPlugin = &(set.getData());
+		const IndexSet& set = _core->requestSet<IndexSet>(name);
+		pointData = &(set.getData<PointData>());
 
-		if (pointsPlugin == nullptr)
+		if (pointData == nullptr)
 			return nullptr;
 
 		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(pointsPlugin));
+		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(pointData));
 
 		H5::H5File file(fileName.toLatin1().constData(), H5F_ACC_RDONLY);
 
@@ -365,7 +366,7 @@ PointsPlugin *HDF5_TOME_Loader::open(const QString &fileName, int conversionInde
 
 		_core->notifyDataAdded(name);
 		QGuiApplication::restoreOverrideCursor();
-		return pointsPlugin;
+		return pointData;
 	}
 	catch (std::exception &e)
 	{

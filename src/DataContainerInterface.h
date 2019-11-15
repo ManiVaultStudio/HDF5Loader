@@ -1,6 +1,6 @@
 #pragma once
 
-#include "PointsPlugin.h"
+#include "PointData.h"
 
 typedef std::uint64_t DataPointID;
 typedef std::uint64_t MarkerID;
@@ -17,7 +17,7 @@ class QComboBox;
 class QGridLayout;
 
 
-class DataContainerInterface // acting as a translation between Cytosplore Transcriptomics and PointsPlugin. Should be removed in the future
+class DataContainerInterface // acting as a translation between Cytosplore Transcriptomics and PointData. Should be removed in the future
 {
 
 public:
@@ -27,7 +27,7 @@ public:
 
 private:
 	
-	PointsPlugin *m_data;
+	PointData *m_data;
 	
 public:
 	void applyTransform(TRANSFORM::Type transformType, bool normalized_and_cpm);
@@ -35,10 +35,10 @@ public:
 	void addDataValue(RowID row, ColumnID column, float value, TRANSFORM::Type transformType);
 	void increaseDataValue(RowID row, ColumnID column, float value, TRANSFORM::Type transformType);
 	
-	explicit DataContainerInterface(PointsPlugin *);
+	explicit DataContainerInterface(PointData *);
 	~DataContainerInterface() = default;
 
-	PointsPlugin *pointsPlugin();
+	PointData *pointsPlugin();
 
 // 	const DataValue get(RowID row, ColumnID column) const;
  	void set(RowID row, ColumnID column, const ValueType & value);

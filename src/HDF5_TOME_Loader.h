@@ -5,7 +5,7 @@ namespace hdps
 	class CoreInterface;
 }
 
-class PointsPlugin;
+class PointData;
 
 class HDF5_TOME_Loader 
 {
@@ -14,6 +14,6 @@ class HDF5_TOME_Loader
 public:
 	HDF5_TOME_Loader(hdps::CoreInterface *core);
 
-	PointsPlugin *open(const QString &fileName, int conversionIndex, bool normalize);
+	PointData *open(const QString &fileName, int conversionIndex, bool normalize);
 
 };
