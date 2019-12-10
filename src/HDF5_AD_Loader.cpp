@@ -226,8 +226,8 @@ PointData* HDF5_AD_Loader::open(const QString &fileName)
 
 		if (ok && !dataSetName.isEmpty()) {
 			QString name = _core->addData("Points", dataSetName);
-			const IndexSet& set = _core->requestSet<IndexSet>(name);
-			pointData = &(set.getData<PointData>());
+			const auto& set = _core->requestData<Points>(name);
+			pointData = &(set.getRawData<PointData>());
 		}
 		if (pointData == nullptr)
 			return nullptr;
