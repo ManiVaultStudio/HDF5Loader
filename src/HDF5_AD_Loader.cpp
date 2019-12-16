@@ -54,7 +54,7 @@ namespace H5AD
 	};
 
 
-	void LoadData(const H5::DataSet &dataset, PointData *pointsPlugin, TRANSFORM::Type transformType, bool normalize_and_cpm)
+	void LoadData(const H5::DataSet &dataset, Points *points, TRANSFORM::Type transformType, bool normalize_and_cpm)
 	{
 		H5Utils::MultiDimensionalData<float> data;
 
@@ -62,13 +62,13 @@ namespace H5AD
 		{
 			if (data.size.size() == 2)
 			{
-				pointsPlugin->setData(data.data.data(), data.size[0], data.size[1]);
+				points->setData(data.data.data(), data.size[0], data.size[1]);
 			}
 		}
 	}
 
 
-	void LoadGeneNames(H5::DataSet &dataset, PointData *pointsPlugin)
+	void LoadGeneNames(H5::DataSet &dataset, Points *points)
 	{
 		std::map<std::string, std::vector<QVariant> > compoundMap;
 		if (H5Utils::read_compound(dataset, compoundMap))
@@ -82,13 +82,13 @@ namespace H5AD
 					std::vector<QString> dimensionNames(nrOfItems);
 					for (std::size_t i = 0; i < nrOfItems; ++i)
 						dimensionNames[i] = component->second[i].toString();
-					pointsPlugin->setDimensionNames(dimensionNames);
+					points->setDimensionNames(dimensionNames);
 				}
 			}
 		}
 	}
 
-	void LoadSampleNamesAndMetaData(H5::DataSet dataset, PointData *pointsPlugin)
+	void LoadSampleNamesAndMetaData(H5::DataSet dataset, Points *points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl; // and sample names
@@ -108,14 +108,14 @@ namespace H5AD
 			for (auto component = compoundMap.cbegin(); component != compoundMap.cend(); ++component)
 			{
 				const std::size_t nrOfSamples = component->second.size();
-				if (component->first == "index" && (pointsPlugin != nullptr))
+				if (component->first == "index" && (points != nullptr))
 				{
 					QList<QVariant> list;
 					for (auto i = 0; i < nrOfSamples; ++i)
 					{
 						list.append(component->second[i]);
 					}
-					pointsPlugin->setProperty("Sample Names", list);
+					points->setProperty("Sample Names", list);
 				}
 				else // add as metadata
 				{
@@ -195,8 +195,8 @@ namespace H5AD
 							valueList.append(component->second[i]);
 							colorList.append(valueColorMap[valueString].c_str());
 						}
-						pointsPlugin->setProperty(component->first.c_str(), valueList);
-						pointsPlugin->setProperty(colorLabel, colorList);
+						points->setProperty(component->first.c_str(), valueList);
+						points->setProperty(colorLabel, colorList);
 					}
 				}
 			}
@@ -213,23 +213,22 @@ HDF5_AD_Loader::HDF5_AD_Loader(hdps::CoreInterface *core)
 	_core = core;
 }
 
-PointData* HDF5_AD_Loader::open(const QString &fileName)
+Points* HDF5_AD_Loader::open(const QString &fileName)
 {
 	QGuiApplication::setOverrideCursor(Qt::WaitCursor);
 
 	try
 	{
-		PointData *pointData = nullptr;
+		Points *points = nullptr;
 		bool ok;
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
 
 		if (ok && !dataSetName.isEmpty()) {
 			QString name = _core->addData("Points", dataSetName);
-			const IndexSet& set = _core->requestSet<IndexSet>(name);
-			pointData = &(set.getData<PointData>());
+			points = &_core->requestData<Points>(name);
 		}
-		if (pointData == nullptr)
+		if (points == nullptr)
 			return nullptr;
 		
 
@@ -248,17 +247,17 @@ PointData* HDF5_AD_Loader::open(const QString &fileName)
 				if (objectName1 == "X")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadData(dataset, pointData, 0, false);
+					H5AD::LoadData(dataset, points, 0, false);
 				}
 				else if (objectName1 == "var")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadGeneNames(dataset, pointData);
+					H5AD::LoadGeneNames(dataset, points);
 				}
 				else if (objectName1 == "obs")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadSampleNamesAndMetaData(dataset, pointData);
+					H5AD::LoadSampleNamesAndMetaData(dataset, points);
 				}
 			}
 		}
@@ -273,12 +272,12 @@ PointData* HDF5_AD_Loader::open(const QString &fileName)
 				if (objectName1 == "obsm")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadSampleNamesAndMetaData(dataset, pointData);
+					H5AD::LoadSampleNamesAndMetaData(dataset, points);
 				}
 			}
 		}
 
-		return pointData;
+		return points;
 	}
 	catch (std::exception &e)
 	{

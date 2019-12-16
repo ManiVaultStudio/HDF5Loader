@@ -127,7 +127,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				std::size_t columns = genes.size();
 				rawData->resize(rows, columns);
 				rawData->set_sparse_row_data(indices, indptr, data, conversionOption);
-				PointData *pointsPlugin = rawData->pointsPlugin();
+				Points *points = rawData->points();
 				
 				std::vector<QString> dimensionNames(genes.size());
 				#pragma omp parallel for
@@ -135,14 +135,14 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				{
 					dimensionNames[i] = genes[i].c_str();
 				};
-				pointsPlugin->setDimensionNames(dimensionNames);
+				points->setDimensionNames(dimensionNames);
 
 				QList<QVariant> sample_names;
 				for (int64_t i = 0; i < barcodes.size(); ++i)
 				{
 					sample_names.append(barcodes[i].c_str());
 				}
-				pointsPlugin->setProperty("Sample Names", sample_names);
+				points->setProperty("Sample Names", sample_names);
 			}
 			file.close();
 			
@@ -166,13 +166,9 @@ HDF5_10X_Loader::HDF5_10X_Loader(hdps::CoreInterface *core)
 	_core = core;
 }
 
-PointData * HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, int speedIndex)
+Points * HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, int speedIndex)
 {
-
-
-	
-	
-	PointData *pointData = nullptr;
+	Points *points = nullptr;
 	try
 	{
 		bool ok;
@@ -185,13 +181,13 @@ PointData * HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, 
 		}
 		
 		const QString name = _core->addData("Points", dataSetName);
-		const IndexSet& set = _core->requestSet<IndexSet>(name);
-		pointData = &(set.getData<PointData>());
+		points = &_core->requestData<Points>(name);
 
-		if (pointData == nullptr)
+		if (points == nullptr)
 			return nullptr;
+
 		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(pointData));
+		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points));
 
 		HDF5_10X::loadFromFile(fileName.toStdString(), rawData, speedIndex, conversionIndex);
 
@@ -205,7 +201,7 @@ PointData * HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, 
 	}
 
 	QGuiApplication::restoreOverrideCursor();
-	return pointData;
+	return points;
 }
 	
 

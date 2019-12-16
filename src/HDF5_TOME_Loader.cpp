@@ -152,7 +152,7 @@ namespace TOME
 			rawData->applyTransform(transformType, normalize_and_cpm);
 	}
 
-	void LoadGeneNames(H5::DataSet &dataset, PointData *pointsPlugin)
+	void LoadGeneNames(H5::DataSet &dataset, Points *points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Gene Names" << std::endl;
@@ -165,10 +165,10 @@ namespace TOME
 		for (int i = 0; i < gene_names.size(); ++i)
 			dimensionNames[i] = gene_names[i].c_str();
 
-		pointsPlugin->setDimensionNames(dimensionNames);
+		points->setDimensionNames(dimensionNames);
 	}
 
-	void LoadSampleNames(H5::DataSet &dataset, PointData *pointsPlugin)
+	void LoadSampleNames(H5::DataSet &dataset, Points *points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Sample Names" << std::endl;
@@ -181,11 +181,11 @@ namespace TOME
 		{
 			list.append(sample_names[i].c_str());
 		}
-		pointsPlugin->setProperty("Sample Names", list);
+		points->setProperty("Sample Names", list);
 		
 	}
 
-	bool LoadSampleMeta(H5::Group &group, PointData *pointsPlugin)
+	bool LoadSampleMeta(H5::Group &group, Points *points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl;
@@ -266,8 +266,8 @@ namespace TOME
 
 							std::string color_label = label + "_color";
 							
-							pointsPlugin->setProperty(label.c_str(), newMetaDataValues);
-							pointsPlugin->setProperty(color_label.c_str(), newMetaDataColors);
+							points->setProperty(label.c_str(), newMetaDataValues);
+							points->setProperty(color_label.c_str(), newMetaDataColors);
 						}
 					}
 				}
@@ -287,14 +287,14 @@ HDF5_TOME_Loader::HDF5_TOME_Loader(hdps::CoreInterface *core)
 	_core = core;
 }
 
-PointData *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, bool normalize) 
+Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, bool normalize)
 {
 
 	
 
 	try
 	{
-		PointData *pointData = nullptr;
+		Points *points = nullptr;
 		bool ok;
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
@@ -305,14 +305,13 @@ PointData *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, 
 		}
 
 		const QString name = _core->addData("Points", dataSetName);
-		const IndexSet& set = _core->requestSet<IndexSet>(name);
-		pointData = &(set.getData<PointData>());
+		points = &_core->requestData<Points>(name);
 
-		if (pointData == nullptr)
+		if (points == nullptr)
 			return nullptr;
 
 		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(pointData));
+		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points));
 
 		H5::H5File file(fileName.toLatin1().constData(), H5F_ACC_RDONLY);
 
@@ -338,7 +337,7 @@ PointData *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, 
 				else if (objectName1 == "sample_meta")
 				{
 					H5::Group group = file.openGroup(objectName1);
-					TOME::LoadSampleMeta(group, rawData->pointsPlugin());
+					TOME::LoadSampleMeta(group, rawData->points());
 				}
 			}
 			else if (objectType1 == H5G_DATASET)
@@ -347,12 +346,12 @@ PointData *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, 
 				if (objectName1 == "gene_names")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					TOME::LoadGeneNames(dataset, rawData->pointsPlugin());
+					TOME::LoadGeneNames(dataset, rawData->points());
 				}
 				else if (objectName1 == "sample_names")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					TOME::LoadSampleNames(dataset, rawData->pointsPlugin());
+					TOME::LoadSampleNames(dataset, rawData->points());
 				}
 			}
 		}
@@ -366,7 +365,7 @@ PointData *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, 
 
 		_core->notifyDataAdded(name);
 		QGuiApplication::restoreOverrideCursor();
-		return pointData;
+		return points;
 	}
 	catch (std::exception &e)
 	{

@@ -6,7 +6,7 @@ namespace hdps
 {
 	class CoreInterface;
 }
-class PointData;
+class Points;
 
 
 class HDF5_AD_Loader 
@@ -19,6 +19,6 @@ class HDF5_AD_Loader
 public:
 	HDF5_AD_Loader(hdps::CoreInterface *core);
 
-	PointData* open(const QString &filename);
+	Points* open(const QString &filename);
 
 };

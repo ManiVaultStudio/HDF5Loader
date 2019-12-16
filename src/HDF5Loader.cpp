@@ -148,7 +148,7 @@ void HDF5Loader::loadData()
 		else 
 			return;
 
-		PointData *result = nullptr;
+		Points *result = nullptr;
 		QString selectedNameFilter = _openFileDialog->selectedNameFilter();
 		
 		if (selectedNameFilter == "TOME (*.tome)")

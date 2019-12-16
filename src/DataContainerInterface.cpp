@@ -15,8 +15,8 @@
 
 
 
-DataContainerInterface::DataContainerInterface(PointData *pointsPlugin)
-	:m_data(pointsPlugin)
+DataContainerInterface::DataContainerInterface(Points *points)
+	:m_data(points)
 {
 	
 }
@@ -179,7 +179,7 @@ void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool 
 	}
 }
 
-PointData * DataContainerInterface::pointsPlugin()
+Points * DataContainerInterface::points()
 {
 	return m_data;
 }
