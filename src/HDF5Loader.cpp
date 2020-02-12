@@ -11,12 +11,38 @@
 #include <QLabel>
 #include <QCheckBox>
 #include <QStringList>
+#include <QSettings>
 #include "PointData.h"
 
 Q_PLUGIN_METADATA(IID "nl.lumc.HDF5Loader")
 
 // =============================================================================
 // Loader
+
+namespace
+{
+	// Alphabetic list of keys used to access settings from QSettings.
+	namespace Keys
+	{
+		const QLatin1String conversionIndexKey("conversionIndex");
+		const QLatin1String fileNameKey("fileName");
+		const QLatin1String normalizeKey("normalize");
+		const QLatin1String selectedNameFilterKey("selectedNameFilter");
+	}
+
+
+	// Call the specified function on the specified value, if it is valid.
+	template <typename TFunction>
+	void IfValid(const QVariant& value, const TFunction& function)
+	{
+		if (value.isValid())
+		{
+			function(value);
+		}
+	}
+
+}	// Unnamed namespace
+
 namespace local 
 {
 	
@@ -109,6 +135,7 @@ void HDF5Loader::nameFilterChanged(const QString &current)
 
 void HDF5Loader::loadData()
 {
+	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/HDF5Loader"));
 	QStringList fileTypeOptions;
 	fileTypeOptions.append("TOME (*.tome)");
 	fileTypeOptions.append("10X (*.h5)");
@@ -128,12 +155,26 @@ void HDF5Loader::loadData()
 	_normalizeLabel = new QLabel(QString("Normalize to CPM: "));
 	openFileDialogLayout->addWidget(_normalizeLabel, rowCount, 0);
 	openFileDialogLayout->addWidget(_normalizeCheck, rowCount++, 1);
-	_normalizeCheck->setChecked(false);
-	
-	
+	_normalizeCheck->setChecked([&settings]
+	{
+		const auto value = settings.value(Keys::normalizeKey);
+		return value.isValid() && value.toBool();
+	}());
 
 	_conversionCombo = local::addConversionComboBox(openFileDialogLayout);
 
+	IfValid(settings.value(Keys::conversionIndexKey), [this](const QVariant& value)
+	{
+		_conversionCombo->setCurrentIndex(value.toInt());
+	});
+	IfValid(settings.value(Keys::selectedNameFilterKey), [this](const QVariant& value)
+	{
+		_openFileDialog->selectNameFilter(value.toString());
+	});
+	IfValid(settings.value(Keys::fileNameKey), [this](const QVariant& value)
+	{
+		_openFileDialog->selectFile(value.toString());
+	});
 
 	connect(_openFileDialog, SIGNAL(filterSelected(const QString&)), this, SLOT(nameFilterChanged(const QString&)));
 	nameFilterChanged(_openFileDialog->selectedNameFilter());
@@ -150,16 +191,23 @@ void HDF5Loader::loadData()
 
 		Points *result = nullptr;
 		QString selectedNameFilter = _openFileDialog->selectedNameFilter();
-		
+		const auto conversionIndex = _conversionCombo->currentIndex();
+		const auto normalize = _normalizeCheck->isChecked();
+
+		settings.setValue(Keys::conversionIndexKey, conversionIndex);
+		settings.setValue(Keys::fileNameKey, _fileName);
+		settings.setValue(Keys::normalizeKey, normalize);
+		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
+
 		if (selectedNameFilter == "TOME (*.tome)")
 		{
 			HDF5_TOME_Loader loader(_core);
-			result = loader.open(_fileName, _conversionCombo->currentIndex(), _normalizeCheck->isChecked());
+			result = loader.open(_fileName, conversionIndex, normalize);
 		}
 		else if (selectedNameFilter == "10X (*.h5)")
 		{
 			HDF5_10X_Loader loader(_core);
-			result = loader.open(_fileName, 0, _conversionCombo->currentIndex());
+			result = loader.open(_fileName, 0, conversionIndex);
 		}
 		else if (selectedNameFilter == "H5AD (*.h5ad)")
 		{
