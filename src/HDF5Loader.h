@@ -2,7 +2,7 @@
 
 #include <LoaderPlugin.h>
 
-#include <QString>
+#include <QObject>
 
 using namespace hdps::plugin;
 
@@ -10,12 +10,6 @@ using namespace hdps::plugin;
 // View
 // =============================================================================
 
-
-class QFileDialog;
-class QComboBox;
-class QCheckBox;
-
-class QLabel;
 
 class HDF5Loader : public QObject, public LoaderPlugin
 {
@@ -27,11 +21,4 @@ public:
 
     void loadData() Q_DECL_OVERRIDE;
 
-private:
-    QString _fileName;
-	QFileDialog *_openFileDialog;
-	QComboBox *_conversionCombo;
-	QCheckBox *_normalizeCheck;
-	QLabel *_normalizeLabel;
-	
 };
