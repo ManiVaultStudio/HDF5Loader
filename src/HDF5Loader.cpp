@@ -45,8 +45,6 @@ namespace
 
 namespace local 
 {
-	
-	enum {H5TOME, H510X , H5AD};
 	QComboBox * addConversionComboBox(QGridLayout *fileDialogLayout)
 	{
 		QComboBox *conversionComboBox = new QComboBox();
@@ -82,56 +80,6 @@ void HDF5Loader::init()
 
 }
 
-
-void HDF5Loader::nameFilterChanged(int index)
-{
-	QGridLayout* openFileDialogLayout = dynamic_cast<QGridLayout*>(_openFileDialog->layout());
-	switch (index)
-	{
-		case local::H5TOME:
-		{
-
-			_normalizeCheck->setVisible(true);
-			_normalizeLabel->setVisible(true);
-			
-			break;
-		}
-		case local::H510X:
-		{
-			_normalizeCheck->setVisible(false);
-			_normalizeLabel->setVisible(false);
-			
-			break;
-		}
-		case local::H5AD:
-		{
-			_normalizeCheck->setVisible(false);
-			_normalizeLabel->setVisible(false);
-			break;
-		}
-	}
-}
-
-
-void HDF5Loader::nameFilterChanged(const QString &current)
-{
-	if (current == "TOME (*.tome)")
-	{
-		nameFilterChanged(local::H5TOME);
-		return;
-	}
-	if (current == "10X (*.h5)")
-	{
-		nameFilterChanged(local::H510X);
-		return;
-	}
-	if (current == "H5AD (*.h5ad)")
-	{
-		nameFilterChanged(local::H5AD);
-		return;
-	}
-	
-}
 
 void HDF5Loader::loadData()
 {
@@ -176,9 +124,16 @@ void HDF5Loader::loadData()
 		_openFileDialog->selectFile(value.toString());
 	});
 
-	connect(_openFileDialog, SIGNAL(filterSelected(const QString&)), this, SLOT(nameFilterChanged(const QString&)));
-	nameFilterChanged(_openFileDialog->selectedNameFilter());
+	const auto onFilterSelected = [this](const QString& nameFilter)
+	{
+		const bool isTomeSelected{ nameFilter == "TOME (*.tome)" };
 
+		_normalizeCheck->setVisible(isTomeSelected);
+		_normalizeLabel->setVisible(isTomeSelected);
+	};
+
+	QObject::connect(_openFileDialog, &QFileDialog::filterSelected, onFilterSelected);
+	onFilterSelected(_openFileDialog->selectedNameFilter());
 
 	if (_openFileDialog->exec())
 	{
