@@ -15,6 +15,8 @@ if(MSVC)
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MD")
 endif(MSVC)
 
+# Normalize the incoming install path
+file(TO_CMAKE_PATH $ENV{HDPS_INSTALL_DIR} INSTALL_DIR)
 find_package(Qt5 5.12 COMPONENTS Widgets WebEngineWidgets REQUIRED)
 
 
@@ -83,7 +85,7 @@ ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
  message(STATUS ${BINARY_DIR})
 
 include_directories (${HDF5_INCLUDE_DIRS})
-include_directories("$ENV{HDPS_INSTALL_DIR}/$<CONFIGURATION>/include/")
+include_directories("${INSTALL_DIR}/$<CONFIGURATION>/include/")
 
 set(SOURCES
     src/HDF5Loader.h
@@ -118,8 +120,8 @@ add_library(${PROJECT} SHARED ${SOURCES})
 target_compile_definitions(${PROJECT} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
 target_link_libraries(${PROJECT} Qt5::Widgets)
 target_link_libraries(${PROJECT} Qt5::WebEngineWidgets)
-target_link_libraries(${PROJECT} "$ENV{HDPS_INSTALL_DIR}/$<CONFIGURATION>/lib/HDPS_Public.lib")
-target_link_libraries(${PROJECT} "$ENV{HDPS_INSTALL_DIR}/$<CONFIGURATION>/lib/PointData.lib")
+target_link_libraries(${PROJECT} "${INSTALL_DIR}/$<CONFIGURATION>/lib/HDPS_Public.lib")
+target_link_libraries(${PROJECT} "${INSTALL_DIR}/$<CONFIGURATION>/lib/PointData.lib")
 
 target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>)
 
@@ -129,8 +131,13 @@ target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/
 
 add_dependencies(${PROJECT} hdf5)
 
+install(TARGETS ${PROJECT}
+   RUNTIME DESTINATION Plugins COMPONENT SHAREDLIB
+)
+
 add_custom_command(TARGET ${PROJECT} POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-	"$<TARGET_FILE:${PROJECT}>"
-	"$ENV{HDPS_INSTALL_DIR}/$<CONFIGURATION>/Plugins/$<TARGET_FILE_NAME:${PROJECT}>"
+	COMMAND "${CMAKE_COMMAND}"
+	--install ${CMAKE_BINARY_DIR}
+	--config $<CONFIGURATION>
+	--prefix ${INSTALL_DIR}/$<CONFIGURATION>
 )

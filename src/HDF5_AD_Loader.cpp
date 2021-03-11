@@ -224,13 +224,16 @@ Points* HDF5_AD_Loader::open(const QString &fileName)
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
 
-		if (ok && !dataSetName.isEmpty()) {
-			QString name = _core->addData("Points", dataSetName);
-			points = &_core->requestData<Points>(name);
+		if (!ok || dataSetName.isEmpty())
+		{
+			return nullptr;
 		}
+
+		QString name = _core->addData("Points", dataSetName);
+		points = &_core->requestData<Points>(name);
+
 		if (points == nullptr)
 			return nullptr;
-		
 
 		H5::H5File file(fileName.toLatin1().constData(), H5F_ACC_RDONLY);
 
@@ -277,6 +280,7 @@ Points* HDF5_AD_Loader::open(const QString &fileName)
 			}
 		}
 
+		_core->notifyDataAdded(name);
 		return points;
 	}
 	catch (std::exception &e)
@@ -287,5 +291,4 @@ Points* HDF5_AD_Loader::open(const QString &fileName)
 
 	QGuiApplication::restoreOverrideCursor();
 }
-	
 
