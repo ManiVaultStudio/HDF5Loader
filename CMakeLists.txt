@@ -117,6 +117,7 @@ source_group( Plugin FILES ${SOURCES})
 
 add_library(${PROJECT} SHARED ${SOURCES})
 
+set_property(TARGET ${PROJECT} PROPERTY CXX_STANDARD 14)
 target_compile_definitions(${PROJECT} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
 target_link_libraries(${PROJECT} Qt5::Widgets)
 target_link_libraries(${PROJECT} Qt5::WebEngineWidgets)
