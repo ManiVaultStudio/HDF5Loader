@@ -62,9 +62,9 @@ namespace local
 
 
 
-HDF5Loader::HDF5Loader()
+HDF5Loader::HDF5Loader(PluginFactory* factory)
     : QObject()
-	, LoaderPlugin("HDF5 Loader")
+	, LoaderPlugin(factory)
 {
 
 }
