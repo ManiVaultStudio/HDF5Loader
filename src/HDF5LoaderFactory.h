@@ -20,4 +20,6 @@ public:
 	~HDF5LoaderFactory(void) override {}
 
 	LoaderPlugin* produce() override;
+
+	hdps::DataTypes supportedDataTypes() const override;
 };
