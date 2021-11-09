@@ -50,6 +50,9 @@ namespace H5Utils
 		dataset.read(data.data.data(), mem_type);
 		return true;
 	}
+
+
+
 	template<typename T>
 	bool read_vector(H5::Group &group, const std::string &name, std::vector<T>*vector_ptr, const H5::DataType &mem_type)
 	{
@@ -86,9 +89,15 @@ namespace H5Utils
 		return true;
 	}
 
+	
+
 	void read_strings(H5::DataSet &dataset, std::size_t totalsize, std::vector<std::string> &result);
 
 	bool read_vector_string(H5::DataSet dataset, std::vector<std::string> &result);
+
+	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result);
+	
+
 
 	class CompoundExtractor
 	{

@@ -148,6 +148,40 @@ namespace H5Utils
 		return true;
 	}
 
+	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result)
+	{
+		//	std::cout << name << " ";
+		if (!group.exists(name))
+			return false;
+		H5::DataSet dataset = group.openDataSet(name);
+
+		H5::DataSpace dataspace = dataset.getSpace();
+		/*
+		* Get the number of dimensions in the dataspace.
+		*/
+		const int dimensions = dataspace.getSimpleExtentNdims();
+		std::size_t totalSize = 1;
+		if (dimensions > 0)
+		{
+			//		std::cout << "rank " << dimensions << ", dimensions ";
+			std::vector<hsize_t> dimensionSize(dimensions);
+			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
+			for (std::size_t d = 0; d < dimensions; ++d)
+			{
+				//			std::cout << (unsigned long)dimensionSize[d] << " ";
+				totalSize *= dimensionSize[d];
+			}
+			//		std::cout << std::endl;
+		}
+		if (dimensions != 1)
+		{
+			return false;
+		}
+		read_strings(dataset, totalSize, result);
+		dataset.close();
+		return true;
+	}
+
 	bool read_compound_buffer(const H5::DataSet &dataset, std::vector<std::vector<char>> &result)
 	{
 		H5::DataSpace dataspace = dataset.getSpace();
