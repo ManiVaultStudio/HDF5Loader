@@ -286,6 +286,9 @@ shape	uint64	Tuple of (n_rows, n_columns)
 									cluster.setIndices(indice.second);
 									clustersDataset.addCluster(cluster);
 								}
+
+								// Notify others that the clusters have changed
+								_core->notifyDataChanged(metaDataLabel.c_str());
 							}
 
 						} // if(ok)
