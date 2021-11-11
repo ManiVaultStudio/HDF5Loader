@@ -288,7 +288,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 								}
 
 								// Notify others that the clusters have changed
-								_core->notifyDataChanged(metaDataLabel.c_str());
+								_core->notifyDataChanged(clustersDatasetRef.getDatasetName());
 							}
 
 						} // if(ok)
