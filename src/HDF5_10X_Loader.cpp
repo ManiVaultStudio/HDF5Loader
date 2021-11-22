@@ -16,7 +16,8 @@
 
 #include "Cluster.h"
 #include "ClusterData.h"
-#include "util/DatasetRef.h"
+#include "DataHierarchyItem.h"
+#include "util/Miscellaneous.h"
 
 using namespace hdps;
 
@@ -66,7 +67,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 	int loadFromFile(std::string _fileName, std::shared_ptr<DataContainerInterface> &rawData, int optimization, int conversionOption, hdps::CoreInterface* _core)
 	{
-
+	
 		try
 		{
 			H5::H5File file(_fileName, H5F_ACC_RDONLY);
@@ -131,6 +132,14 @@ shape	uint64	Tuple of (n_rows, n_columns)
 						result = false;
 					else
 					{
+						auto& dataHierarchyItem = rawData->points()->getDataHierarchyItem();
+
+						dataHierarchyItem.setTaskRunning();
+						dataHierarchyItem.setTaskName("Loading points");
+						dataHierarchyItem.setTaskDescription(QString("Loading %1 points").arg(util::getIntegerCountHumanReadable(data16.size())));
+
+						QCoreApplication::processEvents();
+
 						data.resize(data16.size());
 						#pragma omp parallel for
 						for(std::int64_t i=0; i < data16.size(); ++i)
@@ -139,7 +148,16 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							fr.iraw[1] = data16[i];
 							fr.iraw[0] = 0;
 							data[i] = fr.fraw;
+
+							if (i % 50000 == 0) {
+								dataHierarchyItem.setTaskProgress(static_cast<float>(i) / static_cast<float>(data16.size()));
+
+								QCoreApplication::processEvents();
+							}
+								
 						}
+
+						dataHierarchyItem.setTaskFinished();
 					}
 				}
 				else
@@ -155,7 +173,8 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				std::size_t columns = genes.size();
 				rawData->resize(rows, columns);
 				rawData->set_sparse_row_data(indices, indptr, data, conversionOption);
-				Points *points = rawData->points();
+				
+				auto points = Dataset<Points>(rawData->points());
 				
 				std::vector<QString> dimensionNames(genes.size());
 				#pragma omp parallel for
@@ -172,10 +191,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				}
 				points->setProperty("Sample Names", sample_names);
 
-
-				auto pointsDatasetName = points->getName();
-
-				
+				points->getDataHierarchyItem().setTaskDescription("");
 
 				if (result & group.exists("meta"))
 				{
@@ -209,6 +225,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 							for (std::size_t l = 0; l < items.size(); ++l)
 							{
+
 								std::string item = items[l];
 								if (currentMetaDataIsNumerical)
 								{
@@ -271,24 +288,29 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							}
 							else // it was categorical data
 							{
-								QString uniqueClustersName = _core->addData("Cluster", metaDataLabel.c_str(), pointsDatasetName);
-								util::DatasetRef<Clusters> clustersDatasetRef;
-								clustersDatasetRef.setDatasetName(uniqueClustersName);
-								_core->notifyDataAdded(metaDataLabel.c_str());
-								auto& clustersDataset = *clustersDatasetRef;
+								auto clusters = _core->addDataset<Clusters>("Cluster", metaDataLabel.c_str(), points);
 
-								clustersDataset.getClusters().reserve(indices.size());
+								// Notify others that the dataset was added
+								_core->notifyDataAdded(*clusters);
+
+								QCoreApplication::processEvents();
+
+								clusters->getClusters().reserve(indices.size());
+
 								for (auto& indice : indices)
 								{
 									Cluster cluster;
 									cluster.setName(indice.first.c_str());
 									cluster.setColor(qcolors[indice.first]);
 									cluster.setIndices(indice.second);
-									clustersDataset.addCluster(cluster);
+									
+									clusters->addCluster(cluster);
 								}
 
 								// Notify others that the clusters have changed
-								_core->notifyDataChanged(clustersDatasetRef.getDatasetName());
+								_core->notifyDataChanged(*clusters);
+
+								QCoreApplication::processEvents();
 							}
 
 						} // if(ok)
@@ -296,13 +318,26 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 					if (nrOfNumericalMetaData)
 					{
+						auto numericalDataset = _core->createDerivedData<Points>("Numerical Metadata", points);
+
+						_core->notifyDataAdded(numericalDataset);
+
+						numericalDataset->getDataHierarchyItem().setTaskName("Loading points");
+						numericalDataset->getDataHierarchyItem().setTaskDescription("Transposing");
+						numericalDataset->getDataHierarchyItem().setTaskRunning();
+
+						QCoreApplication::processEvents();
+
 						transposeInPlace(numericalMetaData, numericalMetaData.size() / nrOfNumericalMetaData, nrOfNumericalMetaData);
-						util::DatasetRef<Points> numericalDatasetRef(_core->createDerivedData("Numerical Metadata", pointsDatasetName));
-						_core->notifyDataAdded(numericalDatasetRef.getDatasetName());
-						auto& numericalMetadataDataset = *numericalDatasetRef;
-						numericalMetadataDataset.setData(numericalMetaData, nrOfNumericalMetaData);
-						numericalMetadataDataset.setDimensionNames(numericalMetaDataDimensionNames);
 						
+						numericalDataset->getDataHierarchyItem().setTaskFinished();
+
+						QCoreApplication::processEvents();
+
+						numericalDataset->setData(numericalMetaData, nrOfNumericalMetaData);
+						numericalDataset->setDimensionNames(numericalMetaDataDimensionNames);
+						
+						_core->notifyDataChanged(numericalDataset);
 					}
 				}
 
@@ -329,33 +364,36 @@ HDF5_10X_Loader::HDF5_10X_Loader(hdps::CoreInterface *core)
 	_core = core;
 }
 
-Points * HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, int speedIndex)
+Dataset<Points> HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, int speedIndex)
 {
-	Points *points = nullptr;
 	try
 	{
+		QFileInfo fileInfo(fileName);
+
 		bool ok;
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
-			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
+			"Dataset name:", QLineEdit::Normal, fileInfo.baseName(), &ok);
 
 		if (!ok || dataSetName.isEmpty())
 		{
 			return nullptr;
 		}
 		
-		const QString name = _core->addData("Points", dataSetName);
-		points = &_core->requestData<Points>(name);
+		// Add main points dataset
+		auto points = _core->addDataset<Points>("Points", dataSetName);
 
-		if (points == nullptr)
-			return nullptr;
+		// Notify other that the dataset was added
+		_core->notifyDataAdded(points);
 
-		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+		QCoreApplication::processEvents();
+
 		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points));
 
-		HDF5_10X::loadFromFile(fileName.toStdString(), rawData, speedIndex, conversionIndex,_core);
+		HDF5_10X::loadFromFile(fileName.toStdString(), rawData, speedIndex, conversionIndex, _core);
 
+		_core->notifyDataChanged(points);
 
-		_core->notifyDataAdded(name);
+		return points;
 	}
 	catch (std::exception &e)
 	{
@@ -363,8 +401,7 @@ Points * HDF5_10X_Loader::open(const QString &fileName, int conversionIndex, int
 		return nullptr;
 	}
 
-	QGuiApplication::restoreOverrideCursor();
-	return points;
+	return nullptr;
 }
 	
 

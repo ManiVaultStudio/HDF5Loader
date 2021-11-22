@@ -219,7 +219,6 @@ Points* HDF5_AD_Loader::open(const QString &fileName)
 
 	try
 	{
-		Points *points = nullptr;
 		bool ok;
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
@@ -229,10 +228,9 @@ Points* HDF5_AD_Loader::open(const QString &fileName)
 			return nullptr;
 		}
 
-		QString name = _core->addData("Points", dataSetName);
-		points = &_core->requestData<Points>(name);
+		auto points = _core->addDataset<Points>("Points", dataSetName);
 
-		if (points == nullptr)
+		if (!points.isValid())
 			return nullptr;
 
 		H5::H5File file(fileName.toLatin1().constData(), H5F_ACC_RDONLY);
@@ -250,17 +248,17 @@ Points* HDF5_AD_Loader::open(const QString &fileName)
 				if (objectName1 == "X")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadData(dataset, points, 0, false);
+					H5AD::LoadData(dataset, points.get(), 0, false);
 				}
 				else if (objectName1 == "var")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadGeneNames(dataset, points);
+					H5AD::LoadGeneNames(dataset, points.get());
 				}
 				else if (objectName1 == "obs")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadSampleNamesAndMetaData(dataset, points);
+					H5AD::LoadSampleNamesAndMetaData(dataset, points.get());
 				}
 			}
 		}
@@ -275,13 +273,14 @@ Points* HDF5_AD_Loader::open(const QString &fileName)
 				if (objectName1 == "obsm")
 				{
 					H5::DataSet dataset = file.openDataSet(objectName1);
-					H5AD::LoadSampleNamesAndMetaData(dataset, points);
+					H5AD::LoadSampleNamesAndMetaData(dataset, points.get());
 				}
 			}
 		}
 
-		_core->notifyDataAdded(name);
-		return points;
+		_core->notifyDataAdded(*points);
+
+		return points.get();
 	}
 	catch (std::exception &e)
 	{

@@ -1,5 +1,7 @@
 #include "HDF5_TOME_Loader.h"
 
+//#include "util/Dataset.h"
+
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QFileDialog>
@@ -152,7 +154,7 @@ namespace TOME
 			rawData->applyTransform(transformType, normalize_and_cpm);
 	}
 
-	void LoadGeneNames(H5::DataSet &dataset, Points *points)
+	void LoadGeneNames(H5::DataSet &dataset, Dataset<Points> points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Gene Names" << std::endl;
@@ -168,7 +170,7 @@ namespace TOME
 		points->setDimensionNames(dimensionNames);
 	}
 
-	void LoadSampleNames(H5::DataSet &dataset, Points *points)
+	void LoadSampleNames(H5::DataSet &dataset, Dataset<Points> points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Sample Names" << std::endl;
@@ -185,7 +187,7 @@ namespace TOME
 		
 	}
 
-	bool LoadSampleMeta(H5::Group &group, Points *points)
+	bool LoadSampleMeta(H5::Group &group, Dataset<Points> points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl;
@@ -289,12 +291,8 @@ HDF5_TOME_Loader::HDF5_TOME_Loader(hdps::CoreInterface *core)
 
 Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, bool normalize)
 {
-
-	
-
 	try
 	{
-		Points *points = nullptr;
 		bool ok;
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
@@ -304,14 +302,13 @@ Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, boo
 			return nullptr;
 		}
 
-		const QString name = _core->addData("Points", dataSetName);
-		points = &_core->requestData<Points>(name);
+		auto points = _core->addDataset<Points>("Points", dataSetName);
 
-		if (points == nullptr)
+		if (!points.isValid())
 			return nullptr;
 
 		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points));
+		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points.get<Points>()));
 
 		H5::H5File file(fileName.toLatin1().constData(), H5F_ACC_RDONLY);
 
@@ -363,9 +360,11 @@ Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, boo
 // 		}
 
 
-		_core->notifyDataAdded(name);
+		_core->notifyDataAdded(points);
+
 		QGuiApplication::restoreOverrideCursor();
-		return points;
+
+		return points.get();
 	}
 	catch (std::exception &e)
 	{
@@ -374,6 +373,8 @@ Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, boo
 	}
 
 	QGuiApplication::restoreOverrideCursor();
+
+	return nullptr;
 }
 	
 
