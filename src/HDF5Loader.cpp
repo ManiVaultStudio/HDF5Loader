@@ -20,6 +20,8 @@ Q_PLUGIN_METADATA(IID "nl.lumc.HDF5Loader")
 // =============================================================================
 // Loader
 
+using namespace hdps;
+
 namespace
 {
 	// Alphabetic list of keys used to access settings from QSettings.
@@ -144,7 +146,8 @@ void HDF5Loader::loadData()
 		}
 		const QString fileName = fileNames.constFirst();
 
-		Points *result = nullptr;
+		Dataset<Points> result;
+
 		QString selectedNameFilter = openFileDialog.selectedNameFilter();
 		const auto conversionIndex = conversionCombo->currentIndex();
 		const auto normalize = normalizeCheck.isChecked();

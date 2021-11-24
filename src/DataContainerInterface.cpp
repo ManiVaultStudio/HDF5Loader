@@ -14,10 +14,10 @@
 #include <QString>
 #include <stdexcept> // For std::out_of_range.
 
+using namespace hdps;
 
-
-DataContainerInterface::DataContainerInterface(Points *points)
-	:m_data(points)
+DataContainerInterface::DataContainerInterface(Dataset<Points> points) :
+	m_data(points)
 {
 	
 }
@@ -192,7 +192,7 @@ void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool 
 		});
 }
 
-Points * DataContainerInterface::points()
+hdps::Dataset<Points> DataContainerInterface::points()
 {
 	return m_data;
 }

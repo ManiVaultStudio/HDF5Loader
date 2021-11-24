@@ -134,11 +134,9 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					{
 						auto& dataHierarchyItem = rawData->points()->getDataHierarchyItem();
 
-						dataHierarchyItem.setTaskRunning();
 						dataHierarchyItem.setTaskName("Loading points");
 						dataHierarchyItem.setTaskDescription(QString("Loading %1 points").arg(util::getIntegerCountHumanReadable(data16.size())));
-
-						QCoreApplication::processEvents();
+						dataHierarchyItem.setTaskRunning();
 
 						data.resize(data16.size());
 						#pragma omp parallel for
@@ -149,7 +147,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							fr.iraw[0] = 0;
 							data[i] = fr.fraw;
 
-							if (i % 50000 == 0) {
+							if (i % 100000 == 0) {
 								dataHierarchyItem.setTaskProgress(static_cast<float>(i) / static_cast<float>(data16.size()));
 
 								QCoreApplication::processEvents();
@@ -384,8 +382,6 @@ Dataset<Points> HDF5_10X_Loader::open(const QString &fileName, int conversionInd
 
 		// Notify other that the dataset was added
 		_core->notifyDataAdded(points);
-
-		QCoreApplication::processEvents();
 
 		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points));
 
