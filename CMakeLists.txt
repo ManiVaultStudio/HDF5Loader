@@ -88,19 +88,21 @@ include_directories (${HDF5_INCLUDE_DIRS})
 include_directories("${INSTALL_DIR}/$<CONFIGURATION>/include/")
 
 set(SOURCES
-    src/HDF5Loader.h
-    src/HDF5Loader.cpp
+	src/HDF5Loader.h
+	src/HDF5Loader.cpp
 	src/HDF5LoaderFactory.h
 	src/HDF5LoaderFactory.cpp
-    src/HDF5Loader.json
+	src/HDF5Loader.json
 
 	src/DataContainerInterface.h
 	src/DataContainerInterface.cpp
 	src/H5Utils.h
 	src/H5Utils.cpp
+	src/DataTransform.h
+	src/DataTransform.cpp
 
 	src/HDF5_TOME_Loader.h
-    src/HDF5_TOME_Loader.cpp
+	src/HDF5_TOME_Loader.cpp
 
 	src/HDF5_10X_Loader.h
 	src/HDF5_10X_Loader.cpp

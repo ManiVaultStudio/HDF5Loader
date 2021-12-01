@@ -1,5 +1,6 @@
 #pragma  once
 #include <QString>
+#include "DataTransform.h"
 namespace hdps
 {
 	class CoreInterface;
@@ -14,6 +15,6 @@ class HDF5_TOME_Loader
 public:
 	HDF5_TOME_Loader(hdps::CoreInterface *core);
 
-	Points *open(const QString &fileName, int conversionIndex, bool normalize);
+	bool open(const QString &fileName, TRANSFORM::Type conversionIndex, bool normalize);
 
 };
