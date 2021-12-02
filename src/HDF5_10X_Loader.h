@@ -1,4 +1,7 @@
 #pragma  once
+
+#include "Dataset.h"
+
 #include <QString>
 #include "DataTransform.h"
 #include <memory>

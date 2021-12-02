@@ -23,6 +23,8 @@ Q_PLUGIN_METADATA(IID "nl.lumc.HDF5Loader")
 // =============================================================================
 // Loader
 
+using namespace hdps;
+
 namespace
 {
 	// Alphabetic list of keys used to access settings from QSettings.

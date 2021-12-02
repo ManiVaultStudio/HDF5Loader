@@ -2,6 +2,8 @@
 
 #include "PointData.h"
 #include "DataTransform.h"
+#include "Dataset.h"
+
 typedef std::uint64_t DataPointID;
 typedef std::uint64_t MarkerID;
 typedef float DataValue;
@@ -21,7 +23,7 @@ public:
 
 private:
 	
-	Points &m_data;
+	hdps::Dataset<Points>		m_data;
 	
 public:
 	void applyTransform(TRANSFORM::Type transformType, bool normalized_and_cpm);
@@ -29,10 +31,10 @@ public:
 	void addDataValue(RowID row, ColumnID column, float value, TRANSFORM::Type transformType);
 	void increaseDataValue(RowID row, ColumnID column, float value, TRANSFORM::Type transformType);
 	
-	explicit DataContainerInterface(Points &);
+	explicit DataContainerInterface(hdps::Dataset<Points> points);
 	~DataContainerInterface() = default;
 
-	Points &points();
+	hdps::Dataset<Points> points();
 
 // 	const DataValue get(RowID row, ColumnID column) const;
  	void set(RowID row, ColumnID column, const ValueType & value);

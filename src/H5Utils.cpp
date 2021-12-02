@@ -5,7 +5,9 @@
 #include <QMainWindow>
 #include "Cluster.h"
 #include "ClusterData.h"
-#include "util/DatasetRef.h"
+#include "PointData.h"
+#include "DataHierarchyItem.h"
+
 namespace H5Utils
 {
 	namespace local
@@ -26,11 +28,11 @@ namespace H5Utils
 
 		bool ExtractQVariantValues(const std::vector< std::vector<char> > &raw_buffer, H5::CompType compType, const std::string &name, std::vector<QVariant> &result)
 		{
-			long long nrOfItems = raw_buffer.size();
+			auto nrOfItems = raw_buffer.size();
 			if (result.size() < nrOfItems)
 				result.resize(nrOfItems);
 			bool ok = true;
-			for (long long i = 0; i < nrOfItems; ++i)
+			for (std::size_t i = 0; i < nrOfItems; ++i)
 			{
 				CompoundExtractor ce(raw_buffer[i], compType);
 				result[i] = ce.extractVariant(name);
@@ -106,6 +108,27 @@ namespace H5Utils
 			return false;
 		}
 
+		void CreateColorVector(std::size_t nrOfColors, std::vector<QColor>& colors)
+		{
+
+			if (nrOfColors)
+			{
+				colors.resize(nrOfColors);
+				std::size_t index = 0;
+				for (std::size_t i = 0; i < nrOfColors; ++i)
+				{
+					const float h = std::min<float>((1.0 * i / (nrOfColors + 1)), 1.0f);
+					if (h > 1 || h < 0)
+					{
+						int bp = 0;
+						bp++;
+					}
+					colors[i] = QColor::fromHsvF(h, 0.5f, 1.0f);
+				}
+			}
+			else
+				colors.clear();
+		}
 
 	}
 	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<std::string>& result)
@@ -168,6 +191,41 @@ namespace H5Utils
 		dataset.close();
 		return true;
 	}
+
+	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<QString>& result)
+	{
+		//	std::cout << name << " ";
+		if (!group.exists(name))
+			return false;
+		H5::DataSet dataset = group.openDataSet(name);
+
+		H5::DataSpace dataspace = dataset.getSpace();
+		/*
+		* Get the number of dimensions in the dataspace.
+		*/
+		const int dimensions = dataspace.getSimpleExtentNdims();
+		std::size_t totalSize = 1;
+		if (dimensions > 0)
+		{
+			//		std::cout << "rank " << dimensions << ", dimensions ";
+			std::vector<hsize_t> dimensionSize(dimensions);
+			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
+			for (std::size_t d = 0; d < dimensions; ++d)
+			{
+				//			std::cout << (unsigned long)dimensionSize[d] << " ";
+				totalSize *= dimensionSize[d];
+			}
+			//		std::cout << std::endl;
+		}
+		if (dimensions != 1)
+		{
+			return false;
+		}
+		H5Utils::read_strings(dataset, totalSize, result);
+		dataset.close();
+		return true;
+	}
+
 	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<QString>& result)
 	{
 		try
@@ -809,6 +867,11 @@ namespace H5Utils
 		return *end == '\0';
 	}
 
+	bool is_number(const QString& s)
+	{
+		return is_number(s.toStdString());
+	}
+
 	inline const std::string QColor_to_stdString(const QColor& color)
 	{
 		return color.name().toUpper().toStdString();
@@ -823,7 +886,7 @@ namespace H5Utils
 		return nullptr;
 	}
 
-	QString createPointsDataset(hdps::CoreInterface* core, bool ask, QString suggestion)
+	Dataset<Points> createPointsDataset(hdps::CoreInterface* core, bool ask, QString suggestion)
 	{
 		QString dataSetName = suggestion;
 		
@@ -840,10 +903,118 @@ namespace H5Utils
 				throw std::out_of_range("Dataset name out of range");
 			}
 		}
+
 		
-		auto uniqueDatasetName = core->addData("Points", dataSetName);
-		core->notifyDataAdded(uniqueDatasetName);
-		return uniqueDatasetName;
+		hdps::Dataset<Points> newDataset = core->addDataset("Points", dataSetName);
+		core->notifyDataAdded(newDataset);
+		QCoreApplication::processEvents();
+		return newDataset;
 	}
-	
+
+
+	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points>& parent, QString name)
+	{
+		const std::size_t numberOfDimensions = numericalDimensionNames.size();
+		if (numberOfDimensions)
+		{
+
+
+
+
+
+			std::size_t nrOfSamples = numericalData.size() / numberOfDimensions;
+
+
+			QString numericalDatasetName = "Numerical MetaData";
+			if (!name.isEmpty())
+			{
+				// if numericalMetaDataDimensionNames start with name, remove it
+				for (auto& dimName : numericalDimensionNames)
+				{
+					if (dimName.indexOf(name) == 0)
+					{
+						dimName.remove(0, name.length());
+					}
+					// remove forward slash from dimName if it has one
+					if (dimName[0] == '/')
+						dimName.remove(0, 1);
+				}
+				// remove forward slash from name if it has one
+				if (name[0] == '/')
+					name.remove(0, 1);
+				numericalDatasetName = name + " (numerical)";
+			}
+
+			Dataset<Points> numericalMetadataDataset = core->addDataset("Points", numericalDatasetName, parent);
+			core->notifyDataAdded(numericalMetadataDataset);
+			QCoreApplication::processEvents();
+			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
+			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
+			numericalMetadataDataset->getDataHierarchyItem().setTaskRunning();
+
+			if (transpose)
+			{
+				auto& dataHierarchyItem = numericalMetadataDataset->getDataHierarchyItem();
+				dataHierarchyItem.setTaskDescription("Processing...");
+				dataHierarchyItem.setTaskRunning();
+				H5Utils::transpose(numericalData.begin(), numericalData.end(), nrOfSamples);
+				dataHierarchyItem.setTaskFinished();
+			}
+
+			numericalMetadataDataset->setDataElementType<float>();
+			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
+
+			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
+
+			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
+
+			core->notifyDataChanged(numericalMetadataDataset);
+			QCoreApplication::processEvents();
+		}
+	}
+
+	void addClusterMetaData(hdps::CoreInterface *core, std::map<QString, std::vector<unsigned int>> &indices, QString name, hdps::Dataset<Points>& parent, std::map<QString, QColor> colors)
+	{
+		if (indices.size() <= 1)
+			return; // no point in adding only a single cluster
+		if (name[0] == '/')
+			name.remove(0, 1);
+		if (colors.empty())
+		{
+			std::vector<QColor> qcolors;
+			local::CreateColorVector(indices.size(), qcolors);
+			std::size_t index = 0;
+			for (const auto& indice : indices)
+			{
+				colors[indice.first] = qcolors[index];
+				++index;
+			}
+		}
+		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", name, parent);
+
+		core->notifyDataAdded(clusterDataset);
+		QCoreApplication::processEvents();
+		clusterDataset->getClusters().reserve(indices.size());
+		
+		for (const auto& indice : indices)
+		{
+			Cluster cluster;
+			if (indice.first.isEmpty())
+				cluster.setName(QString(" "));
+			else
+				cluster.setName(indice.first);
+			cluster.setColor(colors[indice.first]);
+
+			cluster.setIndices(indice.second);
+			clusterDataset->addCluster(cluster);
+		}
+
+		// Notify others that the clusters have changed
+		core->notifyDataChanged(clusterDataset);
+		QCoreApplication::processEvents();
+		
+	}
+
+		
+
 }

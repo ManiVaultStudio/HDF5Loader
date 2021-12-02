@@ -16,7 +16,7 @@
 
 #include "Cluster.h"
 #include "ClusterData.h"
-#include "util/DatasetRef.h"
+
 #include <set>
 
 using namespace hdps;
@@ -67,78 +67,10 @@ namespace H5AD
 	}
 
 
-	void addClusters(const std::map<std::string, std::vector<unsigned>> &indices, QString name, QString mainDatasetName, CoreInterface *core)
-	{
-		if(indices.size() <= 1)
-			return; // no point in adding only a single cluster
-		if (name[0] == '/')
-			name.remove(0, 1);
-		std::vector<QColor> qcolors;
-		CreateColorVector(indices.size(),qcolors);
-
-		util::DatasetRef<Clusters> clustersDatasetRef(core->addData("Cluster", name, mainDatasetName));
-		
-		core->notifyDataAdded(clustersDatasetRef.getDatasetName());
-		auto& clustersDataset = *clustersDatasetRef;
-		clustersDataset.getClusters().reserve(indices.size());
-
-		int index = 0;
-		for (auto& indice : indices)
-		{
-			Cluster cluster;
-			if (indice.first.empty())
-				cluster.setName(QString(" "));
-			else
-				cluster.setName(indice.first.c_str());
-			cluster.setColor(qcolors[index]);
-
-			cluster.setIndices(indice.second);
-			clustersDataset.addCluster(cluster);
-			++index;
-		}
-		
-		// Notify others that the clusters have changed
-		core->notifyDataChanged(clustersDatasetRef.getDatasetName());
-	}
+	
 	  
-	template<typename T>
-	void addNumericalMetaData(std::vector<T> &numericalMetaData, std::vector<QString> numericalMetaDataDimensionNames, QString name, QString mainDatasetName, CoreInterface *core, bool transpose)
-	{
-		std::size_t nrOfDimensions = numericalMetaDataDimensionNames.size();
-		if (nrOfDimensions)
-		{
-			std::size_t nrOfSamples = numericalMetaData.size() / nrOfDimensions;
-			if(transpose)
-				H5Utils::transpose(numericalMetaData.begin(), numericalMetaData.end(),nrOfSamples);
-
-			// if numericalMetaDataDimensionNames start with name, remove it
-			for (auto &dimName : numericalMetaDataDimensionNames)
-			{
-				if (dimName.indexOf(name) == 0)
-				{
-					dimName.remove(0, name.length());
-				}
-				// remove forward slash from dimName if it has one
-				if (dimName[0] == '/')
-					dimName.remove(0, 1);
-			}
-			// remove forward slash from name if it has one
-			if (name[0] == '/')
-				name.remove(0, 1);
-			QString numericalDatasetName = name + " (numerical)";
-			QString uniqueNumericalMetaDatasetName = core->addData("Points", numericalDatasetName, mainDatasetName);
-			util::DatasetRef<Points> numericalDatasetRef(uniqueNumericalMetaDatasetName);
-			core->notifyDataAdded(numericalDatasetRef.getDatasetName());
-			Points& numericalMetadataDataset = *numericalDatasetRef;
-			numericalMetadataDataset.setDataElementType<T>();
-			numericalMetadataDataset.setData(std::move(numericalMetaData), nrOfDimensions);
-			
-			numericalMetadataDataset.setDimensionNames(numericalMetaDataDimensionNames);
-
-			core->notifyDataChanged(numericalDatasetRef.getDatasetName());
-		}
-	}
-	void LoadData(const H5::DataSet &dataset, Points &points)
+	
+	void LoadData(const H5::DataSet &dataset, Dataset<Points> &pointsDataset)
 	{
 		H5Utils::MultiDimensionalData<float> mdd;
 
@@ -146,12 +78,12 @@ namespace H5AD
 		{
 			if (mdd.size.size() == 2)
 			{
-				points.setData(std::move(mdd.data), mdd.size[1]);
+				pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
 			}
 		}
 	}
 
-	void LoadData(H5::Group& group, Points& points)
+	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset)
 	{
 		bool result = true;
 		std::vector<float> data;
@@ -165,7 +97,7 @@ namespace H5AD
 
 		if (result)
 		{
-			DataContainerInterface dci(points);
+			DataContainerInterface dci(pointsDataset);
 			std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
 			std::uint64_t ysize = *std::max_element(indices.cbegin(), indices.cend()) + 1;
 			dci.resize(xsize, ysize);
@@ -213,11 +145,8 @@ namespace H5AD
 		}
 	}
 
-	void LoadSampleNamesAndMetaData(H5::DataSet &dataset, Points &points, hdps::CoreInterface* _core)
+	void LoadSampleNamesAndMetaData(H5::DataSet &dataset, Dataset<Points> &pointsDataset, hdps::CoreInterface* _core)
 	{
-		
-
-		auto pointsDatasetName = points.getName();
 
 		std::string h5datasetName = dataset.getObjName();
 		if (h5datasetName[0] == '/')
@@ -235,19 +164,19 @@ namespace H5AD
 			for (auto component = compoundMap.cbegin(); component != compoundMap.cend(); ++component)
 			{
 				const std::size_t nrOfSamples = component->second.size();
-				if(nrOfSamples == points.getNumPoints())
+				if(nrOfSamples == pointsDataset->getNumPoints())
 				{
 					if (component->first != "index")
 					{
-						std::map<std::string, std::vector<unsigned>> indices;
+						std::map<QString, std::vector<unsigned>> indices;
 
 
 						bool currentMetaDataIsNumerical = true; // we start assuming it's a numerical value
 						std::vector<numericMetaDataType> values;
-						values.reserve(points.getNumPoints());
+						values.reserve(pointsDataset->getNumPoints());
 						for (std::size_t s = 0; s < nrOfSamples; ++s)
 						{
-							std::string item = component->second[s].toString().toStdString();
+							QString item = component->second[s].toString();
 							if (currentMetaDataIsNumerical)
 							{
 								if (H5Utils::is_number(item))
@@ -261,7 +190,7 @@ namespace H5AD
 									// add former labels as caterogical as well.
 									for (std::size_t i = 0; i <= s; ++i)
 									{
-										std::string value = component->second[i].toString().toStdString();
+										QString value = component->second[i].toString();
 										indices[value].push_back(i);
 									}
 								}
@@ -278,7 +207,7 @@ namespace H5AD
 						}
 						else
 						{
-							addClusters(indices, component->first.c_str(), pointsDatasetName, _core);
+							H5Utils::addClusterMetaData(_core, indices, component->first.c_str(), pointsDataset);
 						}
 
 					}
@@ -286,17 +215,14 @@ namespace H5AD
 				
 			}
 
-			if(numericalMetaDataDimensionNames.size())
-			{
-				addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, h5datasetName.c_str(), pointsDatasetName, _core, true);
-			}
+			H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset, h5datasetName.c_str());
 		}
 	}
 
 	
 
 
-	void LoadSampleNamesAndMetaData(H5::Group &group,  Points & points, CoreInterface *_core)
+	void LoadSampleNamesAndMetaData(H5::Group &group,  Dataset<Points> & pointsDataset, CoreInterface *_core)
 	{
 
 		auto nrOfObjects = group.getNumObjs();
@@ -305,7 +231,7 @@ namespace H5AD
 		std::vector<float> numericalMetaData;
 		std::size_t nrOfNumericalMetaData = 0;
 		std::vector<QString> numericalMetaDataDimensionNames;
-		std:size_t nrOfRows = points.getNumPoints();
+		std:size_t nrOfRows = pointsDataset->getNumPoints();
 
 		auto h5groupName = group.getObjName();
 		// first do the basics
@@ -326,7 +252,7 @@ namespace H5AD
 					{
 						std::vector<float> values;
 						H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_FLOAT);
-						if (values.size() == points.getNumPoints())
+						if (values.size() == pointsDataset->getNumPoints())
 						{
 							numericalMetaData.insert(numericalMetaData.end(), values.cbegin(), values.cend());
 							numericalMetaDataDimensionNames.push_back(dataSet.getObjName().c_str());
@@ -335,16 +261,16 @@ namespace H5AD
 					else // try to read as strings for now
 					{
 
-						std::map<std::string, std::vector<unsigned>> indices;
-						std::vector<std::string> items;
+						std::map<QString, std::vector<unsigned>> indices;
+						std::vector<QString> items;
 						H5Utils::read_vector_string(dataSet, items);
-						if (items.size() == points.getNumPoints())
+						if (items.size() == pointsDataset->getNumPoints())
 						{
 							for (unsigned i = 0; i < items.size(); ++i)
 							{
 								indices[items[i]].push_back(i);
 							}
-							addClusters(indices, dataSet.getObjName().c_str(), points.getName(), _core);
+							H5Utils::addClusterMetaData(_core,indices, dataSet.getObjName().c_str(), pointsDataset);
 						}
 					}
 
@@ -353,12 +279,12 @@ namespace H5AD
 			else if (objectType1 == H5G_GROUP)
 			{
 				H5::Group group2 = group.openGroup(objectName1);
-				LoadSampleNamesAndMetaData(group2, points,_core);
+				LoadSampleNamesAndMetaData(group2, pointsDataset,_core);
 			}
 		}
 		if (numericalMetaDataDimensionNames.size())
 		{
-			addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, h5groupName.c_str(), points.getName(), _core, true);
+			H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames,  true, pointsDataset, h5groupName.c_str());
 		}
 	}
 
@@ -444,7 +370,7 @@ bool HDF5_AD_Loader::load()
 	try
 	{
 
-		QString mainDatasetName;
+		Dataset<Points> pointsDataset;
 		auto nrOfObjects = _file->getNumObjs();
 
 		std::size_t rows = 0;
@@ -460,13 +386,12 @@ bool HDF5_AD_Loader::load()
 				{
 					H5::DataSet dataset = _file->openDataSet(objectName1);
 
-					mainDatasetName = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
-					hdps::util::DatasetRef<Points> mainDatassetRef(mainDatasetName);
-					Points& points = dynamic_cast<Points&>(*mainDatassetRef);
+					pointsDataset = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
+					
 					QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-					H5AD::LoadData(dataset, points);
-					rows = points.getNumPoints();
-					columns = points.getNumDimensions();
+					H5AD::LoadData(dataset, pointsDataset);
+					rows = pointsDataset->getNumPoints();
+					columns = pointsDataset->getNumDimensions();
 				}
 			}
 			else if (objectType1 == H5G_GROUP)
@@ -474,26 +399,23 @@ bool HDF5_AD_Loader::load()
 				if (objectName1 == "X")
 				{
 					H5::Group group = _file->openGroup(objectName1);
-					mainDatasetName = H5Utils::createPointsDataset(_core);
-					hdps::util::DatasetRef<Points> mainDatassetRef(mainDatasetName);
-					Points& points = dynamic_cast<Points&>(*mainDatassetRef);
+					pointsDataset = H5Utils::createPointsDataset(_core);
 					QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-					H5AD::LoadData(group, points);
-					rows = points.getNumPoints();
-					columns = points.getNumDimensions();
+					H5AD::LoadData(group, pointsDataset);
+					rows = pointsDataset->getNumPoints();
+					columns = pointsDataset->getNumDimensions();
 				}
 			}
 		}
-		if (mainDatasetName.isEmpty())
+		if (!pointsDataset.isValid())
 		{
 			QApplication::restoreOverrideCursor();
 			return false;
 		}
 		
-		hdps::util::DatasetRef<Points> mainDatassetRef(mainDatasetName);
-		Points& points = dynamic_cast<Points&>(*mainDatassetRef);
-		points.setDimensionNames(_dimensionNames);
-		points.setProperty("Sample Names", QList<QVariant>(_sampleNames.cbegin(), _sampleNames.cend()));
+		
+		pointsDataset->setDimensionNames(_dimensionNames);
+		pointsDataset->setProperty("Sample Names", QList<QVariant>(_sampleNames.cbegin(), _sampleNames.cend()));
 
 		std::set<std::string> objectsToSkip = { "X", "var", "raw.X", "raw.var"};
 		
@@ -506,18 +428,18 @@ bool HDF5_AD_Loader::load()
 			if (objectType1 == H5G_DATASET)
 			{
 				H5::DataSet dataset = _file->openDataSet(objectName1);
-				H5AD::LoadSampleNamesAndMetaData(dataset, points, _core);
+				H5AD::LoadSampleNamesAndMetaData(dataset, pointsDataset, _core);
 			}
 			else if (objectType1 == H5G_GROUP)
 			{
 				H5::Group group = _file->openGroup(objectName1);
-				H5AD::LoadSampleNamesAndMetaData(group, points, _core);
+				H5AD::LoadSampleNamesAndMetaData(group, pointsDataset, _core);
 			}
 		}
 		
 
 		
-		_core->notifyDataChanged(mainDatasetName);
+		_core->notifyDataChanged(pointsDataset);
 		QGuiApplication::restoreOverrideCursor();
 		return true;
 	}

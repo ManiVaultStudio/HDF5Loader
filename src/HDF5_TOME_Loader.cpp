@@ -1,5 +1,7 @@
 #include "HDF5_TOME_Loader.h"
 
+//#include "util/Dataset.h"
+
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QFileDialog>
@@ -15,7 +17,7 @@
 
 #include "Cluster.h"
 #include "ClusterData.h"
-#include "util/DatasetRef.h"
+
 
 using namespace hdps;
 
@@ -156,7 +158,7 @@ namespace TOME
 			rawData->applyTransform(transformType, normalize_and_cpm);
 	}
 
-	void LoadGeneNames(H5::DataSet &dataset, Points &points)
+	void LoadGeneNames(H5::DataSet &dataset, Dataset<Points> &pointsDataset)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Gene Names" << std::endl;
@@ -169,10 +171,10 @@ namespace TOME
 		for (int i = 0; i < gene_names.size(); ++i)
 			dimensionNames[i] = gene_names[i].c_str();
 
-		points.setDimensionNames(dimensionNames);
+		pointsDataset->setDimensionNames(dimensionNames);
 	}
 
-	void LoadSampleNames(H5::DataSet &dataset, Points &points)
+	void LoadSampleNames(H5::DataSet &dataset, Dataset<Points> &points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Sample Names" << std::endl;
@@ -189,7 +191,7 @@ namespace TOME
 		
 	}
 
-	bool LoadSampleMeta(H5::Group &group, Points &points)
+	bool LoadSampleMeta(H5::Group &group, Dataset<Points> &points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl;
@@ -293,9 +295,6 @@ HDF5_TOME_Loader::HDF5_TOME_Loader(hdps::CoreInterface *core)
 
 bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionIndex, bool normalize)
 {
-
-	
-
 	try
 	{
 		bool ok;
@@ -307,12 +306,13 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 			return nullptr;
 		}
 
-		util::DatasetRef<Points> datasetRef(_core->addData("Points", dataSetName));
+		auto points = _core->addDataset<Points>("Points", dataSetName);
 
-		Points& points = dynamic_cast<Points&>(*datasetRef);
+		if (!points.isValid())
+			return nullptr;
 
 		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points));
+		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points.get<Points>()));
 
 		H5::H5File file(fileName.toLatin1().constData(), H5F_ACC_RDONLY);
 
@@ -364,9 +364,11 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 // 		}
 
 
-		_core->notifyDataAdded(datasetRef.getDatasetName());
+		_core->notifyDataAdded(points);
+
 		QGuiApplication::restoreOverrideCursor();
-		return true;
+
+		return points.get();
 	}
 	catch (std::exception &e)
 	{
@@ -375,6 +377,8 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 	}
 
 	QGuiApplication::restoreOverrideCursor();
+
+	return nullptr;
 }
 	
 

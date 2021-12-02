@@ -4,6 +4,7 @@
 #include <cassert>
 #include <numeric>
 #include <algorithm>
+#include <DataHierarchyItem.h>
 #include <QInputDialog>
 #include <QDebug>
 #include "Plugin.h"
@@ -15,20 +16,21 @@
 #include <stdexcept> // For std::out_of_range.
 #include <iostream>
 
+using namespace hdps;
 
-DataContainerInterface::DataContainerInterface(Points &points)
-	:m_data(points)
+DataContainerInterface::DataContainerInterface(Dataset<Points> points) :
+	m_data(points)
 {
 	
 }
 
 void DataContainerInterface::resize(RowID rows, ColumnID columns, std::size_t reserveSize /*= 0*/)
 {
-	if (m_data.getNumPoints() ==0)
+	if (m_data->getNumPoints() ==0)
 	{
 		try
 		{
-			m_data.setData(nullptr, rows, columns);
+			m_data->setData(nullptr, rows, columns);
 		}
 		catch(const std::bad_alloc &e)
 		{
@@ -37,17 +39,17 @@ void DataContainerInterface::resize(RowID rows, ColumnID columns, std::size_t re
 			
 			
 
-			qDebug() << "Number of dimensions: " << m_data.getNumDimensions();
-			qDebug() << "Number of data points: " << m_data.getNumPoints();		
+			qDebug() << "Number of dimensions: " << m_data->getNumDimensions();
+			qDebug() << "Number of data points: " << m_data->getNumPoints();		
 	}
 }
 
 
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
-	long long lrows = ((long long)m_data.getNumPoints());
-	auto columns = m_data.getNumDimensions();
-	m_data.visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns](const auto beginOfData, const auto endOfData)
+	long long lrows = ((long long)m_data->getNumPoints());
+	auto columns = m_data->getNumDimensions();
+	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns](const auto beginOfData, const auto endOfData)
 		{
 			#pragma omp parallel for schedule(dynamic,1)
 			for (long long row = 0; row < lrows; ++row)
@@ -71,14 +73,16 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_i
 						}
 					}
 				}
+				
+
 			}
 		});
 }
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<biovault::bfloat16_t>& data, TRANSFORM::Type transformType)
 {
-	long long lrows = ((long long)m_data.getNumPoints());
-	auto columns = m_data.getNumDimensions();
-	m_data.visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns](const auto beginOfData, const auto endOfData)
+	long long lrows = ((long long)m_data->getNumPoints());
+	auto columns = m_data->getNumDimensions();
+	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns](const auto beginOfData, const auto endOfData)
 		{
 #pragma omp parallel for schedule(dynamic,1)
 			for (long long row = 0; row < lrows; ++row)
@@ -107,9 +111,9 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_i
 }
 void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
-	long long lrows = ((long long)m_data.getNumPoints());
-	auto columns = m_data.getNumDimensions();
-	m_data.visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns](const auto beginOfData, const auto endOfData)
+	long long lrows = ((long long)m_data->getNumPoints());
+	auto columns = m_data->getNumDimensions();
+	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns](const auto beginOfData, const auto endOfData)
 		{
 #pragma omp parallel for
 			for (long long row = 0; row < lrows; ++row)
@@ -139,8 +143,8 @@ void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &col
 
 void DataContainerInterface::set_sparse_column_data(std::vector<uint64_t> &row_index, std::vector<uint32_t> &column_offset, std::vector<float> &data, TRANSFORM::Type transformType /*= TRANSFORM::NONE*/)
 {
-	auto columns = m_data.getNumDimensions();
-	m_data.visitFromBeginToEnd([&column_offset, &row_index, &data, transformType, columns](const auto beginOfData, const auto endOfData)
+	auto columns = m_data->getNumDimensions();
+	m_data->visitFromBeginToEnd([&column_offset, &row_index, &data, transformType, columns](const auto beginOfData, const auto endOfData)
 		{
 #pragma  omp parallel for
 			for (long long column = 0; column < columns; ++column)
@@ -169,8 +173,8 @@ void DataContainerInterface::set_sparse_column_data(std::vector<uint64_t> &row_i
 void DataContainerInterface::increase_sparse_column_data(std::vector<uint64_t> &row_index, std::vector<uint32_t> &column_offset, std::vector<float> &data, TRANSFORM::Type transformType /*= TRANSFORM::NONE*/)
 
 {
-	auto columns = m_data.getNumDimensions();
-	m_data.visitFromBeginToEnd([&row_index, &column_offset, &data, transformType, columns](const auto beginOfData, const auto endOfData)
+	auto columns = m_data->getNumDimensions();
+	m_data->visitFromBeginToEnd([&row_index, &column_offset, &data, transformType, columns](const auto beginOfData, const auto endOfData)
 		{
 #pragma  omp parallel for
 			for (long long column = 0; column < columns; ++column)
@@ -199,11 +203,11 @@ void DataContainerInterface::increase_sparse_column_data(std::vector<uint64_t> &
 
 void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool normalized_and_cpm)
 {
-	const auto rows = m_data.getNumPoints();
-	const auto columns = m_data.getNumDimensions();
+	const auto rows = m_data->getNumPoints();
+	const auto columns = m_data->getNumDimensions();
 	if ((transformType.first == TRANSFORM::NONE) && !normalized_and_cpm)
 		return;
-	m_data.visitFromBeginToEnd([transformType, rows, columns](const auto beginOfData, const auto endOfData)
+	m_data->visitFromBeginToEnd([transformType, rows, columns](const auto beginOfData, const auto endOfData)
 		{
 #pragma omp parallel for
 			for (std::int64_t row = 0; row < rows; ++row)
@@ -231,14 +235,14 @@ void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool 
 		});
 }
 
-Points & DataContainerInterface::points()
+hdps::Dataset<Points> DataContainerInterface::points()
 {
 	return m_data;
 }
 
 void DataContainerInterface::set(RowID row, ColumnID column, const ValueType & value)
 {
-	m_data.setValueAt((row*m_data.getNumDimensions()) + column, value);
+	m_data->setValueAt((row*m_data->getNumDimensions()) + column, value);
 }
 
 void DataContainerInterface::addRow(RowID row, const std::vector<uint32_t> &columns, const std::vector<float> &data, TRANSFORM::Type transformType)
@@ -247,8 +251,8 @@ void DataContainerInterface::addRow(RowID row, const std::vector<uint32_t> &colu
 	if (dataSize != columns.size())
 		throw std::out_of_range("DataContainerInterface::addRow vectors have different sizes!");
 	
-	auto points_offset = row * m_data.getNumDimensions();
-	m_data.visitFromBeginToEnd([&columns, &data, transformType, points_offset](const auto beginOfData, const auto endOfData)
+	auto points_offset = row * m_data->getNumDimensions();
+	m_data->visitFromBeginToEnd([&columns, &data, transformType, points_offset](const auto beginOfData, const auto endOfData)
 		{
 			auto d = data.cbegin();
 
@@ -271,12 +275,12 @@ void DataContainerInterface::addRow(RowID row, const std::vector<uint32_t> &colu
 
 void DataContainerInterface::add(std::vector<uint32_t> *rows, std::vector<uint32_t> *columns, std::vector<float> *data, TRANSFORM::Type transformType)
 {
-	auto m_rows = m_data.getNumPoints();
+	auto m_rows = m_data->getNumPoints();
 	if ((m_rows + 1) != rows->size())
 	{
 		m_rows = rows->size() - 1;
 		assert(false);
-		//m_data.resize(m_rows);
+		//m_data->resize(m_rows);
 	}
 	long long lrows = ((long long)m_rows);
 	#pragma omp parallel for
@@ -284,9 +288,9 @@ void DataContainerInterface::add(std::vector<uint32_t> *rows, std::vector<uint32
 	{
 		uint32_t start = (*rows)[row];
 		uint32_t end = (*rows)[row + 1];
-		std::uint64_t points_offset = row * m_data.getNumDimensions();
+		std::uint64_t points_offset = row * m_data->getNumDimensions();
 
-		m_data.visitFromBeginToEnd([columns, data, transformType, start, end, points_offset](const auto beginOfData, const auto endOfData)
+		m_data->visitFromBeginToEnd([columns, data, transformType, start, end, points_offset](const auto beginOfData, const auto endOfData)
 			{
 				const float* data_ptr = data->data();
 				const float* d = data_ptr + start;

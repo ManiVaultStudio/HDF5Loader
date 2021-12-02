@@ -6,7 +6,8 @@
 #include <map>
 #include <QVariant>
 #include <QColor>
-
+#include "PointData.h"
+#include "Dataset.h"
 
 namespace hdps
 {
@@ -95,6 +96,7 @@ namespace H5Utils
 
 	
 	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result);
+	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<QString>& result);
 	void read_strings(H5::DataSet &dataset, std::size_t totalsize, std::vector<std::string> &result);
 	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<QString>& result);
 
@@ -125,6 +127,7 @@ namespace H5Utils
 	}
 
 	bool is_number(const std::string& s);
+	bool is_number(const QString& s);
 	
 
 
@@ -171,8 +174,10 @@ namespace H5Utils
 	std::size_t get_vector_size(const H5::DataSet &dataset);
 
 	
-	QString createPointsDataset(::hdps::CoreInterface* core,bool ask=true, QString=QString());
+	hdps::Dataset<Points> createPointsDataset(::hdps::CoreInterface* core,bool ask=true, QString=QString());
+
 	
-	
+	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points>& parent, QString name=QString());
+	void addClusterMetaData(hdps::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, hdps::Dataset<Points>& parent, std::map<QString, QColor> colors = std::map<QString, QColor>());
 }
 

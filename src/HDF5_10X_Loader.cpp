@@ -16,7 +16,8 @@
 
 #include "Cluster.h"
 #include "ClusterData.h"
-#include "util/DatasetRef.h"
+#include "DataHierarchyItem.h"
+#include "util/Miscellaneous.h"
 
 #include "biovault_bfloat16.h"
 #include "H5Utils.h"
@@ -45,7 +46,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 	*/
 	int loadFromFile(std::string _fileName, std::shared_ptr<DataContainerInterface> &rawData, int optimization, TRANSFORM::Type transform_settings, hdps::CoreInterface* _core)
 	{
-
+	
 		try
 		{
 			H5::H5File file(_fileName, H5F_ACC_RDONLY);
@@ -110,6 +111,30 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				{
 					if (!H5Utils::read_vector(group, "data16", &data16, H5::PredType::NATIVE_UINT16))
 						result = false;
+					else
+					{
+						auto& dataHierarchyItem = rawData->points()->getDataHierarchyItem();
+
+						dataHierarchyItem.setTaskName("Loading points");
+						dataHierarchyItem.setTaskDescription(QString("Loading %1 points").arg(util::getIntegerCountHumanReadable(data16.size())));
+						dataHierarchyItem.setTaskRunning();
+
+						data.resize(data16.size());
+						#pragma omp parallel for
+						for(std::int64_t i=0; i < data16.size(); ++i)
+						{
+							data[i] = biovault::bfloat16_t(data16[i], true);
+
+							if (i % 100000 == 0) {
+								dataHierarchyItem.setTaskProgress(static_cast<float>(i) / static_cast<float>(data16.size()));
+
+								QCoreApplication::processEvents();
+							}
+								
+						}
+
+						dataHierarchyItem.setTaskFinished();
+					}
 				}
 				else
 					result = false;
@@ -123,19 +148,19 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				assert(indptr.size() == (rows + 1));
 				std::size_t columns = genes.size();
 
-				Points& points = rawData->points();
+				Dataset<Points> pointsDataset = rawData->points();
 
 				
 				
 				if (data16.size())
 				{
-					points.setDataElementType<biovault::bfloat16_t>();
+					pointsDataset->setDataElementType<biovault::bfloat16_t>();
 					rawData->resize(rows, columns);
 					rawData->set_sparse_row_data(indices, indptr, data16, transform_settings);
 				}
 				else
 				{
-					points.setDataElementType<float>();
+					pointsDataset->setDataElementType<float>();
 					rawData->resize(rows, columns);
 					rawData->set_sparse_row_data(indices, indptr, data, transform_settings);
 				}
@@ -147,20 +172,18 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				{
 					dimensionNames[i] = genes[i].c_str();
 				};
-				points.setDimensionNames(dimensionNames);
+				pointsDataset->setDimensionNames(dimensionNames);
 
 				QList<QVariant> sample_names;
 				for (int64_t i = 0; i < barcodes.size(); ++i)
 				{
 					sample_names.append(barcodes[i].c_str());
 				}
-				points.setProperty("Sample Names", sample_names);
+				pointsDataset.setProperty("Sample Names", sample_names);
 
-
-				auto pointsDatasetName = points.getName();
+				pointsDataset->getDataHierarchyItem().setTaskDescription("");
 
 				
-
 				if (result & group.exists("meta"))
 				{
 					auto metaDataSuperGroup = group.openGroup("meta");
@@ -193,6 +216,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 							for (std::size_t l = 0; l < items.size(); ++l)
 							{
+
 								std::string item = items[l];
 								if (currentMetaDataIsNumerical)
 								{
@@ -255,15 +279,17 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							}
 							else // it was categorical data
 							{
-								QString uniqueClustersName = _core->addData("Cluster", metaDataLabel.c_str(), pointsDatasetName);
-								util::DatasetRef<Clusters> clustersDatasetRef;
-								clustersDatasetRef.setDatasetName(uniqueClustersName);
-								_core->notifyDataAdded(uniqueClustersName);
-								auto& clustersDataset = *clustersDatasetRef;
+								auto clusterDataset = _core->addDataset<Clusters>("Cluster", metaDataLabel.c_str(), pointsDataset);
+
+								// Notify others that the dataset was added
+								_core->notifyDataAdded(clusterDataset);
+
+								QCoreApplication::processEvents();
+
+								
+								clusterDataset->getClusters().reserve(indices.size());
 
 								std::size_t sum = 0;
-
-								clustersDataset.getClusters().reserve(indices.size());
 								for (auto& indice : indices)
 								{
 									
@@ -276,13 +302,16 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 									sum += indice.second.size();
 									cluster.setIndices(indice.second);
-									clustersDataset.addCluster(cluster);
+									
+									clusterDataset->addCluster(cluster);
 								}
 
 								assert(sum == rows);
 
 								// Notify others that the clusters have changed
-								_core->notifyDataChanged(clustersDatasetRef.getDatasetName());
+								_core->notifyDataChanged(clusterDataset);
+
+								QCoreApplication::processEvents();
 							}
 
 						} // if(ok)
@@ -290,15 +319,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 					if (nrOfNumericalMetaData)
 					{
-						assert(numericalMetaData.size() == (nrOfNumericalMetaData * rows));
-						//transposeInPlace(numericalMetaData, numericalMetaData.size() / nrOfNumericalMetaData, nrOfNumericalMetaData);
-						H5Utils::transpose(numericalMetaData.begin(), numericalMetaData.end(), rows);
-						util::DatasetRef<Points> numericalDatasetRef(_core->createDerivedData("Numerical Metadata", pointsDatasetName));
-						_core->notifyDataAdded(numericalDatasetRef.getDatasetName());
-						auto& numericalMetadataDataset = *numericalDatasetRef;
-						numericalMetadataDataset.setData(std::move(numericalMetaData), nrOfNumericalMetaData);
-						numericalMetadataDataset.setDimensionNames(numericalMetaDataDimensionNames);
-						
+						H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
 					}
 				}
 
@@ -427,42 +448,56 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				std::size_t columns = _dimensionNames.size();
 
 				
-				QString mainDatasetName = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
+				Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
+				std::unique_ptr<DataContainerInterface> rawData(new DataContainerInterface(pointsDataset));
+
+
+				auto& dataHierarchyItem = pointsDataset->getDataHierarchyItem();
+
+				dataHierarchyItem.setTaskName("Loading points");
 				
-				util::DatasetRef<Points> datasetRef(mainDatasetName);
-				Points& points = dynamic_cast<Points&>(*datasetRef);
-				std::unique_ptr<DataContainerInterface> rawData(new DataContainerInterface(points));
+				dataHierarchyItem.setTaskRunning();
 
 				if (data16.size())
 				{
-					points.setDataElementType<biovault::bfloat16_t>();
+					pointsDataset->setDataElementType<biovault::bfloat16_t>();
+					dataHierarchyItem.setTaskDescription(QString("Processing %1 points").arg(util::getIntegerCountHumanReadable(data16.size())));
+					dataHierarchyItem.setTaskRunning();
 					rawData->resize(rows, columns);
 					rawData->set_sparse_row_data(indices, indptr, data16, transform_settings);
+					dataHierarchyItem.setTaskFinished();
 				}
 				else
 				{
-					points.setDataElementType<float>();
+					pointsDataset->setDataElementType<float>();
+					dataHierarchyItem.setTaskDescription(QString("Processing %1 points").arg(util::getIntegerCountHumanReadable(data.size())));
+					dataHierarchyItem.setTaskRunning();
 					rawData->resize(rows, columns);
 					rawData->set_sparse_row_data(indices, indptr, data, transform_settings);
+					dataHierarchyItem.setTaskFinished();
 				}
-				points.setDimensionNames(_dimensionNames);
-				points.setProperty("Sample Names", QList<QVariant>(_sampleNames.cbegin(), _sampleNames.cend()));
+				pointsDataset->setDimensionNames(_dimensionNames);
+				pointsDataset->setProperty("Sample Names", QList<QVariant>(_sampleNames.cbegin(), _sampleNames.cend()));
 				
 			
 
 				if (group.exists("meta"))
 				{
+
+					
 					auto metaDataSuperGroup = group.openGroup("meta");
 					hsize_t nrOfMetaData = metaDataSuperGroup.getNumObjs();
 					std::size_t nrOfNumericalMetaData = 0;
 					std::vector<float> numericalMetaData;
 					numericalMetaData.reserve(nrOfMetaData * rows);
 					std::vector<QString> numericalMetaDataDimensionNames;
+					dataHierarchyItem.setTaskDescription(QString("Loading %1 metadata items").arg(util::getIntegerCountHumanReadable(nrOfMetaData)));
+					dataHierarchyItem.setTaskRunning();
 					for (hsize_t m = 0; m < nrOfMetaData; ++m)
 					{
 						std::string metaDataLabel = metaDataSuperGroup.getObjnameByIdx(m).c_str();
 						auto metaDataGroup = metaDataSuperGroup.openGroup(metaDataLabel);
-						std::vector<std::string> items;
+						std::vector<QString> items;
 						std::vector<std::uint8_t> colors;
 						bool ok = H5Utils::read_vector_string(metaDataGroup, "l", items);
 						ok &= H5Utils::read_vector(metaDataGroup, "c", &colors, H5::PredType::NATIVE_UINT8);
@@ -471,8 +506,8 @@ shape	uint64	Tuple of (n_rows, n_columns)
 						if (ok)
 						{
 
-							std::map<std::string, std::vector<unsigned>> indices;
-							std::map<std::string, QColor> qcolors;
+							std::map<QString, std::vector<unsigned>> indices;
+							std::map<QString, QColor> qcolors;
 
 							typedef float numericMetaDataType;
 							double minValue = std::numeric_limits<numericMetaDataType>::max();
@@ -482,12 +517,13 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 							for (std::size_t l = 0; l < items.size(); ++l)
 							{
-								std::string item = items[l];
+								QString item = items[l];
 								if (currentMetaDataIsNumerical)
 								{
+									
 									if (H5Utils::is_number(item))
 									{
-										double value = atof(item.c_str());
+										double value = item.toDouble();
 										if (std::isfinite(value))
 										{
 											if ((value >= std::numeric_limits<numericMetaDataType>::lowest()) && (value <= std::numeric_limits<numericMetaDataType>::max()))
@@ -511,7 +547,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 										// add former labels as caterogical as well.
 										for (std::size_t i = 0; i <= l; ++i)
 										{
-											std::string value = items[i];
+											QString value = items[i];
 											indices[value].push_back(i);
 											if (qcolors.find(value) == qcolors.end())
 											{
@@ -544,53 +580,18 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							}
 							else // it was categorical data
 							{
-								QString uniqueClustersName = _core->addData("Cluster", metaDataLabel.c_str(), mainDatasetName);
-								util::DatasetRef<Clusters> clustersDatasetRef;
-								clustersDatasetRef.setDatasetName(uniqueClustersName);
-								_core->notifyDataAdded(uniqueClustersName);
-								auto& clustersDataset = *clustersDatasetRef;
-
-								std::size_t sum = 0;
-
-								clustersDataset.getClusters().reserve(indices.size());
-								for (auto& indice : indices)
-								{
-
-									Cluster cluster;
-									if (indice.first.empty())
-										cluster.setName(QString(" "));
-									else
-										cluster.setName(indice.first.c_str());
-									cluster.setColor(qcolors[indice.first]);
-
-									sum += indice.second.size();
-									cluster.setIndices(indice.second);
-									clustersDataset.addCluster(cluster);
-								}
-
-								assert(sum == rows);
-
-								// Notify others that the clusters have changed
-								_core->notifyDataChanged(clustersDatasetRef.getDatasetName());
+								H5Utils::addClusterMetaData(_core, indices, metaDataLabel.c_str(), pointsDataset, qcolors);
 							}
 
 						} // if(ok)
+						dataHierarchyItem.setTaskProgress(static_cast<float>(m) / static_cast<float>(nrOfMetaData));
 					} // for nrOfMetaData
-
-					if (nrOfNumericalMetaData)
-					{
-						assert(numericalMetaData.size() == (nrOfNumericalMetaData * rows));
-						//transposeInPlace(numericalMetaData, numericalMetaData.size() / nrOfNumericalMetaData, nrOfNumericalMetaData);
-						H5Utils::transpose(numericalMetaData.begin(), numericalMetaData.end(), rows);
-						util::DatasetRef<Points> numericalDatasetRef(_core->createDerivedData("Numerical Metadata", mainDatasetName));
-						_core->notifyDataAdded(numericalDatasetRef.getDatasetName());
-						auto& numericalMetadataDataset = *numericalDatasetRef;
-						numericalMetadataDataset.setData(std::move(numericalMetaData), nrOfNumericalMetaData);
-						numericalMetadataDataset.setDimensionNames(numericalMetaDataDimensionNames);
-
-					}
+					dataHierarchyItem.setTaskFinished();
+					H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
+					
 				}
-				_core->notifyDataChanged(mainDatasetName);
+				_core->notifyDataChanged(pointsDataset);
+				QCoreApplication::processEvents();
 			}
 
 		}
