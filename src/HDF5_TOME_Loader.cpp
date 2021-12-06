@@ -311,7 +311,6 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 		if (!points.isValid())
 			return nullptr;
 
-		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
 		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points.get<Points>()));
 
 		H5::H5File file(fileName.toLatin1().constData(), H5F_ACC_RDONLY);
@@ -366,7 +365,6 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 
 		_core->notifyDataAdded(points);
 
-		QGuiApplication::restoreOverrideCursor();
 
 		return points.get();
 	}
@@ -375,8 +373,6 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 		std::cout << "TOME Loader: " << e.what() << std::endl;
 		return nullptr;
 	}
-
-	QGuiApplication::restoreOverrideCursor();
 
 	return nullptr;
 }

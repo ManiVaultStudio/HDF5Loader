@@ -1,5 +1,7 @@
 #pragma once
 
+#include <DataHierarchyItem.h>
+
 #include "H5Cpp.h"
 #include <string>
 #include <vector>
@@ -8,7 +10,8 @@
 #include <QColor>
 #include "PointData.h"
 #include "Dataset.h"
-
+#include "DataHierarchyItem.h"
+#include <QBitArray>
 namespace hdps
 {
 	class CoreInterface;
@@ -108,20 +111,22 @@ namespace H5Utils
 	inline const std::string QColor_to_stdString(const QColor& color);
 
 	template<class RandomIterator>
-	void transpose(RandomIterator first, RandomIterator last, int m)
+	void transpose(RandomIterator first, RandomIterator last, int m, hdps::DataHierarchyItem &progressItem)
 	{
 		const int mn1 = (last - first - 1);
 		const int n = (last - first) / m;
-		std::vector<bool> visited(last - first);
 		RandomIterator cycle = first;
+		QBitArray visited(last - first, false);
 		while (++cycle != last) {
-			if (visited[cycle - first])
+			if (visited.at(cycle - first))
 				continue;
 			int a = cycle - first;
 			do {
 				a = a == mn1 ? mn1 : (n * a) % mn1;
 				std::swap(*(first + a), *cycle);
-				visited[a] = true;
+				visited.setBit(a,true);
+				progressItem.setTaskProgress(static_cast<float>(visited.count(true)) / visited.size());
+				QApplication::processEvents();
 			} while ((first + a) != cycle);
 		}
 	}

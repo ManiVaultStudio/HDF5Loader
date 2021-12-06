@@ -947,20 +947,17 @@ namespace H5Utils
 
 			Dataset<Points> numericalMetadataDataset = core->addDataset("Points", numericalDatasetName, parent);
 			core->notifyDataAdded(numericalMetadataDataset);
-			QCoreApplication::processEvents();
+			
 			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskRunning();
+			QCoreApplication::processEvents();
 
 			if (transpose)
 			{
-				auto& dataHierarchyItem = numericalMetadataDataset->getDataHierarchyItem();
-				dataHierarchyItem.setTaskDescription("Processing...");
-				dataHierarchyItem.setTaskRunning();
-				H5Utils::transpose(numericalData.begin(), numericalData.end(), nrOfSamples);
-				dataHierarchyItem.setTaskFinished();
+				H5Utils::transpose(numericalData.begin(), numericalData.end(), nrOfSamples, numericalMetadataDataset->getDataHierarchyItem());
 			}
-
+			QApplication::processEvents();
 			numericalMetadataDataset->setDataElementType<float>();
 			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
 

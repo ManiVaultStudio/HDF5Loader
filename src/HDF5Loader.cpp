@@ -27,6 +27,27 @@ using namespace hdps;
 
 namespace
 {
+	bool &Hdf5Lock()
+	{
+		static bool lock = false;
+		return lock;
+	}
+	class LockGuard
+	{
+		bool& _lock;
+		LockGuard() = delete;
+	public:
+		explicit LockGuard(bool& b)
+			:_lock(b)
+		{
+			_lock = true;
+		}
+		~LockGuard()
+		{
+			_lock = false;
+		}
+	};
+
 	// Alphabetic list of keys used to access settings from QSettings.
 	namespace Keys
 	{
@@ -56,12 +77,12 @@ HDF5Loader::HDF5Loader(PluginFactory* factory)
     : QObject()
 	, LoaderPlugin(factory)
 {
-
+	
 }
 
 HDF5Loader::~HDF5Loader(void)
 {
-    
+	
 }
 
 
@@ -82,6 +103,12 @@ void HDF5Loader::init()
 
 void HDF5Loader::loadData()
 {
+	if (Hdf5Lock())
+	{
+		QMessageBox::information(nullptr, "HDF5 Loader is busy", "The HDF5 Loader is already loading a file. You cannot load another files until loading has completed.");
+		return;
+	};
+	LockGuard lockGuard(Hdf5Lock());
 	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/HDF5Loader"));
 	QGridLayout* fileDialogLayout = dynamic_cast<QGridLayout*>(_fileDialog.layout());
 	TRANSFORM::Control transform(fileDialogLayout);

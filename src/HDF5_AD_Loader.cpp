@@ -388,7 +388,6 @@ bool HDF5_AD_Loader::load()
 
 					pointsDataset = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
 					
-					QGuiApplication::setOverrideCursor(Qt::WaitCursor);
 					H5AD::LoadData(dataset, pointsDataset);
 					rows = pointsDataset->getNumPoints();
 					columns = pointsDataset->getNumDimensions();
@@ -400,7 +399,6 @@ bool HDF5_AD_Loader::load()
 				{
 					H5::Group group = _file->openGroup(objectName1);
 					pointsDataset = H5Utils::createPointsDataset(_core);
-					QGuiApplication::setOverrideCursor(Qt::WaitCursor);
 					H5AD::LoadData(group, pointsDataset);
 					rows = pointsDataset->getNumPoints();
 					columns = pointsDataset->getNumDimensions();
@@ -409,7 +407,6 @@ bool HDF5_AD_Loader::load()
 		}
 		if (!pointsDataset.isValid())
 		{
-			QApplication::restoreOverrideCursor();
 			return false;
 		}
 		
@@ -440,13 +437,11 @@ bool HDF5_AD_Loader::load()
 
 		
 		_core->notifyDataChanged(pointsDataset);
-		QGuiApplication::restoreOverrideCursor();
 		return true;
 	}
 	catch (std::exception &e)
 	{
 		std::cout << "H5AD Loader: " << e.what() << std::endl;
-		QGuiApplication::restoreOverrideCursor();
 		return false;
 	}
 

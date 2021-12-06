@@ -406,7 +406,7 @@ indptr	uint32	Index into data / indices of the start of each column
 shape	uint64	Tuple of (n_rows, n_columns)
 */
 
-	QGuiApplication::setOverrideCursor(Qt::WaitCursor);
+	
 	if (_file == nullptr)
 		return false;
 	bool result = false;
@@ -451,30 +451,17 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
 				std::unique_ptr<DataContainerInterface> rawData(new DataContainerInterface(pointsDataset));
 
-
-				auto& dataHierarchyItem = pointsDataset->getDataHierarchyItem();
-
-				dataHierarchyItem.setTaskName("Loading points");
-				
-				dataHierarchyItem.setTaskRunning();
-
 				if (data16.size())
 				{
 					pointsDataset->setDataElementType<biovault::bfloat16_t>();
-					dataHierarchyItem.setTaskDescription(QString("Processing %1 points").arg(util::getIntegerCountHumanReadable(data16.size())));
-					dataHierarchyItem.setTaskRunning();
 					rawData->resize(rows, columns);
 					rawData->set_sparse_row_data(indices, indptr, data16, transform_settings);
-					dataHierarchyItem.setTaskFinished();
 				}
 				else
 				{
 					pointsDataset->setDataElementType<float>();
-					dataHierarchyItem.setTaskDescription(QString("Processing %1 points").arg(util::getIntegerCountHumanReadable(data.size())));
-					dataHierarchyItem.setTaskRunning();
 					rawData->resize(rows, columns);
 					rawData->set_sparse_row_data(indices, indptr, data, transform_settings);
-					dataHierarchyItem.setTaskFinished();
 				}
 				pointsDataset->setDimensionNames(_dimensionNames);
 				pointsDataset->setProperty("Sample Names", QList<QVariant>(_sampleNames.cbegin(), _sampleNames.cend()));
@@ -491,6 +478,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					std::vector<float> numericalMetaData;
 					numericalMetaData.reserve(nrOfMetaData * rows);
 					std::vector<QString> numericalMetaDataDimensionNames;
+					auto& dataHierarchyItem = pointsDataset->getDataHierarchyItem();
 					dataHierarchyItem.setTaskDescription(QString("Loading %1 metadata items").arg(util::getIntegerCountHumanReadable(nrOfMetaData)));
 					dataHierarchyItem.setTaskRunning();
 					for (hsize_t m = 0; m < nrOfMetaData; ++m)
@@ -585,6 +573,8 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 						} // if(ok)
 						dataHierarchyItem.setTaskProgress(static_cast<float>(m) / static_cast<float>(nrOfMetaData));
+						QApplication::processEvents();
+
 					} // for nrOfMetaData
 					dataHierarchyItem.setTaskFinished();
 					H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
@@ -604,7 +594,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 	{
 		std::cout << "Error Reading File: " << e.getCDetailMsg() << std::endl;
 	}
-	QGuiApplication::restoreOverrideCursor();
+	
 	return result;
 }
 	
