@@ -117,6 +117,8 @@ namespace H5Utils
 		const int n = (last - first) / m;
 		RandomIterator cycle = first;
 		QBitArray visited(last - first, false);
+		std::size_t update = 0;
+		std::size_t updateFrequency = (std::max)(1, mn1/200);
 		while (++cycle != last) {
 			if (visited.at(cycle - first))
 				continue;
@@ -125,8 +127,14 @@ namespace H5Utils
 				a = a == mn1 ? mn1 : (n * a) % mn1;
 				std::swap(*(first + a), *cycle);
 				visited.setBit(a,true);
-				progressItem.setTaskProgress(static_cast<float>(visited.count(true)) / visited.size());
-				QApplication::processEvents();
+				++update;
+				if(update == updateFrequency)
+				{
+					update = 0;
+					progressItem.setTaskProgress(static_cast<float>(visited.count(true)) / visited.size());
+					QApplication::processEvents();
+				}
+				
 			} while ((first + a) != cycle);
 		}
 	}

@@ -26,15 +26,25 @@ namespace local
 	{
 		QBitArray buffer;
 		hdps::DataHierarchyItem& dataHierarcyItem;
+		std::size_t updateFrequency;
+		std::size_t update;
 
 	public:
-		Progress(hdps::DataHierarchyItem& item, const QString& description, std::size_t nrOfSteps)
+		Progress(hdps::DataHierarchyItem& item, const QString& description, std::size_t nrOfSteps, std::size_t freq = 1)
 			:dataHierarcyItem(item)
-			,buffer(nrOfSteps,false)
+			, buffer(nrOfSteps, false)
+			, updateFrequency(freq)
+			, update(0)
 		{
 			dataHierarcyItem.setTaskDescription(description);
 			dataHierarcyItem.setTaskRunning();
 			QApplication::processEvents();
+			if(freq==0)
+			{
+				updateFrequency = (nrOfSteps / omp_get_max_threads()) / 200;
+				if (updateFrequency == 0)
+					updateFrequency = 1;
+			}
 		}
 
 		void setStep(std::size_t step)
@@ -42,8 +52,13 @@ namespace local
 			buffer.setBit(step, true);
 			if(omp_get_thread_num() ==0)
 			{
-				dataHierarcyItem.setTaskProgress(1.0 * buffer.count(true) / buffer.size());
-				QApplication::processEvents();
+				++update;
+				if(update == updateFrequency == 0)
+				{
+					dataHierarcyItem.setTaskProgress(1.0 * buffer.count(true) / buffer.size());
+					QApplication::processEvents();
+					update = 0;
+				}
 			}
 		}
 		~Progress()
@@ -84,7 +99,7 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_i
 	long long lrows = ((long long)m_data->getNumPoints());
 	auto columns = m_data->getNumDimensions();
 	
-	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
+	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows,0);
 	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 			#pragma omp parallel for schedule(dynamic,1)
@@ -119,7 +134,7 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_i
 {
 	long long lrows = ((long long)m_data->getNumPoints());
 	auto columns = m_data->getNumDimensions();
-	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
+	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows,0);
 	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 			QBitArray qba(lrows, false);
@@ -154,7 +169,7 @@ void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &col
 {
 	long long lrows = ((long long)m_data->getNumPoints());
 	auto columns = m_data->getNumDimensions();
-	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
+	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows,0);
 	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 #pragma omp parallel for

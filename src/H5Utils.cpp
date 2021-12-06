@@ -945,7 +945,8 @@ namespace H5Utils
 				numericalDatasetName = name + " (numerical)";
 			}
 
-			Dataset<Points> numericalMetadataDataset = core->addDataset("Points", numericalDatasetName, parent);
+			
+			Dataset<Points> numericalMetadataDataset = core->createDerivedData(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
 			core->notifyDataAdded(numericalMetadataDataset);
 			
 			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
