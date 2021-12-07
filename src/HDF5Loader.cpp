@@ -105,7 +105,7 @@ void HDF5Loader::loadData()
 {
 	if (Hdf5Lock())
 	{
-		QMessageBox::information(nullptr, "HDF5 Loader is busy", "The HDF5 Loader is already loading a file. You cannot load another files until loading has completed.");
+		QMessageBox::information(nullptr, "HDF5 Loader is busy", "The HDF5 Loader is already loading a file. You cannot load another file until loading has completed.");
 		return;
 	};
 	LockGuard lockGuard(Hdf5Lock());
