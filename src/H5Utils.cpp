@@ -907,7 +907,7 @@ namespace H5Utils
 		
 		hdps::Dataset<Points> newDataset = core->addDataset("Points", dataSetName);
 		core->notifyDataAdded(newDataset);
-		QCoreApplication::processEvents();
+		
 		return newDataset;
 	}
 
@@ -952,13 +952,12 @@ namespace H5Utils
 			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskRunning();
-			QCoreApplication::processEvents();
 
 			if (transpose)
 			{
 				H5Utils::transpose(numericalData.begin(), numericalData.end(), nrOfSamples, numericalMetadataDataset->getDataHierarchyItem());
 			}
-			QApplication::processEvents();
+			
 			numericalMetadataDataset->setDataElementType<float>();
 			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
 
@@ -967,7 +966,6 @@ namespace H5Utils
 			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
 
 			core->notifyDataChanged(numericalMetadataDataset);
-			QCoreApplication::processEvents();
 		}
 	}
 
@@ -991,7 +989,7 @@ namespace H5Utils
 		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", name, parent);
 
 		core->notifyDataAdded(clusterDataset);
-		QCoreApplication::processEvents();
+		
 		clusterDataset->getClusters().reserve(indices.size());
 		
 		for (const auto& indice : indices)
@@ -1009,7 +1007,6 @@ namespace H5Utils
 
 		// Notify others that the clusters have changed
 		core->notifyDataChanged(clusterDataset);
-		QCoreApplication::processEvents();
 		
 	}
 

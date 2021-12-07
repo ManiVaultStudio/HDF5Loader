@@ -132,7 +132,6 @@ namespace H5Utils
 				{
 					update = 0;
 					progressItem.setTaskProgress(static_cast<float>(visited.count(true)) / visited.size());
-					QApplication::processEvents();
 				}
 				
 			} while ((first + a) != cycle);

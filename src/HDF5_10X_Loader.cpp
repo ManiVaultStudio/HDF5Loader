@@ -127,8 +127,6 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 							if (i % 100000 == 0) {
 								dataHierarchyItem.setTaskProgress(static_cast<float>(i) / static_cast<float>(data16.size()));
-
-								QCoreApplication::processEvents();
 							}
 								
 						}
@@ -284,9 +282,6 @@ shape	uint64	Tuple of (n_rows, n_columns)
 								// Notify others that the dataset was added
 								_core->notifyDataAdded(clusterDataset);
 
-								QCoreApplication::processEvents();
-
-								
 								clusterDataset->getClusters().reserve(indices.size());
 
 								std::size_t sum = 0;
@@ -310,8 +305,6 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 								// Notify others that the clusters have changed
 								_core->notifyDataChanged(clusterDataset);
-
-								QCoreApplication::processEvents();
 							}
 
 						} // if(ok)
@@ -573,7 +566,6 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 						} // if(ok)
 						dataHierarchyItem.setTaskProgress(static_cast<float>(m) / static_cast<float>(nrOfMetaData));
-						QApplication::processEvents();
 
 					} // for nrOfMetaData
 					dataHierarchyItem.setTaskFinished();
@@ -581,7 +573,6 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					
 				}
 				_core->notifyDataChanged(pointsDataset);
-				QCoreApplication::processEvents();
 			}
 
 		}
