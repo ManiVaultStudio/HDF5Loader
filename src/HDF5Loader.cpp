@@ -1,5 +1,6 @@
 #include "HDF5Loader.h"
 
+#include "DataTransform.h"
 #include "HDF5_TOME_Loader.h"
 #include "HDF5_10X_Loader.h"
 #include "HDF5_AD_Loader.h"
@@ -14,18 +15,44 @@
 #include <QStringList>
 #include <QSettings>
 #include "PointData.h"
+#include "QMessageBox"
+
 
 Q_PLUGIN_METADATA(IID "nl.lumc.HDF5Loader")
 
 // =============================================================================
 // Loader
 
+using namespace hdps;
+
 namespace
 {
+	bool &Hdf5Lock()
+	{
+		static bool lock = false;
+		return lock;
+	}
+	class LockGuard
+	{
+		bool& _lock;
+		LockGuard() = delete;
+	public:
+		explicit LockGuard(bool& b)
+			:_lock(b)
+		{
+			_lock = true;
+		}
+		~LockGuard()
+		{
+			_lock = false;
+		}
+	};
+
 	// Alphabetic list of keys used to access settings from QSettings.
 	namespace Keys
 	{
 		const QLatin1String conversionIndexKey("conversionIndex");
+		const QLatin1String transformValueKey("transformValue");
 		const QLatin1String fileNameKey("fileName");
 		const QLatin1String normalizeKey("normalize");
 		const QLatin1String selectedNameFilterKey("selectedNameFilter");
@@ -44,83 +71,89 @@ namespace
 
 }	// Unnamed namespace
 
-namespace local 
-{
-	QComboBox * addConversionComboBox(QGridLayout *fileDialogLayout)
-	{
-		QComboBox *conversionComboBox = new QComboBox();
-		conversionComboBox->addItem("None");
-		conversionComboBox->addItem("2Log(Value+1)");
-		conversionComboBox->addItem("Sqrt(Value)");
-		conversionComboBox->addItem("Arcsinh(Value/5)");
-		int rowCount = fileDialogLayout->rowCount();
-		fileDialogLayout->addWidget(new QLabel(QString("Conversion: ")), rowCount, 0);
-		fileDialogLayout->addWidget(conversionComboBox, rowCount++, 1);
-		return conversionComboBox;
-	}
-}
-
 
 
 HDF5Loader::HDF5Loader(PluginFactory* factory)
     : QObject()
 	, LoaderPlugin(factory)
 {
-
+	
 }
 
 HDF5Loader::~HDF5Loader(void)
 {
-    
+	
 }
+
 
 void HDF5Loader::init()
 {
+	
+	QStringList fileTypeOptions;
+	fileTypeOptions.append("TOME (*.tome)");
+	fileTypeOptions.append("10X (*.h5)");
+	fileTypeOptions.append("H5AD (*.h5ad)");
+	_fileDialog.setOption(QFileDialog::DontUseNativeDialog);
+	_fileDialog.setFileMode(QFileDialog::ExistingFiles);
+	_fileDialog.setNameFilters(fileTypeOptions);
 
+	
 }
 
 
 void HDF5Loader::loadData()
 {
+	if (Hdf5Lock())
+	{
+		QMessageBox::information(nullptr, "HDF5 Loader is busy", "The HDF5 Loader is already loading a file. You cannot load another file until loading has completed.");
+		return;
+	};
+	LockGuard lockGuard(Hdf5Lock());
 	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/HDF5Loader"));
-	QStringList fileTypeOptions;
-	fileTypeOptions.append("TOME (*.tome)");
-	fileTypeOptions.append("10X (*.h5)");
-	fileTypeOptions.append("H5AD (*.h5ad)");
-	
+	QGridLayout* fileDialogLayout = dynamic_cast<QGridLayout*>(_fileDialog.layout());
+	TRANSFORM::Control transform(fileDialogLayout);
 
-	QFileDialog openFileDialog;
-	openFileDialog.setOption(QFileDialog::DontUseNativeDialog);
-	openFileDialog.setFileMode(QFileDialog::ExistingFile);
-	openFileDialog.setNameFilters(fileTypeOptions);
-
-	QGridLayout* openFileDialogLayout = dynamic_cast<QGridLayout*>(openFileDialog.layout());
-	int rowCount = openFileDialogLayout->rowCount();
-
-
+	int rowCount = fileDialogLayout->rowCount();
 	QCheckBox normalizeCheck("yes");
 	QLabel normalizeLabel(QString("Normalize to CPM: "));
-	openFileDialogLayout->addWidget(&normalizeLabel, rowCount, 0);
-	openFileDialogLayout->addWidget(&normalizeCheck, rowCount++, 1);
+	fileDialogLayout->addWidget(&normalizeLabel, rowCount, 0);
+	fileDialogLayout->addWidget(&normalizeCheck, rowCount++, 1);
 	normalizeCheck.setChecked([&settings]
 	{
 		const auto value = settings.value(Keys::normalizeKey);
 		return value.isValid() && value.toBool();
 	}());
+	
 
-	QComboBox *const conversionCombo = local::addConversionComboBox(openFileDialogLayout);
+	IfValid(settings.value(Keys::conversionIndexKey), [&transform, &settings](const QVariant& value)
+	{
+		TRANSFORM::Index index = static_cast<TRANSFORM::Index>(value.toInt());
+		if(index == TRANSFORM::ARCSIN5)
+		{
+			IfValid(settings.value(Keys::transformValueKey), [&transform, index](const QVariant& value)
+				{
 
-	IfValid(settings.value(Keys::conversionIndexKey), [conversionCombo](const QVariant& value)
-	{
-		conversionCombo->setCurrentIndex(value.toInt());
+					transform.set(std::make_pair(index, value.toDouble()));
+				});
+		}
+		else
+		{
+			TRANSFORM::Type type_pair;
+			type_pair.first = index;
+			type_pair.second = 1.0f;
+			transform.set(type_pair);
+		}
+		
 	});
-	IfValid(settings.value(Keys::selectedNameFilterKey), [&openFileDialog](const QVariant& value)
+
+	QFileDialog& fileDialogRef = _fileDialog;
+	IfValid(settings.value(Keys::selectedNameFilterKey), [&fileDialogRef](const QVariant& value)
 	{
-		openFileDialog.selectNameFilter(value.toString());
+			fileDialogRef.selectNameFilter(value.toString());
 	});
-	IfValid(settings.value(Keys::fileNameKey), [&openFileDialog](const QVariant& value)
+	IfValid(settings.value(Keys::fileNameKey), [&fileDialogRef](const QVariant& value)
 	{
-		openFileDialog.selectFile(value.toString());
+			fileDialogRef.selectFile(value.toString());
 	});
 
 	const auto onFilterSelected = [&normalizeCheck, &normalizeLabel](const QString& nameFilter)
@@ -131,71 +164,69 @@ void HDF5Loader::loadData()
 		normalizeLabel.setVisible(isTomeSelected);
 	};
 
-	QObject::connect(&openFileDialog, &QFileDialog::filterSelected, onFilterSelected);
-	onFilterSelected(openFileDialog.selectedNameFilter());
+	QObject::connect(&_fileDialog, &QFileDialog::filterSelected, onFilterSelected);
+	onFilterSelected(_fileDialog.selectedNameFilter());
 
-	if (openFileDialog.exec())
+	if (_fileDialog.exec())
 	{
-		QStringList fileNames = openFileDialog.selectedFiles();
+		QStringList fileNames = _fileDialog.selectedFiles();
 
 		if (fileNames.empty())
 		{
 			return;
 		}
-		const QString fileName = fileNames.constFirst();
+		const QString firstFileName = fileNames.constFirst();
 
-		Points *result = nullptr;
-		QString selectedNameFilter = openFileDialog.selectedNameFilter();
-		const auto conversionIndex = conversionCombo->currentIndex();
-		const auto normalize = normalizeCheck.isChecked();
+		bool result = true;
+		QString selectedNameFilter = _fileDialog.selectedNameFilter();
+		const TRANSFORM::Type transform_setting = transform.get();
+		const bool normalize = normalizeCheck.isChecked();
 
-		settings.setValue(Keys::conversionIndexKey, conversionIndex);
-		settings.setValue(Keys::fileNameKey, fileName);
+		settings.setValue(Keys::conversionIndexKey, transform_setting.first);
+		settings.setValue(Keys::transformValueKey, transform_setting.second);
+		settings.setValue(Keys::fileNameKey, firstFileName);
 		settings.setValue(Keys::normalizeKey, normalize);
 		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
 
 		if (selectedNameFilter == "TOME (*.tome)")
 		{
-			HDF5_TOME_Loader loader(_core);
-			result = loader.open(fileName, conversionIndex, normalize);
+			for (const auto fileName : fileNames)
+			{
+				HDF5_TOME_Loader loader(_core);
+				loader.open(firstFileName, transform_setting, normalize);
+			}
 		}
 		else if (selectedNameFilter == "10X (*.h5)")
 		{
-			HDF5_10X_Loader loader(_core);
-			result = loader.open(fileName, 0, conversionIndex);
+			for (const auto fileName : fileNames)
+			{
+				HDF5_10X_Loader loader(_core);
+				if (loader.open(fileName))
+				{
+					loader.load(transform_setting, 0);
+				}
+				else
+				{
+					QString mesg = "Could not open " + fileName + ". Make sure the file has the correct file extension and is not corrupted.";
+					QMessageBox::critical(nullptr, "Error loading file(s)", mesg);
+				}
+			}
 		}
 		else if (selectedNameFilter == "H5AD (*.h5ad)")
 		{
 			HDF5_AD_Loader loader(_core);
-			result = loader.open(fileName);
+			for (const auto fileName : fileNames)
+			{
+				if (loader.open(fileName))
+					loader.load();
+				else
+				{
+					QString mesg = "Could not open " + fileName + ". Make sure the file has the correct file extension and is not corrupted.";
+					QMessageBox::critical(nullptr, "Error loading file(s)", mesg);
+				}
+			}
+		
 		}
-// 
-// #ifdef _DEBUG
-// 		if (result)
-// 		{
-// 			std::int64_t numDimensions = result->getNumDimensions();
-// 			std::uint64_t numPoints = result->getNumPoints();
-// 			std::vector<double> sum(result->getNumDimensions());
-// 			#pragma  omp parallel for
-// 			for (std::int64_t i = 0; i < numDimensions; ++i)
-// 			{
-// 				for (std::uint64_t j = 0; j < numPoints; ++j)
-// 					sum[i] += (*result)[(j*numDimensions) + i];
-// 
-// 			}
-// 			QMap<QString, double> x;
-// 			for (std::int64_t i = 0; i < numDimensions; ++i)
-// 			{
-// 				x[result->getDimensionNames()[i]] = sum[i] / numPoints;
-// 			}
-// 
-// 			for (auto it : x.toStdMap())
-// 			{
-// 				qInfo() << it.first << " " << it.second;
-// 			}
-// 		}
-// #endif
 	}
-
 }
 

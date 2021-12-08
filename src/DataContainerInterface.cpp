@@ -4,6 +4,7 @@
 #include <cassert>
 #include <numeric>
 #include <algorithm>
+#include <DataHierarchyItem.h>
 #include <QInputDialog>
 #include <QDebug>
 #include "Plugin.h"
@@ -13,11 +14,42 @@
 #include <QLabel>
 #include <QString>
 #include <stdexcept> // For std::out_of_range.
+#include <iostream>
+#include <QBitArray>
+#include <omp.h>
 
+using namespace hdps;
 
+namespace local
+{
+	class Progress
+	{
+		hdps::DataHierarchyItem& dataHierarcyItem;
 
-DataContainerInterface::DataContainerInterface(Points *points)
-	:m_data(points)
+	public:
+		Progress(hdps::DataHierarchyItem& item, const QString& taskName, std::size_t nrOfSteps)
+			:dataHierarcyItem(item)
+		{
+			dataHierarcyItem.setTaskName(taskName);
+			dataHierarcyItem.setTaskDescription(taskName);
+			dataHierarcyItem.setTaskRunning();
+			dataHierarcyItem.setNumberOfSubTasks(nrOfSteps);
+		}
+
+		void setStep(std::size_t step)
+		{
+			if(omp_get_thread_num() == 0)
+				dataHierarcyItem.setSubTaskFinished(step);
+		}
+
+		~Progress()
+		{
+			dataHierarcyItem.setTaskFinished();
+		}
+	};
+}
+DataContainerInterface::DataContainerInterface(Dataset<Points> points) :
+	m_data(points)
 {
 	
 }
@@ -26,7 +58,15 @@ void DataContainerInterface::resize(RowID rows, ColumnID columns, std::size_t re
 {
 	if (m_data->getNumPoints() ==0)
 	{
+		try
+		{
 			m_data->setData(nullptr, rows, columns);
+		}
+		catch(const std::bad_alloc &e)
+		{
+			qDebug() << "Bad Allocation in setData: " << rows << " x " << columns;
+		}
+			
 			
 
 			qDebug() << "Number of dimensions: " << m_data->getNumDimensions();
@@ -34,13 +74,16 @@ void DataContainerInterface::resize(RowID rows, ColumnID columns, std::size_t re
 	}
 }
 
+
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
 	long long lrows = ((long long)m_data->getNumPoints());
 	auto columns = m_data->getNumDimensions();
-	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns](const auto beginOfData, const auto endOfData)
+	
+	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
+	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
-#pragma omp parallel for
+			#pragma omp parallel for schedule(dynamic,1)
 			for (long long row = 0; row < lrows; ++row)
 			{
 				uint32_t start = row_offset[row];
@@ -53,7 +96,7 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_i
 					uint64_t column = column_index[i];
 					if (value != 0)
 					{
-						switch (transformType)
+						switch (transformType.first)
 						{
 						case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
 						case TRANSFORM::LOG:  beginOfData[points_offset + column] =  log2(1 + value); break;
@@ -62,15 +105,53 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_i
 						}
 					}
 				}
+				progress.setStep(row);
+
+			}
+		});
+	
+}
+void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<biovault::bfloat16_t>& data, TRANSFORM::Type transformType)
+{
+	long long lrows = ((long long)m_data->getNumPoints());
+	auto columns = m_data->getNumDimensions();
+	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
+	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
+		{
+			QBitArray qba(lrows, false);
+			#pragma omp parallel for schedule(dynamic,1)
+			for (long long row = 0; row < lrows; ++row)
+			{
+				uint32_t start = row_offset[row];
+				uint32_t end = row_offset[row + 1];
+				uint64_t points_offset = row * columns;
+
+				for (uint64_t i = start; i < end; ++i)
+				{
+					float value = data[i];
+					uint64_t column = column_index[i];
+					if (value != 0)
+					{
+						switch (transformType.first)
+						{
+						case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
+						case TRANSFORM::LOG:  beginOfData[points_offset + column] = log2(1 + value); break;
+						case TRANSFORM::ARCSIN5: beginOfData[points_offset + column] = asinh(value / 5.0); break;
+						case TRANSFORM::SQRT: beginOfData[points_offset + column] = sqrt(value); break;
+						}
+					}
+				}
+
+				progress.setStep(row);
 			}
 		});
 }
-
 void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
 	long long lrows = ((long long)m_data->getNumPoints());
 	auto columns = m_data->getNumDimensions();
-	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns](const auto beginOfData, const auto endOfData)
+	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
+	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 #pragma omp parallel for
 			for (long long row = 0; row < lrows; ++row)
@@ -85,7 +166,7 @@ void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &col
 					uint64_t column = column_index[i];
 					if (value != 0)
 					{
-						switch (transformType)
+						switch (transformType.first)
 						{
 						case TRANSFORM::NONE: beginOfData[points_offset + column] += value; break;
 						case TRANSFORM::LOG:  beginOfData[points_offset + column] += log2(1 + value); break;
@@ -94,16 +175,19 @@ void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &col
 						}
 					}
 				}
+				progress.setStep(row);
 			}
+			
 		});
 }
 
 void DataContainerInterface::set_sparse_column_data(std::vector<uint64_t> &row_index, std::vector<uint32_t> &column_offset, std::vector<float> &data, TRANSFORM::Type transformType /*= TRANSFORM::NONE*/)
 {
 	auto columns = m_data->getNumDimensions();
-	m_data->visitFromBeginToEnd([&column_offset, &row_index, &data, transformType, columns](const auto beginOfData, const auto endOfData)
+	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", columns);
+	m_data->visitFromBeginToEnd([&column_offset, &row_index, &data, transformType, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
-#pragma  omp parallel for
+			#pragma  omp parallel for
 			for (long long column = 0; column < columns; ++column)
 			{
 				uint32_t start = column_offset[column];
@@ -114,7 +198,7 @@ void DataContainerInterface::set_sparse_column_data(std::vector<uint64_t> &row_i
 					float value = data[i];
 					if (value != 0)
 					{
-						switch (transformType)
+						switch (transformType.first)
 						{
 						case TRANSFORM::NONE: beginOfData[(r*columns) + column] = value; break;
 						case TRANSFORM::LOG:  beginOfData[(r*columns) + column] = log2(1 + value); break;
@@ -123,7 +207,9 @@ void DataContainerInterface::set_sparse_column_data(std::vector<uint64_t> &row_i
 						}
 					}
 				}
+				progress.setStep(column);
 			}
+			
 		});
 }
 
@@ -131,7 +217,8 @@ void DataContainerInterface::increase_sparse_column_data(std::vector<uint64_t> &
 
 {
 	auto columns = m_data->getNumDimensions();
-	m_data->visitFromBeginToEnd([&row_index, &column_offset, &data, transformType, columns](const auto beginOfData, const auto endOfData)
+	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", columns);
+	m_data->visitFromBeginToEnd([&row_index, &column_offset, &data, transformType, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 #pragma  omp parallel for
 			for (long long column = 0; column < columns; ++column)
@@ -144,7 +231,7 @@ void DataContainerInterface::increase_sparse_column_data(std::vector<uint64_t> &
 					float value = data[i];
 					if (value != 0)
 					{
-						switch (transformType)
+						switch (transformType.first)
 						{
 						case TRANSFORM::NONE: beginOfData[(r*columns) + column] += value; break;
 						case TRANSFORM::LOG:  beginOfData[(r*columns) + column] += log2(1 + value); break;
@@ -154,6 +241,7 @@ void DataContainerInterface::increase_sparse_column_data(std::vector<uint64_t> &
 						}
 					}
 				}
+				progress.setStep(column);
 			}
 		});
 }
@@ -162,9 +250,10 @@ void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool 
 {
 	const auto rows = m_data->getNumPoints();
 	const auto columns = m_data->getNumDimensions();
-	if ((transformType == TRANSFORM::NONE) && !normalized_and_cpm)
+	if ((transformType.first == TRANSFORM::NONE) && !normalized_and_cpm)
 		return;
-	m_data->visitFromBeginToEnd([transformType, rows, columns](const auto beginOfData, const auto endOfData)
+	local::Progress progress(m_data->getDataHierarchyItem(), "Processing Data", rows);
+	m_data->visitFromBeginToEnd([transformType, rows, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 #pragma omp parallel for
 			for (std::int64_t row = 0; row < rows; ++row)
@@ -179,7 +268,7 @@ void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool 
 					if (value != 0)
 					{
 						const DataValue normalized_cpm_value = (sum == 0) ? 0 : 1e6 * (value / sum);
-						switch (transformType)
+						switch (transformType.first)
 						{
 						case TRANSFORM::NONE: *i = normalized_cpm_value; break;
 						case TRANSFORM::LOG: *i = log2(1 + normalized_cpm_value); break;
@@ -188,11 +277,13 @@ void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool 
 						}
 					}
 				}
+
+				progress.setStep(row);
 			}
 		});
 }
 
-Points * DataContainerInterface::points()
+hdps::Dataset<Points> DataContainerInterface::points()
 {
 	return m_data;
 }
@@ -218,7 +309,7 @@ void DataContainerInterface::addRow(RowID row, const std::vector<uint32_t> &colu
 				float value = *d;
 				auto column = *i;
 
-				switch (transformType)
+				switch (transformType.first)
 				{
 				case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
 				case TRANSFORM::LOG:  beginOfData[points_offset + column] = log2(1 + value); break;
@@ -237,7 +328,7 @@ void DataContainerInterface::add(std::vector<uint32_t> *rows, std::vector<uint32
 	{
 		m_rows = rows->size() - 1;
 		assert(false);
-		//m_data.resize(m_rows);
+		//m_data->resize(m_rows);
 	}
 	long long lrows = ((long long)m_rows);
 	#pragma omp parallel for
@@ -258,7 +349,7 @@ void DataContainerInterface::add(std::vector<uint32_t> *rows, std::vector<uint32
 					auto column = *i;
 					if (value != 0)
 					{
-						switch (transformType)
+						switch (transformType.first)
 						{
 						case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
 						case TRANSFORM::LOG:  beginOfData[points_offset + column] = log2(1 + value); break;

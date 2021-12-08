@@ -1,24 +1,18 @@
-#pragma once
-
-#include <DataHierarchyItem.h>
+#ifndef H5UTILS_H
+#define H5UTILS_H
 
 #include "H5Cpp.h"
 #include <string>
 #include <vector>
 #include <map>
-#include <QVariant>
-#include <QColor>
-#include "PointData.h"
-#include "Dataset.h"
-#include "DataHierarchyItem.h"
-#include <QBitArray>
-namespace hdps
-{
-	class CoreInterface;
-}
+#include "QVariant"
+#include "../MCV_DataTypes.h"
 
 namespace H5Utils
 {
+	
+
+	
 	template<typename T>
 	class MultiDimensionalData
 	{
@@ -58,9 +52,6 @@ namespace H5Utils
 		dataset.read(mdd.data.data(), mem_type);
 		return true;
 	}
-
-
-
 	template<typename T>
 	bool read_vector(H5::Group &group, const std::string &name, std::vector<T>*vector_ptr, const H5::DataType &mem_type)
 	{
@@ -97,51 +88,9 @@ namespace H5Utils
 		return true;
 	}
 
-	
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result);
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<QString>& result);
 	void read_strings(H5::DataSet &dataset, std::size_t totalsize, std::vector<std::string> &result);
-	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<QString>& result);
 
-	bool read_vector_string(H5::DataSet &dataset, std::vector<std::string> &result);
-	bool read_vector_string(H5::DataSet &dataset, std::vector<QString>& result);
-
-	//bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result);
-
-	inline const std::string QColor_to_stdString(const QColor& color);
-
-	template<class RandomIterator>
-	void transpose(RandomIterator first, RandomIterator last, int m, hdps::DataHierarchyItem &progressItem)
-	{
-		const int mn1 = (last - first - 1);
-		const int n = (last - first) / m;
-		RandomIterator cycle = first;
-		QBitArray visited(last - first, false);
-		std::size_t update = 0;
-		std::size_t updateFrequency = (std::max)(1, mn1/200);
-		while (++cycle != last) {
-			if (visited.at(cycle - first))
-				continue;
-			int a = cycle - first;
-			do {
-				a = a == mn1 ? mn1 : (n * a) % mn1;
-				std::swap(*(first + a), *cycle);
-				visited.setBit(a,true);
-				++update;
-				if(update == updateFrequency)
-				{
-					update = 0;
-					progressItem.setTaskProgress(static_cast<float>(visited.count(true)) / visited.size());
-				}
-				
-			} while ((first + a) != cycle);
-		}
-	}
-
-	bool is_number(const std::string& s);
-	bool is_number(const QString& s);
-	
-
+	bool read_vector_string(H5::DataSet dataset, std::vector<std::string> &result);
 
 	class CompoundExtractor
 	{
@@ -184,12 +133,6 @@ namespace H5Utils
 	//bool read_buffer_vector(H5::DataSet &dataset, std::vector<std::vector<char>> &result);
 
 	std::size_t get_vector_size(const H5::DataSet &dataset);
-
 	
-	hdps::Dataset<Points> createPointsDataset(::hdps::CoreInterface* core,bool ask=true, QString=QString());
-
-	
-	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points>& parent, QString name=QString());
-	void addClusterMetaData(hdps::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, hdps::Dataset<Points>& parent, std::map<QString, QColor> colors = std::map<QString, QColor>());
 }
-
+#endif

@@ -3,7 +3,7 @@
 #include <LoaderPlugin.h>
 
 #include <QObject>
-
+#include <QFileDialog>
 using namespace hdps::plugin;
 
 // =============================================================================
@@ -11,8 +11,11 @@ using namespace hdps::plugin;
 // =============================================================================
 
 
+
 class HDF5Loader : public QObject, public LoaderPlugin
 {
+	QFileDialog _fileDialog;
+	
 public:
     HDF5Loader(PluginFactory* factory);
     ~HDF5Loader() override;

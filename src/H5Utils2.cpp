@@ -1,12 +1,6 @@
 #include "H5Utils.h"
 #include <iostream>
 #include <cstdint>
-#include <QInputDialog>
-#include <QMainWindow>
-#include "Cluster.h"
-#include "ClusterData.h"
-#include "PointData.h"
-#include "DataHierarchyItem.h"
 
 namespace H5Utils
 {
@@ -28,11 +22,11 @@ namespace H5Utils
 
 		bool ExtractQVariantValues(const std::vector< std::vector<char> > &raw_buffer, H5::CompType compType, const std::string &name, std::vector<QVariant> &result)
 		{
-			auto nrOfItems = raw_buffer.size();
+			long long nrOfItems = raw_buffer.size();
 			if (result.size() < nrOfItems)
 				result.resize(nrOfItems);
 			bool ok = true;
-			for (std::size_t i = 0; i < nrOfItems; ++i)
+			for (long long i = 0; i < nrOfItems; ++i)
 			{
 				CompoundExtractor ce(raw_buffer[i], compType);
 				result[i] = ce.extractVariant(name);
@@ -60,8 +54,8 @@ namespace H5Utils
 			T* ptr;
 
 		};
-		
-		bool read_var_length_compound_strings(const H5::DataSet &dataset, const std::string &name, std::vector<QVariant> &result)
+		template<typename StringTemplate>
+		bool read_var_length_compound_strings(const H5::DataSet &dataset, const std::string &name, std::vector<StringTemplate> &result)
 		{
 			
 			typedef VarLenStruct<char> StringStruct;
@@ -70,7 +64,6 @@ namespace H5Utils
 
 			// create datatypes
 			H5::StrType strType(H5T_C_S1, H5T_VARIABLE);
-			
 			strType.setCset(dataSetCompType.getMemberStrType(dataSetCompType.getMemberIndex(name)).getCset());
 			H5::CompType compType(sizeof(StringStruct));
 			compType.insertMember(name, HOFFSET(StringStruct, ptr), strType);
@@ -83,19 +76,9 @@ namespace H5Utils
 				dataset.read(buffer.data(), compType);
 				// copy results
 				result.resize(size);
-				if (strType.getCset() == H5T_CSET_UTF8)
+				for (auto i = 0; i < size; ++i)
 				{
-					for (auto i = 0; i < size; ++i)
-					{
-						result[i] = QString::fromUtf8((const char*)buffer[i].ptr);
-					}
-				}
-				else
-				{
-					for (auto i = 0; i < size; ++i)
-					{
-						result[i] = (const char*)buffer[i].ptr;
-					}
+					result[i] = (const char*)buffer[i].ptr;
 				}
 				/*
 				* Release resources.  Note that H5Dvlen_reclaim works
@@ -108,43 +91,21 @@ namespace H5Utils
 			return false;
 		}
 
-		void CreateColorVector(std::size_t nrOfColors, std::vector<QColor>& colors)
-		{
-
-			if (nrOfColors)
-			{
-				colors.resize(nrOfColors);
-				std::size_t index = 0;
-				for (std::size_t i = 0; i < nrOfColors; ++i)
-				{
-					const float h = std::min<float>((1.0 * i / (nrOfColors + 1)), 1.0f);
-					if (h > 1 || h < 0)
-					{
-						int bp = 0;
-						bp++;
-					}
-					colors[i] = QColor::fromHsvF(h, 0.5f, 1.0f);
-				}
-			}
-			else
-				colors.clear();
-		}
 
 	}
-	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<std::string>& result)
+
+	void read_strings(H5::DataSet &dataset, std::size_t totalsize, std::vector<std::string> &result)
 	{
 		try
 		{
-			H5::StrType strType = dataset.getStrType();
-			bool utf8 = (strType.getCset() == H5T_CSET_UTF8);
-			assert(utf8 == false);
-			std::size_t stringSize = strType.getSize();
+			H5::DataType dtype = dataset.getDataType();
+			std::size_t stringSize = dtype.getSize();
 			result.resize(totalsize);
-			std::vector<char> rData(totalsize * stringSize);
-			dataset.read(rData.data(), strType);
+			std::vector<char> rData(totalsize*stringSize);
+			dataset.read(rData.data(), dtype);
 			for (std::size_t d = 0; d < totalsize; ++d)
 			{
-				auto offset = rData.cbegin() + (d * stringSize);
+				auto offset = rData.cbegin() + (d*stringSize);
 				if (*offset == '\"')
 					result[d] = std::string(offset + 1, offset + stringSize - 1).c_str();
 				else
@@ -152,123 +113,14 @@ namespace H5Utils
 			}
 
 		}
-		catch (const std::exception& e)
-		{
-			std::cout << e.what() << std::endl;
-			result.clear();
-		}
-	}
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result)
-	{
-		//	std::cout << name << " ";
-		if (!group.exists(name))
-			return false;
-		H5::DataSet dataset = group.openDataSet(name);
-
-		H5::DataSpace dataspace = dataset.getSpace();
-		/*
-		* Get the number of dimensions in the dataspace.
-		*/
-		const int dimensions = dataspace.getSimpleExtentNdims();
-		std::size_t totalSize = 1;
-		if (dimensions > 0)
-		{
-			//		std::cout << "rank " << dimensions << ", dimensions ";
-			std::vector<hsize_t> dimensionSize(dimensions);
-			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
-			for (std::size_t d = 0; d < dimensions; ++d)
-			{
-				//			std::cout << (unsigned long)dimensionSize[d] << " ";
-				totalSize *= dimensionSize[d];
-			}
-			//		std::cout << std::endl;
-		}
-		if (dimensions != 1)
-		{
-			return false;
-		}
-		H5Utils::read_strings(dataset, totalSize, result);
-		dataset.close();
-		return true;
-	}
-
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<QString>& result)
-	{
-		//	std::cout << name << " ";
-		if (!group.exists(name))
-			return false;
-		H5::DataSet dataset = group.openDataSet(name);
-
-		H5::DataSpace dataspace = dataset.getSpace();
-		/*
-		* Get the number of dimensions in the dataspace.
-		*/
-		const int dimensions = dataspace.getSimpleExtentNdims();
-		std::size_t totalSize = 1;
-		if (dimensions > 0)
-		{
-			//		std::cout << "rank " << dimensions << ", dimensions ";
-			std::vector<hsize_t> dimensionSize(dimensions);
-			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
-			for (std::size_t d = 0; d < dimensions; ++d)
-			{
-				//			std::cout << (unsigned long)dimensionSize[d] << " ";
-				totalSize *= dimensionSize[d];
-			}
-			//		std::cout << std::endl;
-		}
-		if (dimensions != 1)
-		{
-			return false;
-		}
-		H5Utils::read_strings(dataset, totalSize, result);
-		dataset.close();
-		return true;
-	}
-
-	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<QString>& result)
-	{
-		try
-		{
-			H5::StrType strType = dataset.getStrType();
-			bool utf8 = (strType.getCset() == H5T_CSET_UTF8);
-			std::size_t stringSize = strType.getSize();
-			result.resize(totalsize);
-			std::vector<char> rData(totalsize * stringSize);
-			dataset.read(rData.data(), strType);
-			if(utf8)
-			{
-				for (std::size_t d = 0; d < totalsize; ++d)
-				{
-					auto offset = rData.cbegin() + (d * stringSize);
-					if (*offset == '\"')
-						result[d] = QString::fromUtf8(std::string(offset + 1, offset + stringSize - 1).c_str());
-					else
-						result[d] = QString::fromUtf8(std::string(offset, offset + stringSize).c_str());
-				}
-			}
-			else
-			{
-				for (std::size_t d = 0; d < totalsize; ++d)
-				{
-					auto offset = rData.cbegin() + (d * stringSize);
-					if (*offset == '\"')
-						result[d] = std::string(offset + 1, offset + stringSize - 1).c_str();
-					else
-						result[d] = std::string(offset, offset + stringSize).c_str();
-				}
-			}
-			
-
-		}
-		catch (const std::exception& e)
+		catch (const std::exception &e)
 		{
 			std::cout << e.what() << std::endl;
 			result.clear();
 		}
 	}
 
-	bool read_vector_string(H5::DataSet &dataset, std::vector<std::string> &result)
+	bool read_vector_string(H5::DataSet dataset, std::vector<std::string> &result)
 	{
 		H5::DataSpace dataspace = dataset.getSpace();
 		
@@ -280,7 +132,6 @@ namespace H5Utils
 			
 			// create datatypes
 			H5::StrType strType = dataset.getStrType();
-			bool utf8 = (strType.getCset() == H5T_CSET_UTF8);
 			std::size_t size = get_vector_size(dataset);
 			if (size)
 			{
@@ -293,7 +144,6 @@ namespace H5Utils
 				for (auto i = 0; i < size; ++i)
 				{
 					result[i] = (const char*)buffer[i].ptr;
-						
 				}
 				/*
 				* Release resources.  Note that H5Dvlen_reclaim works
@@ -332,85 +182,6 @@ namespace H5Utils
 			return true;
 		}
 		
-	}
-
-
-	bool read_vector_string(H5::DataSet &dataset, std::vector<QString>& result)
-	{
-		H5::DataSpace dataspace = dataset.getSpace();
-
-
-		H5::DataType datatype = dataset.getDataType();
-		if (datatype.isVariableStr())
-		{
-			typedef local::VarLenStruct<char> StringStruct;
-
-			// create datatypes
-			H5::StrType strType = dataset.getStrType();
-			bool utf8 = (strType.getCset() == H5T_CSET_UTF8);
-			std::size_t size = get_vector_size(dataset);
-			if (size)
-			{
-				std::vector<StringStruct> buffer(size);
-
-				//read stuff
-				dataset.read(buffer.data(), strType);
-				if(utf8)
-				{
-					// copy results
-					result.resize(size);
-					for (auto i = 0; i < size; ++i)
-					{
-							result[i] = QString::fromUtf8((const char*)buffer[i].ptr);
-					}
-				}
-				else
-				{
-					// copy results
-					result.resize(size);
-					for (auto i = 0; i < size; ++i)
-					{
-						result[i] = (const char*)buffer[i].ptr;
-					}
-				}
-				
-				/*
-				* Release resources.  Note that H5Dvlen_reclaim works
-				* for variable-length strings as well as variable-length arrays.
-				*/
-				H5::DataSet::vlenReclaim(strType, dataset.getSpace(), H5P_DEFAULT, buffer.data());
-				buffer.clear();
-				return true;
-			}
-			return false;
-		}
-		else
-		{
-			/*
-			* Get the number of dimensions in the dataspace.
-			*/
-			const int dimensions = dataspace.getSimpleExtentNdims();
-			std::size_t totalSize = 1;
-			if (dimensions > 0)
-			{
-
-				std::vector<hsize_t> dimensionSize(dimensions);
-				int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
-				for (std::size_t d = 0; d < dimensions; ++d)
-				{
-					totalSize *= dimensionSize[d];
-				}
-
-			}
-			if (dimensions != 1)
-			{
-				return false;
-			}
-			read_strings(dataset, totalSize, result);
-			dataset.close();
-			return true;
-		}
-
 	}
 
 	bool read_compound_buffer(const H5::DataSet &dataset, std::vector<std::vector<char>> &result)
@@ -858,158 +629,5 @@ namespace H5Utils
 		}
 		
 	}
-
-	bool is_number(const std::string& s)
-	{
-
-		char* end = nullptr;
-		strtod(s.c_str(), &end);
-		return *end == '\0';
-	}
-
-	bool is_number(const QString& s)
-	{
-		return is_number(s.toStdString());
-	}
-
-	inline const std::string QColor_to_stdString(const QColor& color)
-	{
-		return color.name().toUpper().toStdString();
-	}
-
-
-	QMainWindow* getMainWindow()
-	{
-		foreach(QWidget * w, qApp->topLevelWidgets())
-			if (QMainWindow* mainWin = qobject_cast<QMainWindow*>(w))
-				return mainWin;
-		return nullptr;
-	}
-
-	Dataset<Points> createPointsDataset(hdps::CoreInterface* core, bool ask, QString suggestion)
-	{
-		QString dataSetName = suggestion;
-		
-		if (ask || suggestion.isEmpty())
-		{
-			if (suggestion.isEmpty())
-				suggestion = "Dataset";
-			bool ok = true;
-			dataSetName = QInputDialog::getText(getMainWindow(), "Add New Dataset",
-				"Dataset name:", QLineEdit::Normal, suggestion, &ok);
-
-			if (!ok || dataSetName.isEmpty())
-			{
-				throw std::out_of_range("Dataset name out of range");
-			}
-		}
-
-		
-		hdps::Dataset<Points> newDataset = core->addDataset("Points", dataSetName);
-		core->notifyDataAdded(newDataset);
-		
-		return newDataset;
-	}
-
-
-	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points>& parent, QString name)
-	{
-		const std::size_t numberOfDimensions = numericalDimensionNames.size();
-		if (numberOfDimensions)
-		{
-
-
-
-
-
-			std::size_t nrOfSamples = numericalData.size() / numberOfDimensions;
-
-
-			QString numericalDatasetName = "Numerical MetaData";
-			if (!name.isEmpty())
-			{
-				// if numericalMetaDataDimensionNames start with name, remove it
-				for (auto& dimName : numericalDimensionNames)
-				{
-					if (dimName.indexOf(name) == 0)
-					{
-						dimName.remove(0, name.length());
-					}
-					// remove forward slash from dimName if it has one
-					if (dimName[0] == '/')
-						dimName.remove(0, 1);
-				}
-				// remove forward slash from name if it has one
-				if (name[0] == '/')
-					name.remove(0, 1);
-				numericalDatasetName = name + " (numerical)";
-			}
-
-			
-			Dataset<Points> numericalMetadataDataset = core->createDerivedData(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
-			core->notifyDataAdded(numericalMetadataDataset);
-			
-			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
-			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
-			numericalMetadataDataset->getDataHierarchyItem().setTaskRunning();
-
-			if (transpose)
-			{
-				H5Utils::transpose(numericalData.begin(), numericalData.end(), nrOfSamples, numericalMetadataDataset->getDataHierarchyItem());
-			}
-			
-			numericalMetadataDataset->setDataElementType<float>();
-			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
-
-			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
-
-			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
-
-			core->notifyDataChanged(numericalMetadataDataset);
-		}
-	}
-
-	void addClusterMetaData(hdps::CoreInterface *core, std::map<QString, std::vector<unsigned int>> &indices, QString name, hdps::Dataset<Points>& parent, std::map<QString, QColor> colors)
-	{
-		if (indices.size() <= 1)
-			return; // no point in adding only a single cluster
-		if (name[0] == '/')
-			name.remove(0, 1);
-		if (colors.empty())
-		{
-			std::vector<QColor> qcolors;
-			local::CreateColorVector(indices.size(), qcolors);
-			std::size_t index = 0;
-			for (const auto& indice : indices)
-			{
-				colors[indice.first] = qcolors[index];
-				++index;
-			}
-		}
-		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", name, parent);
-
-		core->notifyDataAdded(clusterDataset);
-		
-		clusterDataset->getClusters().reserve(indices.size());
-		
-		for (const auto& indice : indices)
-		{
-			Cluster cluster;
-			if (indice.first.isEmpty())
-				cluster.setName(QString(" "));
-			else
-				cluster.setName(indice.first);
-			cluster.setColor(colors[indice.first]);
-
-			cluster.setIndices(indice.second);
-			clusterDataset->addCluster(cluster);
-		}
-
-		// Notify others that the clusters have changed
-		core->notifyDataChanged(clusterDataset);
-		
-	}
-
-		
 
 }

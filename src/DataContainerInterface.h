@@ -1,20 +1,16 @@
 #pragma once
 
 #include "PointData.h"
+#include "DataTransform.h"
+#include "Dataset.h"
 
 typedef std::uint64_t DataPointID;
 typedef std::uint64_t MarkerID;
 typedef float DataValue;
 
+;
 
-namespace TRANSFORM
-{
-	typedef enum { NONE, LOG, SQRT, ARCSIN5} Value;
-	typedef int Type;
-};
 
-class QComboBox;
-class QGridLayout;
 
 
 class DataContainerInterface // acting as a translation between Cytosplore Transcriptomics and PointData. Should be removed in the future
@@ -27,7 +23,7 @@ public:
 
 private:
 	
-	Points *m_data;
+	hdps::Dataset<Points>		m_data;
 	
 public:
 	void applyTransform(TRANSFORM::Type transformType, bool normalized_and_cpm);
@@ -35,10 +31,10 @@ public:
 	void addDataValue(RowID row, ColumnID column, float value, TRANSFORM::Type transformType);
 	void increaseDataValue(RowID row, ColumnID column, float value, TRANSFORM::Type transformType);
 	
-	explicit DataContainerInterface(Points *);
+	explicit DataContainerInterface(hdps::Dataset<Points> points);
 	~DataContainerInterface() = default;
 
-	Points *points();
+	hdps::Dataset<Points> points();
 
 // 	const DataValue get(RowID row, ColumnID column) const;
  	void set(RowID row, ColumnID column, const ValueType & value);
@@ -55,6 +51,7 @@ public:
 	void increase_sparse_column_data(std::vector<uint64_t> &i, std::vector<uint32_t> &p, std::vector<float> &x, TRANSFORM::Type transformType);
 
 	void set_sparse_row_data(std::vector<uint64_t> &i, std::vector<uint32_t> &p, std::vector<float> &x, TRANSFORM::Type transformType);
+	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<biovault::bfloat16_t>& x, TRANSFORM::Type transformType);
 	void increase_sparse_row_data(std::vector<uint64_t> &i, std::vector<uint32_t> &p, std::vector<float> &x, TRANSFORM::Type transformType);
 
 	

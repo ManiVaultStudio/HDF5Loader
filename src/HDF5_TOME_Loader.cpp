@@ -1,5 +1,7 @@
 #include "HDF5_TOME_Loader.h"
 
+//#include "util/Dataset.h"
+
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QFileDialog>
@@ -12,6 +14,10 @@
 #include "H5Utils.h"
 #include "DataContainerInterface.h"
 #include <iostream>
+
+#include "Cluster.h"
+#include "ClusterData.h"
+
 
 using namespace hdps;
 
@@ -109,10 +115,10 @@ namespace TOME
 				{
 					
 					rawData->resize(vector_dims[1], vector_dims[0]);
-					rawData->set_sparse_row_data(vector_i, vector_p, vector_x, TRANSFORM::NONE);
+					rawData->set_sparse_row_data(vector_i, vector_p, vector_x, TRANSFORM::None());
 				}
 				else
-					rawData->increase_sparse_row_data(vector_i, vector_p, vector_x, TRANSFORM::NONE);
+					rawData->increase_sparse_row_data(vector_i, vector_p, vector_x, TRANSFORM::None());
 			}
 		}
 		else if ((exon_available < nrOfGroupObjects) && (intron_available < nrOfGroupObjects))
@@ -139,10 +145,10 @@ namespace TOME
 				{
 					
 					rawData->resize(vector_dims[0], vector_dims[1]);
-					rawData->set_sparse_column_data(vector_i, vector_p, vector_x, TRANSFORM::NONE);
+					rawData->set_sparse_column_data(vector_i, vector_p, vector_x, TRANSFORM::None());
 				}
 				else
-					rawData->increase_sparse_column_data(vector_i, vector_p, vector_x, TRANSFORM::NONE);
+					rawData->increase_sparse_column_data(vector_i, vector_p, vector_x, TRANSFORM::None());
 			}
 		}
 		else
@@ -152,7 +158,7 @@ namespace TOME
 			rawData->applyTransform(transformType, normalize_and_cpm);
 	}
 
-	void LoadGeneNames(H5::DataSet &dataset, Points *points)
+	void LoadGeneNames(H5::DataSet &dataset, Dataset<Points> &pointsDataset)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Gene Names" << std::endl;
@@ -165,10 +171,10 @@ namespace TOME
 		for (int i = 0; i < gene_names.size(); ++i)
 			dimensionNames[i] = gene_names[i].c_str();
 
-		points->setDimensionNames(dimensionNames);
+		pointsDataset->setDimensionNames(dimensionNames);
 	}
 
-	void LoadSampleNames(H5::DataSet &dataset, Points *points)
+	void LoadSampleNames(H5::DataSet &dataset, Dataset<Points> &points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Sample Names" << std::endl;
@@ -181,11 +187,11 @@ namespace TOME
 		{
 			list.append(sample_names[i].c_str());
 		}
-		points->setProperty("Sample Names", list);
+		points.setProperty("Sample Names", list);
 		
 	}
 
-	bool LoadSampleMeta(H5::Group &group, Points *points)
+	bool LoadSampleMeta(H5::Group &group, Dataset<Points> &points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl;
@@ -266,8 +272,8 @@ namespace TOME
 
 							std::string color_label = label + "_color";
 							
-							points->setProperty(label.c_str(), newMetaDataValues);
-							points->setProperty(color_label.c_str(), newMetaDataColors);
+							points.setProperty(label.c_str(), newMetaDataValues);
+							points.setProperty(color_label.c_str(), newMetaDataColors);
 						}
 					}
 				}
@@ -287,14 +293,10 @@ HDF5_TOME_Loader::HDF5_TOME_Loader(hdps::CoreInterface *core)
 	_core = core;
 }
 
-Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, bool normalize)
+bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionIndex, bool normalize)
 {
-
-	
-
 	try
 	{
-		Points *points = nullptr;
 		bool ok;
 		QString dataSetName = QInputDialog::getText(nullptr, "Add New Dataset",
 			"Dataset name:", QLineEdit::Normal, "DataSet", &ok);
@@ -304,14 +306,12 @@ Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, boo
 			return nullptr;
 		}
 
-		const QString name = _core->addData("Points", dataSetName);
-		points = &_core->requestData<Points>(name);
+		auto points = _core->addDataset<Points>("Points", dataSetName);
 
-		if (points == nullptr)
+		if (!points.isValid())
 			return nullptr;
 
-		QGuiApplication::setOverrideCursor(Qt::WaitCursor);
-		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points));
+		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points.get<Points>()));
 
 		H5::H5File file(fileName.toLatin1().constData(), H5F_ACC_RDONLY);
 
@@ -363,9 +363,10 @@ Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, boo
 // 		}
 
 
-		_core->notifyDataAdded(name);
-		QGuiApplication::restoreOverrideCursor();
-		return points;
+		_core->notifyDataAdded(points);
+
+
+		return points.get();
 	}
 	catch (std::exception &e)
 	{
@@ -373,7 +374,7 @@ Points *HDF5_TOME_Loader::open(const QString &fileName, int conversionIndex, boo
 		return nullptr;
 	}
 
-	QGuiApplication::restoreOverrideCursor();
+	return nullptr;
 }
 	
 

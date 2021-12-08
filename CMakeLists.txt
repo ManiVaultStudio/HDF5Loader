@@ -88,19 +88,21 @@ include_directories (${HDF5_INCLUDE_DIRS})
 include_directories("${INSTALL_DIR}/$<CONFIGURATION>/include/")
 
 set(SOURCES
-    src/HDF5Loader.h
-    src/HDF5Loader.cpp
+	src/HDF5Loader.h
+	src/HDF5Loader.cpp
 	src/HDF5LoaderFactory.h
 	src/HDF5LoaderFactory.cpp
-    src/HDF5Loader.json
+	src/HDF5Loader.json
 
 	src/DataContainerInterface.h
 	src/DataContainerInterface.cpp
 	src/H5Utils.h
 	src/H5Utils.cpp
+	src/DataTransform.h
+	src/DataTransform.cpp
 
 	src/HDF5_TOME_Loader.h
-    src/HDF5_TOME_Loader.cpp
+	src/HDF5_TOME_Loader.cpp
 
 	src/HDF5_10X_Loader.h
 	src/HDF5_10X_Loader.cpp
@@ -125,13 +127,14 @@ else()
 endif(MSVC)
 set(HDPS_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIGURATION>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}HDPS_Public${LIB_LINK_SUFFIX}")
 set(POINTDATA_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIGURATION>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}PointData${LIB_LINK_SUFFIX}")
+set(CLUSTERDATA_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIGURATION>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}ClusterData${LIB_LINK_SUFFIX}")
 
 target_compile_definitions(${PROJECT} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
 target_link_libraries(${PROJECT} Qt5::Widgets)
 target_link_libraries(${PROJECT} Qt5::WebEngineWidgets)
 target_link_libraries(${PROJECT} "${HDPS_LINK_LIBRARY}")
 target_link_libraries(${PROJECT} "${POINTDATA_LINK_LIBRARY}")
-
+target_link_libraries(${PROJECT} "${CLUSTERDATA_LINK_LIBRARY}")
 if(MSVC)
 	target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>)
 	target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>)
