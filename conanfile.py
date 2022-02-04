@@ -4,7 +4,6 @@ import os
 import shutil
 import pathlib
 import subprocess
-from packaging import version
 from rules_support import PluginBranchInfo
 
 
@@ -42,7 +41,18 @@ class HDF5LoaderConan(ConanFile):
         "url": "auto",
         "revision": "auto",
     }
-
+    def compareVersion(version1, version2):
+      versions1 = [int(v) for v in version1.split(".")]
+      versions2 = [int(v) for v in version2.split(".")]
+      for i in range(max(len(versions1),len(versions2))):
+         v1 = versions1[i] if i < len(versions1) else 0
+         v2 = versions2[i] if i < len(versions2) else 0
+         if v1 > v2:
+            return 1
+         elif v1 <v2:
+            return -1
+      return 0
+      
     def __get_git_path(self):
         path = load(
             pathlib.Path(pathlib.Path(__file__).parent.resolve(), "__gitpath.txt")
@@ -76,7 +86,7 @@ class HDF5LoaderConan(ConanFile):
     def system_requirements(self):
         if tools.os_info.is_macos:
             target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "10.13")
-            if version.parse(target) > version.parse("10.12"):
+            if compareVersion(target, 10.12) = 1:
                 installer = tools.SystemPackageTool()
                 installer.install("libomp")
 
