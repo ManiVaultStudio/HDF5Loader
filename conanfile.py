@@ -86,7 +86,7 @@ class HDF5LoaderConan(ConanFile):
     def system_requirements(self):
         if tools.os_info.is_macos:
             target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "10.13")
-            if compareVersion(target, 10.12) = 1:
+            if compareVersion(target, 10.12) == 1:
                 installer = tools.SystemPackageTool()
                 installer.install("libomp")
 
