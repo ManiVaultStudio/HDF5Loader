@@ -16,7 +16,9 @@
 #include <stdexcept> // For std::out_of_range.
 #include <iostream>
 #include <QBitArray>
+#if defined(_OPENMP)
 #include <omp.h>
+#endif
 
 using namespace hdps;
 
@@ -38,8 +40,10 @@ namespace local
 
 		void setStep(std::size_t step)
 		{
+#if defined(_OPENMP)
 			if(omp_get_thread_num() == 0)
 				dataHierarcyItem.setSubTaskFinished(step);
+#endif
 		}
 
 		~Progress()

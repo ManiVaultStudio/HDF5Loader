@@ -21,6 +21,9 @@
 
 #include "biovault_bfloat16.h"
 #include "H5Utils.h"
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 using namespace hdps;
 
 namespace HDF5_10X

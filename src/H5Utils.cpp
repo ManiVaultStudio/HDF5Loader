@@ -18,7 +18,7 @@ namespace H5Utils
 			long long nrOfItems = raw_buffer.size();
 			if (result.size() < nrOfItems)
 				result.resize(nrOfItems);
-//			#pragma omp parallel for
+
 			for (long long i = 0; i < nrOfItems; ++i)
 			{
 				CompoundExtractor ce(raw_buffer[i], compType);
@@ -46,7 +46,7 @@ namespace H5Utils
 			long long nrOfItems = raw_buffer.size();
 			if (result.size() < nrOfItems)
 				result.resize(nrOfItems);
-			//			#pragma omp parallel for
+			
 			for (long long i = 0; i < nrOfItems; ++i)
 			{
 				CompoundExtractor ce(raw_buffer[i], compType);
