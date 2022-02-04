@@ -4,6 +4,7 @@ import os
 import shutil
 import pathlib
 import subprocess
+from packaging import version
 from rules_support import PluginBranchInfo
 
 
