@@ -18,12 +18,7 @@ def compareVersion(version1, version2):
             return -1
       return 0
 
-def mark_dirty():
-  git = tools.Git()
-  if git.is_pristine():
-    return "auto"
-  else:
-    return "None"
+
 
 class HDF5LoaderConan(ConanFile):
     """Class to package the HDF5Loader plugin using conan
@@ -57,7 +52,7 @@ class HDF5LoaderConan(ConanFile):
         "type": "git",
         "subfolder": "hdps/HDF5Loader",
         "url": "auto",
-        "revision": "mark_dirty()",
+        "revision": "auto",
     }
     
       
@@ -94,7 +89,7 @@ class HDF5LoaderConan(ConanFile):
     def system_requirements(self):
         if tools.os_info.is_macos:
             target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "10.13")
-            if compareVersion(target, 10.12) == 1:
+            if compareVersion(target, "10.12") == 1:
                 installer = tools.SystemPackageTool()
                 installer.install("libomp")
 
