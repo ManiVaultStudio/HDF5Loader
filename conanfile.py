@@ -6,6 +6,24 @@ import pathlib
 import subprocess
 from rules_support import PluginBranchInfo
 
+def compareVersion(version1, version2):
+      versions1 = [int(v) for v in version1.split(".")]
+      versions2 = [int(v) for v in version2.split(".")]
+      for i in range(max(len(versions1),len(versions2))):
+         v1 = versions1[i] if i < len(versions1) else 0
+         v2 = versions2[i] if i < len(versions2) else 0
+         if v1 > v2:
+            return 1
+         elif v1 <v2:
+            return -1
+      return 0
+
+def mark_dirty():
+  git = tools.Git()
+  if git.is_pristine():
+    return "auto"
+  else:
+    return "None"
 
 class HDF5LoaderConan(ConanFile):
     """Class to package the HDF5Loader plugin using conan
@@ -39,19 +57,9 @@ class HDF5LoaderConan(ConanFile):
         "type": "git",
         "subfolder": "hdps/HDF5Loader",
         "url": "auto",
-        "revision": "auto",
+        "revision": "mark_dirty()",
     }
-    def compareVersion(version1, version2):
-      versions1 = [int(v) for v in version1.split(".")]
-      versions2 = [int(v) for v in version2.split(".")]
-      for i in range(max(len(versions1),len(versions2))):
-         v1 = versions1[i] if i < len(versions1) else 0
-         v2 = versions2[i] if i < len(versions2) else 0
-         if v1 > v2:
-            return 1
-         elif v1 <v2:
-            return -1
-      return 0
+    
       
     def __get_git_path(self):
         path = load(
