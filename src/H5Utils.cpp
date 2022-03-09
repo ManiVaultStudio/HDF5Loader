@@ -18,7 +18,7 @@ namespace H5Utils
 			long long nrOfItems = raw_buffer.size();
 			if (result.size() < nrOfItems)
 				result.resize(nrOfItems);
-//			#pragma omp parallel for
+
 			for (long long i = 0; i < nrOfItems; ++i)
 			{
 				CompoundExtractor ce(raw_buffer[i], compType);
@@ -46,7 +46,7 @@ namespace H5Utils
 			long long nrOfItems = raw_buffer.size();
 			if (result.size() < nrOfItems)
 				result.resize(nrOfItems);
-			//			#pragma omp parallel for
+			
 			for (long long i = 0; i < nrOfItems; ++i)
 			{
 				CompoundExtractor ce(raw_buffer[i], compType);
@@ -226,17 +226,25 @@ namespace H5Utils
 		return true;
 	}
 
+
 	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<QString>& result)
 	{
 		try
 		{
 			H5::StrType strType = dataset.getStrType();
-			bool utf8 = (strType.getCset() == H5T_CSET_UTF8);
+			bool utf8 = false;
+			try
+			{
+				utf8 = (strType.getCset() == H5T_CSET_UTF8);
+			}
+			catch (const H5::DataTypeIException& e)
+			{
+			}
 			std::size_t stringSize = strType.getSize();
 			result.resize(totalsize);
 			std::vector<char> rData(totalsize * stringSize);
 			dataset.read(rData.data(), strType);
-			if(utf8)
+			if (utf8)
 			{
 				for (std::size_t d = 0; d < totalsize; ++d)
 				{
@@ -258,14 +266,14 @@ namespace H5Utils
 						result[d] = std::string(offset, offset + stringSize).c_str();
 				}
 			}
-			
-
 		}
+		
 		catch (const std::exception& e)
 		{
 			std::cout << e.what() << std::endl;
 			result.clear();
 		}
+			
 	}
 
 	bool read_vector_string(H5::DataSet &dataset, std::vector<std::string> &result)
@@ -539,6 +547,8 @@ namespace H5Utils
 		* Get the number of dimensions in the dataspace.
 		*/
 		const int dimensions = dataspace.getSimpleExtentNdims();
+		if (dimensions == 0)
+			return 0;
 		std::size_t nrOfItems = 1;
 		if (dimensions == 1)
 		{
@@ -553,7 +563,7 @@ namespace H5Utils
 		}
 		else
 		{
-			return (std::size_t) - 1;
+			return 0;
 		}
 	}
 
@@ -952,7 +962,7 @@ namespace H5Utils
 			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskRunning();
-
+			
 			if (transpose)
 			{
 				H5Utils::transpose(numericalData.begin(), numericalData.end(), nrOfSamples, numericalMetadataDataset->getDataHierarchyItem());
@@ -960,9 +970,7 @@ namespace H5Utils
 			
 			numericalMetadataDataset->setDataElementType<float>();
 			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
-
 			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
-
 			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
 
 			core->notifyDatasetChanged(numericalMetadataDataset);

@@ -220,20 +220,109 @@ namespace H5AD
 	}
 
 	
+	bool LoadSparseMatrix(H5::Group& group, Dataset<Points>& pointsDataset, CoreInterface* _core)
+	{
+		auto nrOfObjects = group.getNumObjs();
+		auto h5groupName = group.getObjName();
+
+		bool containsSparseMatrix = false;
+		if (nrOfObjects > 2)
+		{
+			// check for sparse data
+			std::vector<float> data;
+			std::vector<std::uint64_t> indices;
+			std::vector<std::uint32_t> indptr;
+			containsSparseMatrix = H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT);
+			if (containsSparseMatrix)
+				containsSparseMatrix &= H5Utils::read_vector(group, "indices", &indices, H5::PredType::NATIVE_UINT64);
+			if (containsSparseMatrix)
+				containsSparseMatrix &= H5Utils::read_vector(group, "indptr", &indptr, H5::PredType::NATIVE_UINT32);
+
+			if (containsSparseMatrix)
+			{
+				std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
+				if (xsize == pointsDataset->getNumPoints())
+				{
+					std::uint64_t ysize = *std::max_element(indices.cbegin(), indices.cend()) + 1;
+
+					std::vector<QString> dimensionNames(ysize);
+					for (std::size_t l = 0; l < ysize; ++l)
+						dimensionNames[l] = QString::number(l);
+					QString numericalDatasetName = QString(h5groupName.c_str()) + " (numerical)";
+					Dataset<Points> numericalDataset = _core->createDerivedData(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
+					_core->notifyDataAdded(numericalDataset);
+					DataContainerInterface dci(numericalDataset);
+					dci.resize(xsize, ysize);
+					dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+					numericalDataset->setDimensionNames(dimensionNames);
+					_core->notifyDataChanged(numericalDataset);
+				}
+			}
+		}
+
+		return containsSparseMatrix;
+	}
+
+	bool LoadCategories(H5::Group& group, std::map<std::string, std::vector<QString>> &categories)
+	{
+		if (!group.exists("__categories"))
+			return false;
+
+		H5::Group categoriesGroup = group.openGroup("__categories");
+
+		auto nrOfObjects = categoriesGroup.getNumObjs();
+		for (auto go = 0; go < nrOfObjects; ++go)
+		{
+			std::string objectName1 = categoriesGroup.getObjnameByIdx(go);
+			if (objectName1[0] == '\\')
+				objectName1.erase(objectName1.begin());
+			H5G_obj_t objectType1 = categoriesGroup.getObjTypeByIdx(go);
+
+			if (objectType1 == H5G_DATASET)
+			{
+				H5::DataSet dataSet = categoriesGroup.openDataSet(objectName1);
+				std::vector<QString> items;
+				H5Utils::read_vector_string(dataSet, items);
+				categories[objectName1] = items;
+			}
+		}
+
+		return (!categories.empty());
+	}
+
+	DataHierarchyItem *GetDerivedDataset(const QString &name, Dataset<Points>& pointsDataset)
+	{
+		const auto& children = pointsDataset->getDataHierarchyItem().getChildren();
+		for(auto it  = children.begin(); it != children.end(); ++it)
+		{
+			if((*it)->getGuiName() == name)
+			{
+				return *it;
+			}
+		}
+		return nullptr;
+	}
 
 
+	
 	void LoadSampleNamesAndMetaData(H5::Group &group,  Dataset<Points> & pointsDataset, CoreInterface *_core)
 	{
 
 		auto nrOfObjects = group.getNumObjs();
+		auto h5groupName = group.getObjName();
+
+		if(LoadSparseMatrix(group, pointsDataset, _core))
+			return;
 
 
 		std::vector<float> numericalMetaData;
 		std::size_t nrOfNumericalMetaData = 0;
 		std::vector<QString> numericalMetaDataDimensionNames;
 		std:size_t nrOfRows = pointsDataset->getNumPoints();
+		std::map<std::string, std::vector<QString>> categories;
 
-		auto h5groupName = group.getObjName();
+		bool categoriesLoaded = LoadCategories(group, categories);
+		
 		// first do the basics
 		for (auto go = 0; go < nrOfObjects; ++go)
 		{
@@ -247,30 +336,119 @@ namespace H5AD
 				H5::DataSet dataSet = group.openDataSet(objectName1);
 				if (!((objectName1 == "index") || (objectName1 == "_index")))
 				{
-					auto datasetClass = dataSet.getDataType().getClass();
-					if ((datasetClass == H5T_INTEGER) || (datasetClass == H5T_FLOAT))
+					if(categories.find(objectName1) != categories.end())
 					{
-						std::vector<float> values;
-						H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_FLOAT);
-						if (values.size() == pointsDataset->getNumPoints())
+						if (dataSet.attrExists("categories"))
 						{
-							numericalMetaData.insert(numericalMetaData.end(), values.cbegin(), values.cend());
-							numericalMetaDataDimensionNames.push_back(dataSet.getObjName().c_str());
+							std::vector<uint64_t> index;
+							const std::vector<QString> &labels = categories[objectName1];
+							if (H5Utils::read_vector(group, objectName1, &index, H5::PredType::NATIVE_UINT64))
+							{
+								std::map<QString, std::vector<unsigned>> indices;
+								if (index.size() == pointsDataset->getNumPoints())
+								{
+									for (unsigned i = 0; i < index.size(); ++i)
+									{
+										indices[labels[index[i]]].push_back((i));
+									}
+									H5Utils::addClusterMetaData(_core, indices, dataSet.getObjName().c_str(), pointsDataset);
+								}
+							}
 						}
 					}
-					else // try to read as strings for now
+					else
 					{
+						auto datasetClass = dataSet.getDataType().getClass();
 
-						std::map<QString, std::vector<unsigned>> indices;
-						std::vector<QString> items;
-						H5Utils::read_vector_string(dataSet, items);
-						if (items.size() == pointsDataset->getNumPoints())
+						if ((datasetClass == H5T_INTEGER) || (datasetClass == H5T_FLOAT))
 						{
-							for (unsigned i = 0; i < items.size(); ++i)
+
+
+							std::vector<float> values;
+							if (H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_FLOAT))
 							{
-								indices[items[i]].push_back(i);
+								// 1 dimensional
+								if (values.size() == pointsDataset->getNumPoints())
+								{
+									numericalMetaData.insert(numericalMetaData.end(), values.cbegin(), values.cend());
+									numericalMetaDataDimensionNames.push_back(dataSet.getObjName().c_str());
+								}
 							}
-							H5Utils::addClusterMetaData(_core,indices, dataSet.getObjName().c_str(), pointsDataset);
+							else
+							{
+								// multi-dimensiona,  only 2 supported for now
+								H5Utils::MultiDimensionalData<float> mdd;
+
+								if (H5Utils::read_multi_dimensional_data(dataSet, mdd, H5::PredType::NATIVE_FLOAT))
+								{
+									if (mdd.size.size() == 2)
+									{
+										if (mdd.size[0] == pointsDataset->getNumPoints())
+										{
+
+											QString baseString = dataSet.getObjName().c_str();
+											std::vector<QString> dimensionNames(mdd.size[1]);
+											for (std::size_t l = 0; l < mdd.size[1]; ++l)
+											{
+												dimensionNames[l] = QString::number(l + 1);
+											}
+											H5Utils::addNumericalMetaData(_core, mdd.data, dimensionNames, false, pointsDataset, baseString);
+										}
+									}
+								}
+							}
+
+						}
+						else // try to read as strings for now
+						{
+
+							std::map<QString, std::vector<unsigned>> indices;
+							std::vector<QString> items;
+							H5Utils::read_vector_string(dataSet, items);
+							if (items.size() == pointsDataset->getNumPoints())
+							{
+								for (unsigned i = 0; i < items.size(); ++i)
+								{
+									indices[items[i]].push_back(i);
+								}
+								H5Utils::addClusterMetaData(_core, indices, dataSet.getObjName().c_str(), pointsDataset);
+							}
+							else
+							{
+								bool itemsAreColors = true;
+								for(std::size_t i=0; i < items.size(); ++i)
+								{
+									if(!QColor::isValidColor(items[i]))
+									{
+										itemsAreColors =false;
+										break;
+									}
+								}
+								if(itemsAreColors)
+								{
+									std::size_t posFound = objectName1.find("_colors");
+									if (posFound != std::string::npos)
+									{
+										QString datasetNameToFind = objectName1.c_str();
+										datasetNameToFind.resize(posFound);
+										DataHierarchyItem* foundDataset = GetDerivedDataset(QString("obs/") + datasetNameToFind, pointsDataset);
+										if (foundDataset)
+										{
+											if (foundDataset->getDataType() == DataType("Clusters"))
+											{
+												auto &clusters = foundDataset->getDataset<Clusters>()->getClusters();
+												if (clusters.size() == items.size())
+												{
+													for (std::size_t i = 0; i < clusters.size(); ++i)
+														clusters[i].setColor(items[i]);
+													foundDataset->notifyDataChanged();
+												}
+											}
+										}
+									}
+								}
+								
+							}
 						}
 					}
 
@@ -417,22 +595,104 @@ bool HDF5_AD_Loader::load()
 		std::set<std::string> objectsToSkip = { "X", "var", "raw.X", "raw.var"};
 		
 		// now we look for nice to have data
-		for (auto fo = 0; fo < nrOfObjects; ++fo)
+		try
 		{
-			std::string objectName1 = _file->getObjnameByIdx(fo);
-			H5G_obj_t objectType1 = _file->getObjTypeByIdx(fo);
+			for (auto fo = 0; fo < nrOfObjects; ++fo)
+			{
+				std::string objectName1 = _file->getObjnameByIdx(fo);
+				if (objectsToSkip.count(objectName1) == 0)
+				{
+					H5G_obj_t objectType1 = _file->getObjTypeByIdx(fo);
 
-			if (objectType1 == H5G_DATASET)
-			{
-				H5::DataSet dataset = _file->openDataSet(objectName1);
-				H5AD::LoadSampleNamesAndMetaData(dataset, pointsDataset, _core);
+					if (objectType1 == H5G_DATASET)
+					{
+						H5::DataSet dataset = _file->openDataSet(objectName1);
+						H5AD::LoadSampleNamesAndMetaData(dataset, pointsDataset, _core);
+					}
+					else if (objectType1 == H5G_GROUP)
+					{
+						H5::Group group = _file->openGroup(objectName1);
+						H5AD::LoadSampleNamesAndMetaData(group, pointsDataset, _core);
+					}
+				}
 			}
-			else if (objectType1 == H5G_GROUP)
+			// var can contain dimension specific information so for now we store it as properties.
+			H5::Group group = _file->openGroup("var");
+			auto nrOfObjects = group.getNumObjs();
+			for (auto go = 0; go < nrOfObjects; ++go)
 			{
-				H5::Group group = _file->openGroup(objectName1);
-				H5AD::LoadSampleNamesAndMetaData(group, pointsDataset, _core);
+				std::string objectName1 = group.getObjnameByIdx(go);
+				H5G_obj_t objectType1 = group.getObjTypeByIdx(go);
+
+				if (objectType1 == H5G_DATASET)
+				{
+					H5::DataSet dataSet = group.openDataSet(objectName1);
+					if (!((objectName1 == "index") || (objectName1 == "_index")))
+					{
+						auto datasetClass = dataSet.getDataType().getClass();
+
+						if(datasetClass == H5T_FLOAT)
+						{
+							std::vector<float> values;
+							if (H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_FLOAT))
+							{
+								if (values.size() == _dimensionNames.size())
+								{
+									pointsDataset->setProperty(objectName1.c_str(), QList<QVariant>(values.cbegin(), values.cend()));
+								}
+							}
+						}
+						else if ((datasetClass == H5T_INTEGER) || (datasetClass == H5T_ENUM))
+						{
+							std::vector<int64_t> values;
+							if (H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_INT64))
+							{
+								if (values.size() == _dimensionNames.size())
+								{
+									QString label = objectName1.c_str();
+									if (datasetClass == H5T_ENUM)
+										label += " (numerical)";
+									pointsDataset->setProperty(label, QList<QVariant>(values.cbegin(), values.cend()));
+
+									if(datasetClass == H5T_ENUM)
+									{
+										auto enumType = dataSet.getEnumType();
+										QList<QVariant> labels;
+										labels.reserve(values.size());
+										for(std::size_t i=0; i < values.size(); ++i)
+										{
+											int v = values[i];
+											labels.push_back(enumType.nameOf(&v, 100).c_str());
+										}
+										QString label = objectName1.c_str();
+										label += " (label)";
+										pointsDataset->setProperty(label, labels);
+									}
+								}
+							}
+						}
+						else if (datasetClass == H5T_STRING)
+						{
+							// try to read as strings
+							std::vector<QString> items;
+							H5Utils::read_vector_string(dataSet, items);
+							if (items.size() == _dimensionNames.size())
+							{
+								pointsDataset->setProperty(objectName1.c_str(), QList<QVariant>(items.cbegin(), items.cend()));
+							}
+						}
+					}
+				}
 			}
+
 		}
+		catch(const std::exception &e)
+		{
+			std::string mesg = e.what();
+			int bp = 0;
+			++bp;
+		}
+		
 		
 
 		

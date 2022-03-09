@@ -113,33 +113,44 @@ namespace H5Utils
 	template<class RandomIterator>
 	void transpose(RandomIterator first, RandomIterator last, int m, hdps::DataHierarchyItem &progressItem)
 	{
-		const int mn1 = (last - first - 1);
-		const int n = (last - first) / m;
+		//https://stackoverflow.com/questions/9227747/in-place-transposition-of-a-matrix
+		const std::ptrdiff_t mn1 = (last - first - 1);
+		const std::ptrdiff_t n = (last - first) / m;
 		RandomIterator cycle = first;
-		QBitArray visited(last - first, false);
-		std::size_t update = 0;
-		std::size_t updateFrequency = (std::max)(1, mn1/200);
+		std::vector<uint8_t> visited(last - first, 0);
+		std::size_t updateCounter = 0;
+		std::size_t updateFrequency = n;
+		if (updateFrequency > 1000)
+			updateFrequency = 100;
 		while (++cycle != last) {
-			if (visited.at(cycle - first))
+			if (visited[cycle - first])
 				continue;
-			int a = cycle - first;
+			std::ptrdiff_t a = cycle - first;
 			do {
-				a = a == mn1 ? mn1 : (n * a) % mn1;
+				a = a == mn1 ? mn1 : n * a % mn1;
 				std::swap(*(first + a), *cycle);
-				visited.setBit(a,true);
-				++update;
-				if(update == updateFrequency)
+				visited[a] = 1;
+				++updateCounter;
+				if((updateCounter % updateFrequency) == 0)
 				{
-					update = 0;
-					progressItem.setTaskProgress(static_cast<float>(visited.count(true)) / visited.size());
+					float progress = (1.0 * updateCounter) / (last - first);
+					progressItem.setTaskProgress(progress);
+					QGuiApplication::instance()->processEvents();
 				}
+				
 				
 			} while ((first + a) != cycle);
 		}
+		progressItem.setTaskProgress(100);
+		
 	}
 
 	bool is_number(const std::string& s);
 	bool is_number(const QString& s);
+	
+
+
+	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result);
 	
 
 

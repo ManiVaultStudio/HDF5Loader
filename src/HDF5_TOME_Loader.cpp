@@ -17,7 +17,9 @@
 
 #include "Cluster.h"
 #include "ClusterData.h"
-
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 using namespace hdps;
 

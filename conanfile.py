@@ -1,10 +1,23 @@
-from conans import ConanFile, CMake
+from conans import ConanFile, CMake, tools
 from conans.tools import save, load
 import os
 import shutil
 import pathlib
 import subprocess
 from rules_support import PluginBranchInfo
+
+def compareVersion(version1, version2):
+      versions1 = [int(v) for v in version1.split(".")]
+      versions2 = [int(v) for v in version2.split(".")]
+      for i in range(max(len(versions1),len(versions2))):
+         v1 = versions1[i] if i < len(versions1) else 0
+         v2 = versions2[i] if i < len(versions2) else 0
+         if v1 > v2:
+            return 1
+         elif v1 <v2:
+            return -1
+      return 0
+
 
 
 class HDF5LoaderConan(ConanFile):
@@ -41,7 +54,8 @@ class HDF5LoaderConan(ConanFile):
         "url": "auto",
         "revision": "auto",
     }
-
+    
+      
     def __get_git_path(self):
         path = load(
             pathlib.Path(pathlib.Path(__file__).parent.resolve(), "__gitpath.txt")
@@ -73,8 +87,11 @@ class HDF5LoaderConan(ConanFile):
             del self.settings.compiler.runtime
 
     def system_requirements(self):
-        #  May be needed for macOS or Linux
-        pass
+        if tools.os_info.is_macos:
+            target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "10.13")
+            if compareVersion(target, "10.12") == 1:
+                installer = tools.SystemPackageTool()
+                installer.install("libomp")
 
     def config_options(self):
         if self.settings.os == "Windows":
