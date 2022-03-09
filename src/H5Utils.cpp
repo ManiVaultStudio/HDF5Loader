@@ -906,7 +906,7 @@ namespace H5Utils
 
 		
 		hdps::Dataset<Points> newDataset = core->addDataset("Points", dataSetName);
-		core->notifyDataAdded(newDataset);
+		core->notifyDatasetAdded(newDataset);
 		
 		return newDataset;
 	}
@@ -946,8 +946,8 @@ namespace H5Utils
 			}
 
 			
-			Dataset<Points> numericalMetadataDataset = core->createDerivedData(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
-			core->notifyDataAdded(numericalMetadataDataset);
+			Dataset<Points> numericalMetadataDataset = core->createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
+			core->notifyDatasetAdded(numericalMetadataDataset);
 			
 			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
@@ -965,7 +965,7 @@ namespace H5Utils
 
 			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
 
-			core->notifyDataChanged(numericalMetadataDataset);
+			core->notifyDatasetChanged(numericalMetadataDataset);
 		}
 	}
 
@@ -988,7 +988,7 @@ namespace H5Utils
 		}
 		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", name, parent);
 
-		core->notifyDataAdded(clusterDataset);
+		core->notifyDatasetAdded(clusterDataset);
 		
 		clusterDataset->getClusters().reserve(indices.size());
 		
@@ -1006,7 +1006,7 @@ namespace H5Utils
 		}
 
 		// Notify others that the clusters have changed
-		core->notifyDataChanged(clusterDataset);
+		core->notifyDatasetChanged(clusterDataset);
 		
 	}
 

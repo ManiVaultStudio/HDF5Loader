@@ -436,7 +436,7 @@ bool HDF5_AD_Loader::load()
 		
 
 		
-		_core->notifyDataChanged(pointsDataset);
+		_core->notifyDatasetChanged(pointsDataset);
 		return true;
 	}
 	catch (std::exception &e)
