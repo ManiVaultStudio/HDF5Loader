@@ -249,13 +249,13 @@ namespace H5AD
 					for (std::size_t l = 0; l < ysize; ++l)
 						dimensionNames[l] = QString::number(l);
 					QString numericalDatasetName = QString(h5groupName.c_str()) + " (numerical)";
-					Dataset<Points> numericalDataset = _core->createDerivedData(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
-					_core->notifyDataAdded(numericalDataset);
+					Dataset<Points> numericalDataset = _core->createDerivedDataset(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
+					_core->notifyDatasetAdded(numericalDataset);
 					DataContainerInterface dci(numericalDataset);
 					dci.resize(xsize, ysize);
 					dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
 					numericalDataset->setDimensionNames(dimensionNames);
-					_core->notifyDataChanged(numericalDataset);
+					_core->notifyDatasetChanged(numericalDataset);
 				}
 			}
 		}
@@ -441,7 +441,8 @@ namespace H5AD
 												{
 													for (std::size_t i = 0; i < clusters.size(); ++i)
 														clusters[i].setColor(items[i]);
-													foundDataset->notifyDataChanged();
+													
+													Application::core()->notifyDatasetChanged(foundDataset->getDataset());
 												}
 											}
 										}
