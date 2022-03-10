@@ -972,6 +972,7 @@ namespace H5Utils
 			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
 			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
 			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
+      
 			core->notifyDatasetChanged(numericalMetadataDataset);
 		}
 	}
