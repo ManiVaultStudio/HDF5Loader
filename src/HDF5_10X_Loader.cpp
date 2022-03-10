@@ -283,7 +283,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 								auto clusterDataset = _core->addDataset<Clusters>("Cluster", metaDataLabel.c_str(), pointsDataset);
 
 								// Notify others that the dataset was added
-								_core->notifyDataAdded(clusterDataset);
+								_core->notifyDatasetAdded(clusterDataset);
 
 								clusterDataset->getClusters().reserve(indices.size());
 
@@ -307,7 +307,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 								assert(sum == rows);
 
 								// Notify others that the clusters have changed
-								_core->notifyDataChanged(clusterDataset);
+								_core->notifyDatasetChanged(clusterDataset);
 							}
 
 						} // if(ok)
@@ -575,7 +575,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
 					
 				}
-				_core->notifyDataChanged(pointsDataset);
+				_core->notifyDatasetChanged(pointsDataset);
 			}
 
 		}
