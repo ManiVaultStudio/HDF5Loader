@@ -35,63 +35,54 @@ find_package(Qt5 5.12 COMPONENTS Widgets WebEngineWidgets REQUIRED)
 # Het HDF5 with ZLIB
 include(ExternalProject)
 
-set(HDF5_PREFIX hdf5-1-10)
+set(HDF5_PREFIX hdf5)
 
 set(git_stash_save_options --all --quiet)
+if(MSVC)
+if(MSVC_TOOLSET_VERSION GREATER_EQUAL 142)
+set(HDF5_GIT_TAG  1.12/master)
+else(MSVC_TOOLSET_VERSION GREATER_EQUAL 142)
+set(HDF5_GIT_TAG  1.10/master)
+endif(MSVC_TOOLSET_VERSION GREATER_EQUAL 142)
+set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
+endif(MSVC)
+if(APPLE)
+set(HDF5_GIT_TAG  1.12/master)
+set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_debug.a>$<$<CONFIG:Release>:libhdf5.a>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_debug.a>$<$<CONFIG:Release>:libhdf5_cpp.a>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/libz.a"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
+endif(APPLE)
+if(LINUX)
+set(HDF5_GIT_TAG  1.12/master)
+set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5_cpp.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libz.a"  "${EXECUTABLE_OUTPUT_PATH}")
+endif(LINUX)
 
-
-
-if(WIN32)
 ExternalProject_Add(hdf5
-GIT_REPOSITORY https://bitbucket.hdfgroup.org/scm/hdffv/hdf5.git
-GIT_TAG 1.10/master
-        GIT_SHALLOW ON
+GIT_REPOSITORY https://github.com/HDFGroup/hdf5.git
+GIT_TAG ${HDF5_GIT_TAG}
+GIT_SHALLOW ON
+UPDATE_COMMAND ""
 PREFIX ${HDF5_PREFIX}
 CMAKE_ARGS
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}
  -DBUILD_SHARED_LIBS=OFF
+ -DHDF5_BUILD_CPP_LIB=ON
  -DBUILD_TESTING=OFF 
  -DHDF5_BUILD_EXAMPLES=OFF 
  -DHDF5_BUILD_HL_LIB=OFF 
  -DHDF5_BUILD_TOOLS=OFF 
+ -DHDF5_BUILD_UTILS=OFF
  -DHDF5_ENABLE_EMBEDDED_LIBINFO=OFF 
  -DHDF5_ENABLE_HSIZET=OFF 
  -DHDF5_ALLOW_EXTERNAL_SUPPORT="GIT" 
  -DHDF5_ENABLE_Z_LIB_SUPPORT=ON
  -DZLIB_URL=https://github.com/madler/zlib 
  -DZLIB_BRANCH=master
-BUILD_COMMAND ${INCREDIBUILD_COMMAND}
-INSTALL_COMMAND ""
-#	${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>"  "${LIBRARY_OUTPUT_PATH}/$<CONFIG>"
+ 
+ INSTALL_COMMAND ""
 )
-else(WIN32)
-ExternalProject_Add(hdf5
-GIT_REPOSITORY https://bitbucket.hdfgroup.org/scm/hdffv/hdf5.git
-GIT_TAG 1.10/master
-GIT_SHALLOW ON
-PREFIX ${HDF5_PREFIX}
-
-CMAKE_ARGS 
- -DBUILD_SHARED_LIBS=OFF 
- -DBUILD_TESTING=OFF 
- -DHDF5_BUILD_EXAMPLES=OFF 
- -DHDF5_BUILD_HL_LIB=OFF 
- -DHDF5_BUILD_TOOLS=OFF 
- -DHDF5_ENABLE_EMBEDDED_LIBINFO=OFF 
- -DHDF5_ENABLE_HSIZET=OFF 
- -DHDF5_ALLOW_EXTERNAL_SUPPORT="GIT" 
- -DHDF5_ENABLE_Z_LIB_SUPPORT=ON
- -DZLIB_URL=https://github.com/madler/zlib 
- -DZLIB_BRANCH=master
-
-INSTALL_COMMAND  ""
-#	${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5_cpp.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libz.a"  "${EXECUTABLE_OUTPUT_PATH}"
-)
-endif(WIN32)
 
 ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
- SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/c++/src ${BINARY_DIR})
+SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
  
  message(STATUS ${SOURCE_DIR})
  message(STATUS ${BINARY_DIR})
