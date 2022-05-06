@@ -136,8 +136,16 @@ namespace H5Utils
 		try
 		{
 			H5::StrType strType = dataset.getStrType();
-			bool utf8 = (strType.getCset() == H5T_CSET_UTF8);
-			assert(utf8 == false);
+			bool utf8 = false;
+			try
+			{
+				utf8 = (strType.getCset() == H5T_CSET_UTF8);
+			}
+			catch (const H5::DataTypeIException& e)
+			{
+				std::cout << strType.getObjName() << std::endl;
+				qInfo(e.getDetailMsg().c_str());
+			}
 			std::size_t stringSize = strType.getSize();
 			result.resize(totalsize);
 			std::vector<char> rData(totalsize * stringSize);
@@ -152,78 +160,98 @@ namespace H5Utils
 			}
 
 		}
-		catch (const std::exception& e)
+		catch (const H5::Exception &e)
 		{
-			std::cout << e.what() << std::endl;
-			result.clear();
+			qCritical(e.getDetailMsg().c_str());
 		}
+		result.clear();
 	}
 	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result)
 	{
-		//	std::cout << name << " ";
-		if (!group.exists(name))
-			return false;
-		H5::DataSet dataset = group.openDataSet(name);
+		try
+		{
+			//	std::cout << name << " ";
+			if (!group.exists(name))
+				return false;
+			H5::DataSet dataset = group.openDataSet(name);
 
-		H5::DataSpace dataspace = dataset.getSpace();
-		/*
-		* Get the number of dimensions in the dataspace.
-		*/
-		const int dimensions = dataspace.getSimpleExtentNdims();
-		std::size_t totalSize = 1;
-		if (dimensions > 0)
-		{
-			//		std::cout << "rank " << dimensions << ", dimensions ";
-			std::vector<hsize_t> dimensionSize(dimensions);
-			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
-			for (std::size_t d = 0; d < dimensions; ++d)
+			H5::DataSpace dataspace = dataset.getSpace();
+			/*
+			* Get the number of dimensions in the dataspace.
+			*/
+			const int dimensions = dataspace.getSimpleExtentNdims();
+			std::size_t totalSize = 1;
+			if (dimensions > 0)
 			{
-				//			std::cout << (unsigned long)dimensionSize[d] << " ";
-				totalSize *= dimensionSize[d];
+				//		std::cout << "rank " << dimensions << ", dimensions ";
+				std::vector<hsize_t> dimensionSize(dimensions);
+				int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
+				for (std::size_t d = 0; d < dimensions; ++d)
+				{
+					//			std::cout << (unsigned long)dimensionSize[d] << " ";
+					totalSize *= dimensionSize[d];
+				}
+				//		std::cout << std::endl;
 			}
-			//		std::cout << std::endl;
+			if (dimensions != 1)
+			{
+				return false;
+			}
+			H5Utils::read_strings(dataset, totalSize, result);
+			dataset.close();
+			return true;
 		}
-		if (dimensions != 1)
+		catch (const H5::Exception& e)
 		{
-			return false;
+			qCritical(e.getDetailMsg().c_str());
 		}
-		H5Utils::read_strings(dataset, totalSize, result);
-		dataset.close();
-		return true;
+		result.clear();
+		return false;
 	}
 
 	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<QString>& result)
 	{
-		//	std::cout << name << " ";
-		if (!group.exists(name))
-			return false;
-		H5::DataSet dataset = group.openDataSet(name);
+		try
+		{
 
-		H5::DataSpace dataspace = dataset.getSpace();
-		/*
-		* Get the number of dimensions in the dataspace.
-		*/
-		const int dimensions = dataspace.getSimpleExtentNdims();
-		std::size_t totalSize = 1;
-		if (dimensions > 0)
-		{
-			//		std::cout << "rank " << dimensions << ", dimensions ";
-			std::vector<hsize_t> dimensionSize(dimensions);
-			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
-			for (std::size_t d = 0; d < dimensions; ++d)
+
+			//	std::cout << name << " ";
+			if (!group.exists(name))
+				return false;
+			H5::DataSet dataset = group.openDataSet(name);
+
+			H5::DataSpace dataspace = dataset.getSpace();
+			/*
+			* Get the number of dimensions in the dataspace.
+			*/
+			const int dimensions = dataspace.getSimpleExtentNdims();
+			std::size_t totalSize = 1;
+			if (dimensions > 0)
 			{
-				//			std::cout << (unsigned long)dimensionSize[d] << " ";
-				totalSize *= dimensionSize[d];
+				//		std::cout << "rank " << dimensions << ", dimensions ";
+				std::vector<hsize_t> dimensionSize(dimensions);
+				int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
+				for (std::size_t d = 0; d < dimensions; ++d)
+				{
+					//			std::cout << (unsigned long)dimensionSize[d] << " ";
+					totalSize *= dimensionSize[d];
+				}
+				//		std::cout << std::endl;
 			}
-			//		std::cout << std::endl;
+			if (dimensions != 1)
+			{
+				return false;
+			}
+			H5Utils::read_strings(dataset, totalSize, result);
+			dataset.close();
+			return true;
 		}
-		if (dimensions != 1)
+		catch(const H5::Exception &e)
 		{
-			return false;
+			qCritical(e.getDetailMsg().c_str());
 		}
-		H5Utils::read_strings(dataset, totalSize, result);
-		dataset.close();
-		return true;
+		result.clear();
+		return false;
 	}
 
 
@@ -239,6 +267,7 @@ namespace H5Utils
 			}
 			catch (const H5::DataTypeIException& e)
 			{
+				qInfo(e.getDetailMsg().c_str());
 			}
 			std::size_t stringSize = strType.getSize();
 			result.resize(totalsize);
@@ -268,156 +297,189 @@ namespace H5Utils
 			}
 		}
 		
-		catch (const std::exception& e)
+		catch (const H5::Exception &e)
 		{
-			std::cout << e.what() << std::endl;
-			result.clear();
-		}
+			qCritical(e.getDetailMsg().c_str());
 			
+		}
+		result.clear();
 	}
 
 	bool read_vector_string(H5::DataSet &dataset, std::vector<std::string> &result)
 	{
-		H5::DataSpace dataspace = dataset.getSpace();
-		
-
-		H5::DataType datatype = dataset.getDataType();
-		if (datatype.isVariableStr())
+		try
 		{
-			typedef local::VarLenStruct<char> StringStruct;
-			
-			// create datatypes
-			H5::StrType strType = dataset.getStrType();
-			bool utf8 = (strType.getCset() == H5T_CSET_UTF8);
-			std::size_t size = get_vector_size(dataset);
-			if (size)
-			{
-				std::vector<StringStruct> buffer(size);
+			H5::DataSpace dataspace = dataset.getSpace();
 
-				//read stuff
-				dataset.read(buffer.data(), strType);
-				// copy results
-				result.resize(size);
-				for (auto i = 0; i < size; ++i)
+
+			H5::DataType datatype = dataset.getDataType();
+			if (datatype.isVariableStr())
+			{
+				typedef local::VarLenStruct<char> StringStruct;
+
+				// create datatypes
+				H5::StrType strType = dataset.getStrType();
+				bool utf8 = false;
+				try
 				{
-					result[i] = (const char*)buffer[i].ptr;
-						
+					utf8 = (strType.getCset() == H5T_CSET_UTF8);
 				}
-				/*
-				* Release resources.  Note that H5Dvlen_reclaim works
-				* for variable-length strings as well as variable-length arrays.
-				*/
-				H5::DataSet::vlenReclaim(strType, dataset.getSpace(), H5P_DEFAULT, buffer.data());
-				buffer.clear();
-				return true;
-			}
-			return false;
-		}
-		else
-		{
-			/*
-			* Get the number of dimensions in the dataspace.
-			*/
-			const int dimensions = dataspace.getSimpleExtentNdims();
-			std::size_t totalSize = 1;
-			if (dimensions > 0)
-			{
-
-				std::vector<hsize_t> dimensionSize(dimensions);
-				int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
-				for (std::size_t d = 0; d < dimensions; ++d)
+				catch (const H5::DataTypeIException& e)
 				{
-					totalSize *= dimensionSize[d];
+					qInfo(e.getDetailMsg().c_str());
 				}
-
-			}
-			if (dimensions != 1)
-			{
-				return false;
-			}
-			read_strings(dataset, totalSize, result);
-			dataset.close();
-			return true;
-		}
-		
-	}
-
-
-	bool read_vector_string(H5::DataSet &dataset, std::vector<QString>& result)
-	{
-		H5::DataSpace dataspace = dataset.getSpace();
-
-
-		H5::DataType datatype = dataset.getDataType();
-		if (datatype.isVariableStr())
-		{
-			typedef local::VarLenStruct<char> StringStruct;
-
-			// create datatypes
-			H5::StrType strType = dataset.getStrType();
-			bool utf8 = (strType.getCset() == H5T_CSET_UTF8);
-			std::size_t size = get_vector_size(dataset);
-			if (size)
-			{
-				std::vector<StringStruct> buffer(size);
-
-				//read stuff
-				dataset.read(buffer.data(), strType);
-				if(utf8)
+				std::size_t size = get_vector_size(dataset);
+				if (size)
 				{
-					// copy results
-					result.resize(size);
-					for (auto i = 0; i < size; ++i)
-					{
-							result[i] = QString::fromUtf8((const char*)buffer[i].ptr);
-					}
-				}
-				else
-				{
+					std::vector<StringStruct> buffer(size);
+
+					//read stuff
+					dataset.read(buffer.data(), strType);
 					// copy results
 					result.resize(size);
 					for (auto i = 0; i < size; ++i)
 					{
 						result[i] = (const char*)buffer[i].ptr;
+
 					}
+					/*
+					* Release resources.  Note that H5Dvlen_reclaim works
+					* for variable-length strings as well as variable-length arrays.
+					*/
+					H5::DataSet::vlenReclaim(strType, dataset.getSpace(), H5P_DEFAULT, buffer.data());
+					buffer.clear();
+					return true;
 				}
-				
-				/*
-				* Release resources.  Note that H5Dvlen_reclaim works
-				* for variable-length strings as well as variable-length arrays.
-				*/
-				H5::DataSet::vlenReclaim(strType, dataset.getSpace(), H5P_DEFAULT, buffer.data());
-				buffer.clear();
-				return true;
-			}
-			return false;
-		}
-		else
-		{
-			/*
-			* Get the number of dimensions in the dataspace.
-			*/
-			const int dimensions = dataspace.getSimpleExtentNdims();
-			std::size_t totalSize = 1;
-			if (dimensions > 0)
-			{
-
-				std::vector<hsize_t> dimensionSize(dimensions);
-				int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
-				for (std::size_t d = 0; d < dimensions; ++d)
-				{
-					totalSize *= dimensionSize[d];
-				}
-
-			}
-			if (dimensions != 1)
-			{
 				return false;
 			}
-			read_strings(dataset, totalSize, result);
-			dataset.close();
-			return true;
+			else
+			{
+				/*
+				* Get the number of dimensions in the dataspace.
+				*/
+				const int dimensions = dataspace.getSimpleExtentNdims();
+				std::size_t totalSize = 1;
+				if (dimensions > 0)
+				{
+
+					std::vector<hsize_t> dimensionSize(dimensions);
+					int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
+					for (std::size_t d = 0; d < dimensions; ++d)
+					{
+						totalSize *= dimensionSize[d];
+					}
+
+				}
+				if (dimensions != 1)
+				{
+					return false;
+				}
+				read_strings(dataset, totalSize, result);
+				dataset.close();
+				return true;
+			}
 		}
+		catch(const H5::Exception &e)
+		{
+			qCritical(e.getDetailMsg().c_str());
+		}
+		result.clear();
+		return false;
+	}
+
+
+	bool read_vector_string(H5::DataSet &dataset, std::vector<QString>& result)
+	{
+		try
+		{
+			H5::DataSpace dataspace = dataset.getSpace();
+
+
+			H5::DataType datatype = dataset.getDataType();
+			if (datatype.isVariableStr())
+			{
+				typedef local::VarLenStruct<char> StringStruct;
+
+				// create datatypes
+				H5::StrType strType = dataset.getStrType();
+				bool utf8 = false;
+				try
+				{
+					utf8 = (strType.getCset() == H5T_CSET_UTF8);
+				}
+				catch (const H5::DataTypeIException& e)
+				{
+					qInfo(e.getDetailMsg().c_str());
+				}
+				std::size_t size = get_vector_size(dataset);
+				if (size)
+				{
+					std::vector<StringStruct> buffer(size);
+
+					//read stuff
+					dataset.read(buffer.data(), strType);
+					if (utf8)
+					{
+						// copy results
+						result.resize(size);
+						for (auto i = 0; i < size; ++i)
+						{
+							result[i] = QString::fromUtf8((const char*)buffer[i].ptr);
+						}
+					}
+					else
+					{
+						// copy results
+						result.resize(size);
+						for (auto i = 0; i < size; ++i)
+						{
+							result[i] = (const char*)buffer[i].ptr;
+						}
+					}
+
+					/*
+					* Release resources.  Note that H5Dvlen_reclaim works
+					* for variable-length strings as well as variable-length arrays.
+					*/
+					H5::DataSet::vlenReclaim(strType, dataset.getSpace(), H5P_DEFAULT, buffer.data());
+					buffer.clear();
+					return true;
+				}
+				return false;
+			}
+			else
+			{
+				/*
+				* Get the number of dimensions in the dataspace.
+				*/
+				const int dimensions = dataspace.getSimpleExtentNdims();
+				std::size_t totalSize = 1;
+				if (dimensions > 0)
+				{
+
+					std::vector<hsize_t> dimensionSize(dimensions);
+					int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
+					for (std::size_t d = 0; d < dimensions; ++d)
+					{
+						totalSize *= dimensionSize[d];
+					}
+
+				}
+				if (dimensions != 1)
+				{
+					return false;
+				}
+				read_strings(dataset, totalSize, result);
+				dataset.close();
+				return true;
+			}
+		}
+		catch(const std::exception &e)
+		{
+			std::cout << "Exception caught: " << e.what() << std::endl;
+			result.clear();
+		}
+		return false;
 
 	}
 
@@ -946,13 +1008,17 @@ namespace H5Utils
 						dimName.remove(0, name.length());
 					}
 					// remove forward slash from dimName if it has one
-					if (dimName[0] == '/')
+					while (dimName[0] == '/')
+						dimName.remove(0, 1);
+					while (dimName[0] == '\\')
 						dimName.remove(0, 1);
 				}
 				// remove forward slash from name if it has one
-				if (name[0] == '/')
+				while (name[0] == '/')
 					name.remove(0, 1);
-				numericalDatasetName = name + " (numerical)";
+				while (name[0] == '\\')
+					name.remove(0, 1);
+				numericalDatasetName = name /* + " (numerical)"*/;
 			}
 
 			
@@ -981,7 +1047,9 @@ namespace H5Utils
 	{
 		if (indices.size() <= 1)
 			return; // no point in adding only a single cluster
-		if (name[0] == '/')
+		while (name[0] == '/')
+			name.remove(0, 1);
+		while(name[0] == '\\')
 			name.remove(0, 1);
 		if (colors.empty())
 		{
