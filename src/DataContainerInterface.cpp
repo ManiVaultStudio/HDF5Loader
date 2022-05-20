@@ -224,7 +224,7 @@ void DataContainerInterface::increase_sparse_column_data(std::vector<uint64_t> &
 	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", columns);
 	m_data->visitFromBeginToEnd([&row_index, &column_offset, &data, transformType, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
-#pragma  omp parallel for
+		    #pragma  omp parallel for
 			for (long long column = 0; column < columns; ++column)
 			{
 				uint32_t start = column_offset[column];
@@ -332,7 +332,7 @@ void DataContainerInterface::add(std::vector<uint32_t> *rows, std::vector<uint32
 	{
 		m_rows = rows->size() - 1;
 		assert(false);
-		//m_data->resize(m_rows);
+		
 	}
 	long long lrows = ((long long)m_rows);
 	#pragma omp parallel for

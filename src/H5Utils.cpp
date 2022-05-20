@@ -163,8 +163,9 @@ namespace H5Utils
 		catch (const H5::Exception &e)
 		{
 			qCritical(e.getDetailMsg().c_str());
+			result.clear();
 		}
-		result.clear();
+		
 	}
 	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result)
 	{
@@ -249,8 +250,9 @@ namespace H5Utils
 		catch(const H5::Exception &e)
 		{
 			qCritical(e.getDetailMsg().c_str());
+			result.clear();
 		}
-		result.clear();
+		
 		return false;
 	}
 
@@ -296,13 +298,12 @@ namespace H5Utils
 				}
 			}
 		}
-		
 		catch (const H5::Exception &e)
 		{
 			qCritical(e.getDetailMsg().c_str());
-			
+			result.clear();
 		}
-		result.clear();
+		
 	}
 
 	bool read_vector_string(H5::DataSet &dataset, std::vector<std::string> &result)

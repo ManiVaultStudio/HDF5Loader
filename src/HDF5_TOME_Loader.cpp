@@ -91,11 +91,7 @@ namespace TOME
 		}
 
 		bool data_read = true;
-		if (test == 0)
-		{
-			transposed_intron_available = nrOfGroupObjects;
-			transposed_exon_available = nrOfGroupObjects;
-		}
+		
 		if ((transposed_exon_available < nrOfGroupObjects) && (transposed_intron_available < nrOfGroupObjects))
 		{
 			std::cout << "load t_exon and t_intron\n";
@@ -166,13 +162,10 @@ namespace TOME
 		std::cout << "Loading Gene Names" << std::endl;
 #endif
 		std::vector<std::string> gene_names;
-		H5Utils::read_vector_string(dataset, gene_names);
+		std::vector<QString> dimensionNames;
+		H5Utils::read_vector_string(dataset, dimensionNames);
 
-		std::vector<QString> dimensionNames(gene_names.size());
-		#pragma omp parallel for
-		for (int i = 0; i < gene_names.size(); ++i)
-			dimensionNames[i] = gene_names[i].c_str();
-
+		
 		pointsDataset->setDimensionNames(dimensionNames);
 	}
 
