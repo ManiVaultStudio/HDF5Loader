@@ -174,19 +174,15 @@ namespace TOME
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Sample Names" << std::endl;
 #endif
-		std::vector<std::string> sample_names;
+		std::vector<QString> sample_names;
 		H5Utils::read_vector_string(dataset, sample_names);
 
-		QList<QVariant> list;
-		for (int i = 0; i < sample_names.size(); ++i)
-		{
-			list.append(sample_names[i].c_str());
-		}
-		points.setProperty("Sample Names", list);
+		
+		points.setProperty("Sample Names", QList<QVariant>(sample_names.cbegin(), sample_names.cend()));
 		
 	}
 
-	bool LoadSampleMeta(H5::Group &group, Dataset<Points> &points)
+	bool LoadSampleMeta(H5::Group &group, Dataset<Points> &points, hdps::CoreInterface* _core)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl;
@@ -196,6 +192,12 @@ namespace TOME
 
 		try
 		{
+			typedef float numericMetaDataType;
+			std::vector<numericMetaDataType> numericalMetaData;
+			std::vector<QString> numericalMetaDataDimensionNames;
+			
+
+
 			hsize_t nrOfGroupObjects = group.getNumObjs();
 			for (auto go = 0; go < nrOfGroupObjects; ++go)
 			{
@@ -212,9 +214,7 @@ namespace TOME
 						if (found_pos < name.length())
 						{
 							std::string label(name.begin(), name.begin() + found_pos);
-
-
-							std::vector<std::string> colorVector;
+							std::vector<QString> colorVector;
 							H5Utils::read_vector_string(anno.openDataSet(name), colorVector);
 							std::string labelDatasetString = label + "_label";
 							if (!anno.exists(labelDatasetString))
@@ -232,47 +232,109 @@ namespace TOME
 							if (labelDatasetString.empty())
 								continue;
 							H5::DataSet labelDataSet = anno.openDataSet(labelDatasetString);
-							std::vector<std::string> labelVector;
+							std::vector<QString> labelVector;
 
 							auto x = labelDataSet.getDataType();
 							bool numericalValues = false;
 							if (x.getClass() == H5T_STRING)
 							{
-								H5Utils::read_vector_string(labelDataSet, labelVector);
+								
+								if(H5Utils::read_vector_string(labelDataSet, labelVector))
+								{
+									std::map<QString, std::vector<unsigned>> indices;
+									std::map<QString, QColor> colors;
+									bool all_ok = true;
+									for (std::size_t i = 0; i < labelVector.size(); ++i)
+									{
+										QString current_label = labelVector[i];
+										QColor current_color = colorVector[i];
+										indices[current_label].push_back(i);
+										if(colors.find(current_label) == colors.cend())
+										{
+											colors[current_label] = current_color;
+										}
+										else
+										{
+											all_ok = false;
+											assert(colors[current_label] == current_color);
+										}
+									}
+
+									if(all_ok)
+									{
+										H5Utils::addClusterMetaData(_core, indices, label.c_str(), points);
+									}
+								}
 							}
 							else
 							{
-								std::vector<double> labelVectorValues;
-								H5Utils::read_vector(anno, label + "_label", &labelVectorValues, H5::PredType::NATIVE_DOUBLE);
-								long long nrOfValues = labelVectorValues.size();
-								labelVector.resize(nrOfValues);
-#pragma omp parallel for
-								for (long long v = 0; v < nrOfValues; ++v)
+								std::vector<double> labelVector;
+								if(H5Utils::read_vector(anno, label + "_label", &labelVector, H5::PredType::NATIVE_DOUBLE))
 								{
-									labelVector[v] = std::to_string(labelVectorValues[v]);
+									std::map<double, std::vector<unsigned>> indices;
+									std::map<double, QColor> colors;
+									bool all_ok = true;
+									for (std::size_t i = 0; i < labelVector.size(); ++i)
+									{
+										auto current_label = labelVector[i];//QString::number(labelVector[i],'f',12);
+										indices[current_label].push_back(i);
+										QColor current_color = colorVector[i];
+										if (colors.find(current_label) == colors.cend())
+										{
+											colors[current_label] = current_color;
+										}
+										else
+										{
+											all_ok = false;
+											assert(colors[current_label] == current_color);
+										}
+									}
+									std::size_t threshold = 0.75 * labelVector.size();
+									if (all_ok && (indices.size() < threshold))
+									{
+										
+										int precision = 10;
+										bool precision_ok = true;
+										do
+										{
+											std::map<QString, std::vector<unsigned>> indicesS;
+											std::map<QString, QColor> colorsS;
+											precision_ok = true;
+											for (auto it = indices.cbegin(); it != indices.cend(); ++it)
+											{
+												QString x = QString::number(it->first, 'f', precision);
+												indicesS[x] = it->second;
+												if (colorsS.find(x) == colorsS.cend())
+												{
+													colorsS[x] = colors[it->first];
+												}
+												else
+												{
+													precision_ok = false;
+													++precision;
+													std::cout << "increasing precision to " << precision << std::endl;
+												}
+											}
+											if (precision_ok)
+											{
+												H5Utils::addClusterMetaData(_core, indicesS, label.c_str(), points, colorsS);
+											}
+										} while (precision_ok == false);
+									}
+									else
+									{
+										numericalMetaData.insert(numericalMetaData.end(), labelVector.cbegin(), labelVector.cend());
+										numericalMetaDataDimensionNames.push_back(label.c_str());
+									}
+									
+									numericalValues = true;
 								}
-								numericalValues = true;
 							}
-
-							std::size_t nrOfItems = colorVector.size();
-						
-							QList<QVariant> newMetaDataValues;
-							QList<QVariant> newMetaDataColors;
-
-							for (std::size_t i = 0; i < nrOfItems; ++i)
-							{
-								newMetaDataValues.append(labelVector[i].c_str());
-								newMetaDataValues.append(colorVector[i].c_str());
-							}
-
-							std::string color_label = label + "_color";
-							
-							points.setProperty(label.c_str(), newMetaDataValues);
-							points.setProperty(color_label.c_str(), newMetaDataColors);
 						}
 					}
 				}
 			}
+			H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, points);
 			return true;
 		}
 		catch (std::exception &)
@@ -332,7 +394,7 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 				else if (objectName1 == "sample_meta")
 				{
 					H5::Group group = file.openGroup(objectName1);
-					TOME::LoadSampleMeta(group, rawData->points());
+					TOME::LoadSampleMeta(group, rawData->points(),_core);
 				}
 			}
 			else if (objectType1 == H5G_DATASET)
