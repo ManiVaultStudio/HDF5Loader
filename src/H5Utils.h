@@ -200,7 +200,7 @@ namespace H5Utils
 	hdps::Dataset<Points> createPointsDataset(::hdps::CoreInterface* core,bool ask=true, QString=QString());
 
 	
-	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points>& parent, QString name=QString());
-	void addClusterMetaData(hdps::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, hdps::Dataset<Points>& parent, std::map<QString, QColor> colors = std::map<QString, QColor>());
+	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points> parent, QString name=QString());
+	void addClusterMetaData(hdps::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>());
 }
 

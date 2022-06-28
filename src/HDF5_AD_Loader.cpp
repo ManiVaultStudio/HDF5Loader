@@ -70,7 +70,7 @@ namespace H5AD
 	
 	  
 	
-	void LoadData(const H5::DataSet &dataset, Dataset<Points> &pointsDataset)
+	void LoadData(const H5::DataSet &dataset, Dataset<Points> pointsDataset)
 	{
 		H5Utils::MultiDimensionalData<float> mdd;
 
@@ -145,7 +145,7 @@ namespace H5AD
 		}
 	}
 
-	void LoadSampleNamesAndMetaData(H5::DataSet &dataset, Dataset<Points> &pointsDataset, hdps::CoreInterface* _core)
+	void LoadSampleNamesAndMetaData(H5::DataSet &dataset, Dataset<Points> pointsDataset, hdps::CoreInterface* _core)
 	{
 
 		std::string h5datasetName = dataset.getObjName();
@@ -349,7 +349,7 @@ namespace H5AD
 		return false;
 	}
 	
-	void LoadSampleNamesAndMetaData(H5::Group &group,  Dataset<Points> & pointsDataset, CoreInterface *_core)
+	void LoadSampleNamesAndMetaData(H5::Group &group,  Dataset<Points>  pointsDataset, CoreInterface *_core)
 	{
 
 		auto nrOfObjects = group.getNumObjs();
