@@ -74,8 +74,7 @@ namespace
 
 
 HDF5Loader::HDF5Loader(PluginFactory* factory)
-    : QObject()
-	, LoaderPlugin(factory)
+		 : LoaderPlugin(factory)
 {
 	
 }
@@ -132,8 +131,10 @@ void HDF5Loader::loadData()
 		{
 			IfValid(settings.value(Keys::transformValueKey), [&transform, index](const QVariant& value)
 				{
-					const double  temp = value.toDouble();
-					transform.set(std::make_pair(index, temp));
+					TRANSFORM::Type transform_type;
+					transform_type.first = index;
+					transform_type.second = value.toDouble();
+					transform.set(transform_type);
 				});
 		}
 		else

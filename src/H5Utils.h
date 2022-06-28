@@ -12,6 +12,8 @@
 #include "Dataset.h"
 #include "DataHierarchyItem.h"
 #include <QBitArray>
+
+
 namespace hdps
 {
 	class CoreInterface;
@@ -98,13 +100,13 @@ namespace H5Utils
 	}
 
 	
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result);
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<QString>& result);
-	void read_strings(H5::DataSet &dataset, std::size_t totalsize, std::vector<std::string> &result);
-	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<QString>& result);
+	bool read_vector_string(H5::Group group, const std::string& name, std::vector<std::string>& result);
+	bool read_vector_string(H5::Group group, const std::string& name, std::vector<QString>& result);
+	void read_strings(H5::DataSet dataset, std::size_t totalsize, std::vector<std::string> &result);
+	void read_strings(H5::DataSet dataset, std::size_t totalsize, std::vector<QString>& result);
 
-	bool read_vector_string(H5::DataSet &dataset, std::vector<std::string> &result);
-	bool read_vector_string(H5::DataSet &dataset, std::vector<QString>& result);
+	bool read_vector_string(H5::DataSet dataset, std::vector<std::string> &result);
+	bool read_vector_string(H5::DataSet dataset, std::vector<QString>& result);
 
 	//bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result);
 
@@ -150,7 +152,7 @@ namespace H5Utils
 	
 
 
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result);
+	bool read_vector_string(H5::Group group, const std::string& name, std::vector<std::string>& result);
 	
 
 

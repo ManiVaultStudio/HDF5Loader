@@ -360,13 +360,13 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 
 		if (!ok || dataSetName.isEmpty())
 		{
-			return nullptr;
+			return false;
 		}
 
 		auto points = _core->addDataset<Points>("Points", dataSetName);
 
 		if (!points.isValid())
-			return nullptr;
+			return false;
 
 		std::shared_ptr<DataContainerInterface> rawData(new DataContainerInterface(points.get<Points>()));
 
@@ -428,10 +428,10 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 	catch (std::exception &e)
 	{
 		std::cout << "TOME Loader: " << e.what() << std::endl;
-		return nullptr;
+		return false;
 	}
 
-	return nullptr;
+	return false;
 }
 	
 

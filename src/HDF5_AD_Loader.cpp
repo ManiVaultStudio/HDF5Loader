@@ -362,7 +362,7 @@ namespace H5AD
 		std::vector<float> numericalMetaData;
 		std::size_t nrOfNumericalMetaData = 0;
 		std::vector<QString> numericalMetaDataDimensionNames;
-		std:size_t nrOfRows = pointsDataset->getNumPoints();
+		std::size_t nrOfRows = pointsDataset->getNumPoints();
 		std::map<std::string, std::vector<QString>> categories;
 
 		bool categoriesLoaded = LoadCategories(group, categories);
