@@ -156,7 +156,7 @@ namespace TOME
 			rawData->applyTransform(transformType, normalize_and_cpm);
 	}
 
-	void LoadGeneNames(H5::DataSet &dataset, Dataset<Points> &pointsDataset)
+	void LoadGeneNames(H5::DataSet &dataset, Dataset<Points> pointsDataset)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Gene Names" << std::endl;
@@ -169,7 +169,7 @@ namespace TOME
 		pointsDataset->setDimensionNames(dimensionNames);
 	}
 
-	void LoadSampleNames(H5::DataSet &dataset, Dataset<Points> &points)
+	void LoadSampleNames(H5::DataSet &dataset, Dataset<Points> points)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Sample Names" << std::endl;
@@ -182,7 +182,7 @@ namespace TOME
 		
 	}
 
-	bool LoadSampleMeta(H5::Group &group, Dataset<Points> &points, hdps::CoreInterface* _core)
+	bool LoadSampleMeta(H5::Group &group, Dataset<Points> points, hdps::CoreInterface* _core)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl;
@@ -234,9 +234,9 @@ namespace TOME
 							H5::DataSet labelDataSet = anno.openDataSet(labelDatasetString);
 							std::vector<QString> labelVector;
 
-							auto x = labelDataSet.getDataType();
+							auto labelDataSetDataType = labelDataSet.getDataType();
 							bool numericalValues = false;
-							if (x.getClass() == H5T_STRING)
+							if (labelDataSetDataType.getClass() == H5T_STRING)
 							{
 								
 								if(H5Utils::read_vector_string(labelDataSet, labelVector))

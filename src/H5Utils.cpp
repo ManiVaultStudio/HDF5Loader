@@ -985,7 +985,7 @@ namespace H5Utils
 	}
 
 
-	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points>& parent, QString name)
+	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points> parent, QString name)
 	{
 		const std::size_t numberOfDimensions = numericalDimensionNames.size();
 		if (numberOfDimensions)
@@ -1044,7 +1044,7 @@ namespace H5Utils
 		}
 	}
 
-	void addClusterMetaData(hdps::CoreInterface *core, std::map<QString, std::vector<unsigned int>> &indices, QString name, hdps::Dataset<Points>& parent, std::map<QString, QColor> colors)
+	void addClusterMetaData(hdps::CoreInterface *core, std::map<QString, std::vector<unsigned int>> &indices, QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors)
 	{
 		if (indices.size() <= 1)
 			return; // no point in adding only a single cluster
