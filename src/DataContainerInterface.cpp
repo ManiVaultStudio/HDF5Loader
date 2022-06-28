@@ -66,7 +66,7 @@ void DataContainerInterface::resize(RowID rows, ColumnID columns, std::size_t re
 		{
 			m_data->setData(nullptr, rows, columns);
 		}
-		catch(const std::bad_alloc &e)
+		catch(const std::bad_alloc &)
 		{
 			qDebug() << "Bad Allocation in setData: " << rows << " x " << columns;
 		}

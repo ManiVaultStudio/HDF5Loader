@@ -131,9 +131,10 @@ void HDF5Loader::loadData()
 		{
 			IfValid(settings.value(Keys::transformValueKey), [&transform, index](const QVariant& value)
 				{
-					const double  temp = value.toDouble();
-					auto pair = std::make_pair(index, temp);
-					transform.set(pair);
+					TRANSFORM::Type transform_type;
+					transform_type.first = index;
+					transform_type.second = value.toDouble();
+					transform.set(transform_type);
 				});
 		}
 		else

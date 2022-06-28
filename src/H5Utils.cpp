@@ -43,11 +43,11 @@ namespace H5Utils
 		
 		void ExtractStringValues(const std::vector< std::vector<char> > &raw_buffer, H5::CompType compType, const std::string &name, std::vector<QVariant> &result)
 		{
-			long long nrOfItems = raw_buffer.size();
+			std::size_t nrOfItems = raw_buffer.size();
 			if (result.size() < nrOfItems)
 				result.resize(nrOfItems);
 			
-			for (long long i = 0; i < nrOfItems; ++i)
+			for (std::size_t i = 0; i < nrOfItems; ++i)
 			{
 				CompoundExtractor ce(raw_buffer[i], compType);
 				result[i] = ce.extractString(name).c_str();
@@ -131,7 +131,7 @@ namespace H5Utils
 		}
 
 	}
-	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<std::string>& result)
+	void read_strings(H5::DataSet dataset, std::size_t totalsize, std::vector<std::string>& result)
 	{
 		try
 		{
@@ -167,7 +167,7 @@ namespace H5Utils
 		}
 		
 	}
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<std::string>& result)
+	bool read_vector_string(H5::Group group, const std::string& name, std::vector<std::string>& result)
 	{
 		try
 		{
@@ -210,7 +210,7 @@ namespace H5Utils
 		return false;
 	}
 
-	bool read_vector_string(H5::Group& group, const std::string& name, std::vector<QString>& result)
+	bool read_vector_string(H5::Group group, const std::string& name, std::vector<QString>& result)
 	{
 		try
 		{
@@ -257,7 +257,7 @@ namespace H5Utils
 	}
 
 
-	void read_strings(H5::DataSet& dataset, std::size_t totalsize, std::vector<QString>& result)
+	void read_strings(H5::DataSet dataset, std::size_t totalsize, std::vector<QString>& result)
 	{
 		try
 		{
@@ -306,7 +306,7 @@ namespace H5Utils
 		
 	}
 
-	bool read_vector_string(H5::DataSet &dataset, std::vector<std::string> &result)
+	bool read_vector_string(H5::DataSet dataset, std::vector<std::string> &result)
 	{
 		try
 		{
@@ -389,7 +389,7 @@ namespace H5Utils
 	}
 
 
-	bool read_vector_string(H5::DataSet &dataset, std::vector<QString>& result)
+	bool read_vector_string(H5::DataSet dataset, std::vector<QString>& result)
 	{
 		try
 		{
@@ -512,9 +512,9 @@ namespace H5Utils
 		{
 			H5::DataType dtype = dataset.getDataType();
 			H5::CompType compType = dataset.getCompType();
-			int compoundMembers = compType.getNmembers();
+			auto compoundMembers = compType.getNmembers();
 			std::size_t totalCompoundSize = 0;
-			for (std::size_t m = 0; m < compoundMembers; ++m)
+			for (unsigned int m = 0; m < compoundMembers; ++m)
 			{
 				auto memberDtype = compType.getMemberDataType(m);
 				totalCompoundSize += memberDtype.getSize();
@@ -665,7 +665,7 @@ namespace H5Utils
 		{
 			result = std::string(this->data.data() + o, this->data.data() + this->data.size());
 		}
-		int resultSize = result.size();
+		std::ptrdiff_t resultSize = result.size();
 		if (resultSize)
 		{
 			//remove '\0'
