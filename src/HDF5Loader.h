@@ -12,7 +12,7 @@ using namespace hdps::plugin;
 
 
 
-class HDF5Loader : public QObject, public LoaderPlugin
+class HDF5Loader : public LoaderPlugin
 {
 	QFileDialog _fileDialog;
 	
