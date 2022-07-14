@@ -74,7 +74,7 @@ namespace
 
 
 HDF5Loader::HDF5Loader(PluginFactory* factory)
-		 : LoaderPlugin(factory)
+    : LoaderPlugin(factory)
 {
 	
 }
