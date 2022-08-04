@@ -111,15 +111,22 @@ namespace H5AD
 		std::map<std::string, std::vector<QVariant> > compoundMap;
 		if (H5Utils::read_compound(dataset, compoundMap))
 		{
-			for (auto component = compoundMap.cbegin(); component != compoundMap.cend(); ++component)
+			std::vector<std::string> indexNames(2);
+			indexNames[0] = "index";
+			indexNames[1] = "_index";
+			for(std::size_t i=0; i < 2; ++i)
 			{
-				if (component->first == "index")
+				std::string currentIndexName = indexNames[i];
+				for (auto component = compoundMap.cbegin(); component != compoundMap.cend(); ++component)
 				{
-					std::size_t nrOfItems = component->second.size();
-					result.resize(nrOfItems);
-					for (std::size_t i = 0; i < nrOfItems; ++i)
-						result[i] = component->second[i].toString();
-					break;
+					if (component->first == currentIndexName)
+					{
+						std::size_t nrOfItems = component->second.size();
+						result.resize(nrOfItems);
+						for (std::size_t i = 0; i < nrOfItems; ++i)
+							result[i] = component->second[i].toString();
+						return;
+					}
 				}
 			}
 		}
@@ -128,21 +135,43 @@ namespace H5AD
 
 	void LoadIndexStrings(H5::Group& group, std::vector<QString> &result)
 	{
-		auto nrOfObjects = group.getNumObjs();
-		// first get the gene names
-		for (auto go = 0; go < nrOfObjects; ++go)
+		/* order to look for is
+		   -  value of _index attribute
+		   -  _index dataset
+		   -  index dataset
+		*/
+		std::vector<std::string> indexObjectNames;
+		indexObjectNames.reserve(3);
+		if(group.attrExists("_index"))
 		{
-			std::string objectName1 = group.getObjnameByIdx(go);
-			H5G_obj_t objectType1 = group.getObjTypeByIdx(go);
+			auto attribute = group.openAttribute("_index");
+			std::string objectName;
+			attribute.read(attribute.getDataType(), objectName);
+			indexObjectNames.push_back(objectName);
+		}
+		indexObjectNames.push_back("_index");
+		indexObjectNames.push_back("index");
 
-			if ((objectType1 == H5G_DATASET) && (objectName1 == "index" || objectName1 == "_index"))
+		auto nrOfObjects = group.getNumObjs();
+		for(std::size_t i=0; i < indexObjectNames.size(); ++i)
+		{
+			std::string currentIndexObjectName = indexObjectNames[i];
+			for (auto go = 0; go < nrOfObjects; ++go)
 			{
-				H5::DataSet dataSet = group.openDataSet(objectName1);
-				
-				H5Utils::read_vector_string(dataSet, result);
-				break;;
+				std::string objectName = group.getObjnameByIdx(go);
+				H5G_obj_t objectType = group.getObjTypeByIdx(go);
+
+				if ((objectType == H5G_DATASET) && (objectName == currentIndexObjectName))
+				{
+					H5::DataSet dataSet = group.openDataSet(objectName);
+
+					H5Utils::read_vector_string(dataSet, result);
+					return;
+				}
 			}
 		}
+		
+		
 	}
 
 	void LoadSampleNamesAndMetaData(H5::DataSet &dataset, Dataset<Points> pointsDataset, hdps::CoreInterface* _core)
