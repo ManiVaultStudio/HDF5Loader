@@ -1,6 +1,6 @@
 from conans import ConanFile
 from conan.tools.cmake import CMakeDeps, CMake, CMakeToolchain
-from conans.tools import save, load, os_info
+from conans.tools import save, load, os_info, SystemPackageTool
 import os
 import shutil
 import pathlib
@@ -88,7 +88,7 @@ class HDF5LoaderConan(ConanFile):
         if os_info.is_macos:
             target = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "10.13")
             if compareVersion(target, "10.12") == 1:
-                installer = tools.SystemPackageTool()
+                installer = SystemPackageTool()
                 installer.install("libomp")
 
     def config_options(self):
