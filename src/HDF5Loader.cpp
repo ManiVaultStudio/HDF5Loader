@@ -53,9 +53,11 @@ namespace
 	{
 		const QLatin1String conversionIndexKey("conversionIndex");
 		const QLatin1String transformValueKey("transformValue");
+		const QLatin1String storageValueKey("storageValue");
 		const QLatin1String fileNameKey("fileName");
 		const QLatin1String normalizeKey("normalize");
 		const QLatin1String selectedNameFilterKey("selectedNameFilter");
+		
 	}
 
 
@@ -75,6 +77,7 @@ namespace
 
 HDF5Loader::HDF5Loader(PluginFactory* factory)
     : LoaderPlugin(factory)
+	
 {
 	
 }
@@ -97,6 +100,8 @@ void HDF5Loader::init()
 	_fileDialog.setNameFilters(fileTypeOptions);
 
 	
+
+	
 }
 
 
@@ -110,9 +115,28 @@ void HDF5Loader::loadData()
 	LockGuard lockGuard(Hdf5Lock());
 	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/HDF5Loader"));
 	QGridLayout* fileDialogLayout = dynamic_cast<QGridLayout*>(_fileDialog.layout());
-	TRANSFORM::Control transform(fileDialogLayout);
 
 	int rowCount = fileDialogLayout->rowCount();
+
+	QComboBox *storageTypeComboBox = new QComboBox;
+	QLabel* storageTypeLabel = new QLabel("Storage Type");
+	storageTypeComboBox->addItem("Native", 0);
+	storageTypeComboBox->addItem("Float (32-bits)", 1);
+	storageTypeComboBox->addItem("BFloat16 (16-bits)", 2);
+	storageTypeComboBox->setCurrentIndex([&settings]
+	{
+		const auto value = settings.value(Keys::storageValueKey);
+		if (value.isValid())return value.toInt();
+		return 0;
+	}());
+		
+	fileDialogLayout->addWidget(storageTypeLabel, rowCount, 0);
+	fileDialogLayout->addWidget(storageTypeComboBox, rowCount, 1);
+
+
+	TRANSFORM::Control transform(fileDialogLayout);
+
+	
 	QCheckBox normalizeCheck("yes");
 	QLabel normalizeLabel(QString("Normalize to CPM: "));
 	fileDialogLayout->addWidget(&normalizeLabel, rowCount, 0);
@@ -157,12 +181,16 @@ void HDF5Loader::loadData()
 			fileDialogRef.selectFile(value.toString());
 	});
 
-	const auto onFilterSelected = [&normalizeCheck, &normalizeLabel](const QString& nameFilter)
+	const auto onFilterSelected = [&normalizeCheck, &normalizeLabel, &storageTypeComboBox, &storageTypeLabel](const QString& nameFilter)
 	{
 		const bool isTomeSelected{ nameFilter == "TOME (*.tome)" };
 
 		normalizeCheck.setVisible(isTomeSelected);
 		normalizeLabel.setVisible(isTomeSelected);
+
+		const bool isH5ADSelected{ nameFilter == "H5AD (*.h5ad)" };
+		storageTypeComboBox->setVisible(isH5ADSelected);
+		storageTypeLabel->setVisible(isH5ADSelected);
 	};
 
 	QObject::connect(&_fileDialog, &QFileDialog::filterSelected, onFilterSelected);
@@ -184,10 +212,12 @@ void HDF5Loader::loadData()
 		const bool normalize = normalizeCheck.isChecked();
 
 		settings.setValue(Keys::conversionIndexKey, transform_setting.first);
+		settings.setValue(Keys::storageValueKey,  storageTypeComboBox->currentIndex());
 		settings.setValue(Keys::transformValueKey, transform_setting.second);
 		settings.setValue(Keys::fileNameKey, firstFileName);
 		settings.setValue(Keys::normalizeKey, normalize);
 		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
+		
 
 		if (selectedNameFilter == "TOME (*.tome)")
 		{
@@ -219,7 +249,7 @@ void HDF5Loader::loadData()
 			for (const auto fileName : fileNames)
 			{
 				if (loader.open(fileName))
-					loader.load();
+					loader.load(storageTypeComboBox->currentIndex());
 				else
 				{
 					QString mesg = "Could not open " + fileName + ". Make sure the file has the correct file extension and is not corrupted.";

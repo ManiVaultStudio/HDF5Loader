@@ -23,6 +23,8 @@ using namespace hdps;
 
 namespace H5AD
 {
+
+	
 	struct compareStringsAsNumbers {
 		bool operator()(const std::string& a, const std::string& b) const
 		{
@@ -70,38 +72,68 @@ namespace H5AD
 	
 	  
 	
-	void LoadData(const H5::DataSet &dataset, Dataset<Points> pointsDataset)
+	void LoadData(const H5::DataSet &dataset, Dataset<Points> pointsDataset, int storageType)
 	{
-		H5Utils::MultiDimensionalData<float> mdd;
-
-		if (H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT))
+		if(storageType == 2) // BFLOAT16
 		{
-			if (mdd.size.size() == 2)
+				H5Utils::MultiDimensionalData<float> mdd;
+				if (H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT))
+				{
+					if (mdd.size.size() == 2)
+					{
+						std::vector<biovault::bfloat16_t> data16(mdd.data.cbegin(), mdd.data.cend());
+						pointsDataset->setData(std::move(data16), mdd.size[1]);
+					}
+				}
+		}
+		else
+		{
+			H5Utils::MultiDimensionalData<float> mdd;
+			if (H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT))
 			{
-				pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
+				if (mdd.size.size() == 2)
+				{
+					pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
+				}
 			}
 		}
+		
+
+		
 	}
 
-	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset)
+	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset,int storageType)
 	{
 		bool result = true;
 		std::vector<float> data;
+		std::vector<biovault::bfloat16_t> data16;
 		std::vector<std::uint64_t> indices;
 		std::vector<std::uint32_t> indptr;
-		result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT);
+
+		if (storageType == 2 ) // BFLOAT16
+		{
+			result &= H5Utils::read_vector(group, "data", &data16, H5::PredType::NATIVE_FLOAT);
+		}
+		else
+		{
+			result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT);
+		}
+
 		if (result)
 			result &= H5Utils::read_vector(group, "indices", &indices, H5::PredType::NATIVE_UINT64);
 		if (result)
 			result &= H5Utils::read_vector(group, "indptr", &indptr, H5::PredType::NATIVE_UINT32);
-
+		
 		if (result)
 		{
 			DataContainerInterface dci(pointsDataset);
 			std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
 			std::uint64_t ysize = *std::max_element(indices.cbegin(), indices.cend()) + 1;
 			dci.resize(xsize, ysize);
-			dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+			if(storageType == 2) // BFLOAT16
+				dci.set_sparse_row_data(indices, indptr, data16, TRANSFORM::None());
+			else
+				dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
 		}
 	}
 
@@ -755,7 +787,7 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 	return _dimensionNames;
 }
 
-bool HDF5_AD_Loader::load()
+bool HDF5_AD_Loader::load(int storageType)
 {
 	
 	if (_file == nullptr)
@@ -781,7 +813,7 @@ bool HDF5_AD_Loader::load()
 
 					pointsDataset = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
 					
-					H5AD::LoadData(dataset, pointsDataset);
+					H5AD::LoadData(dataset, pointsDataset, storageType);
 					rows = pointsDataset->getNumPoints();
 					columns = pointsDataset->getNumDimensions();
 				}
@@ -792,7 +824,7 @@ bool HDF5_AD_Loader::load()
 				{
 					H5::Group group = _file->openGroup(objectName1);
 					pointsDataset = H5Utils::createPointsDataset(_core);
-					H5AD::LoadData(group, pointsDataset);
+					H5AD::LoadData(group, pointsDataset, storageType);
 					rows = pointsDataset->getNumPoints();
 					columns = pointsDataset->getNumDimensions();
 				}
@@ -807,7 +839,7 @@ bool HDF5_AD_Loader::load()
 		pointsDataset->setDimensionNames(_dimensionNames);
 		pointsDataset->setProperty("Sample Names", QList<QVariant>(_sampleNames.cbegin(), _sampleNames.cend()));
 
-		std::set<std::string> objectsToSkip = { "X", "var", "raw.X", "raw.var"};
+		std::set<std::string> objectsToSkip = { "X", "var", "raw.X", "raw.var", "raw/X", "raw/var"};
 		
 		// now we look for nice to have data
 		try

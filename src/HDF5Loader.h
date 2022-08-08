@@ -15,13 +15,21 @@ using namespace hdps::plugin;
 class HDF5Loader :  public LoaderPlugin
 {
 	QFileDialog _fileDialog;
+
 	
+protected:
+	
+	int _storageType;
 public:
+	
+	
     HDF5Loader(PluginFactory* factory);
     ~HDF5Loader() override;
 
     void init() override;
 
     void loadData() Q_DECL_OVERRIDE;
+
+	
 
 };

@@ -24,6 +24,6 @@ public:
 	
 	bool open(const QString &);
 	const std::vector<QString> &getDimensionNames() const;
-	bool load();
+	bool load(int storageType);
 	
 };
