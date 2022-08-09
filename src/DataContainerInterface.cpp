@@ -51,7 +51,66 @@ namespace local
 			dataHierarcyItem.setTaskFinished();
 		}
 	};
+
+	template<typename T1, typename T2, typename T3>
+	void set_sparse_row_data_impl(Dataset<Points> m_data, std::vector<T1>& column_index, std::vector<T2>& row_offset, std::vector<T3>& data, TRANSFORM::Type transformType)
+	{
+		long long lrows = ((long long)m_data->getNumPoints());
+		auto columns = m_data->getNumDimensions();
+
+		local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
+		m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
+			{
+				#pragma omp parallel for schedule(dynamic,1)
+				for (long long row = 0; row < lrows; ++row)
+				{
+					uint64_t start = row_offset[row];
+					uint64_t end = row_offset[row + 1];
+					uint64_t points_offset = row * columns;
+
+					for (uint64_t i = start; i < end; ++i)
+					{
+						double value = data[i];
+						uint64_t column = column_index[i];
+						if (value != 0)
+						{
+							switch (transformType.first)
+							{
+							case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
+							case TRANSFORM::LOG:  beginOfData[points_offset + column] = log2(1 + value); break;
+							case TRANSFORM::ARCSIN5: beginOfData[points_offset + column] = asinh(value / 5.0); break;
+							case TRANSFORM::SQRT: beginOfData[points_offset + column] = sqrt(value); break;
+							}
+						}
+					}
+					progress.setStep(row);
+
+				}
+			});
+	}
+
+	template<typename T1, typename T2>
+	void set_sparse_row_data_T2(hdps::Dataset<Points> dataset, std::vector<T1>& column_index, std::vector<T2>& row_offset, H5Utils::VectorHolder& data, TRANSFORM::Type transformType)
+	{
+		
+		data.visit([&dataset, &column_index, &row_offset, transformType](auto& vec)
+		{
+			return set_sparse_row_data_impl(dataset, column_index, row_offset, vec, transformType);
+		});
+	}
+
+	template<typename T1>
+	void set_sparse_row_data_T1(hdps::Dataset<Points> dataset, std::vector<T1>& column_index, H5Utils::VectorHolder& row_offset, H5Utils::VectorHolder& data, TRANSFORM::Type transformType)
+	{
+		row_offset.visit([dataset, &column_index, &data, transformType](auto& vec)
+		{
+			return set_sparse_row_data_T2(dataset, column_index, vec, data, transformType);
+		});
+	}
 }
+
+
+
 DataContainerInterface::DataContainerInterface(Dataset<Points> points) :
 	m_data(points)
 {
@@ -81,75 +140,24 @@ void DataContainerInterface::resize(RowID rows, ColumnID columns, std::size_t re
 
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
-	long long lrows = ((long long)m_data->getNumPoints());
-	auto columns = m_data->getNumDimensions();
-	
-	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
-	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
-		{
-			#pragma omp parallel for schedule(dynamic,1)
-			for (long long row = 0; row < lrows; ++row)
-			{
-				uint32_t start = row_offset[row];
-				uint32_t end = row_offset[row + 1];
-				uint64_t points_offset = row * columns;
-
-				for (uint64_t i = start; i < end; ++i)
-				{
-					float value = data[i];
-					uint64_t column = column_index[i];
-					if (value != 0)
-					{
-						switch (transformType.first)
-						{
-						case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
-						case TRANSFORM::LOG:  beginOfData[points_offset + column] =  log2(1 + value); break;
-						case TRANSFORM::ARCSIN5: beginOfData[points_offset + column] =  asinh(value / 5.0); break;
-						case TRANSFORM::SQRT: beginOfData[points_offset + column] = sqrt(value); break;
-						}
-					}
-				}
-				progress.setStep(row);
-
-			}
-		});
-	
+	local::set_sparse_row_data_impl<uint64_t, uint32_t, float>(this->m_data, column_index, row_offset, data, transformType);
 }
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<biovault::bfloat16_t>& data, TRANSFORM::Type transformType)
 {
-	long long lrows = ((long long)m_data->getNumPoints());
-	auto columns = m_data->getNumDimensions();
-	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
-	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
-		{
-			QBitArray qba(lrows, false);
-			#pragma omp parallel for schedule(dynamic,1)
-			for (long long row = 0; row < lrows; ++row)
-			{
-				uint32_t start = row_offset[row];
-				uint32_t end = row_offset[row + 1];
-				uint64_t points_offset = row * columns;
-
-				for (uint64_t i = start; i < end; ++i)
-				{
-					float value = data[i];
-					uint64_t column = column_index[i];
-					if (value != 0)
-					{
-						switch (transformType.first)
-						{
-						case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
-						case TRANSFORM::LOG:  beginOfData[points_offset + column] = log2(1 + value); break;
-						case TRANSFORM::ARCSIN5: beginOfData[points_offset + column] = asinh(value / 5.0); break;
-						case TRANSFORM::SQRT: beginOfData[points_offset + column] = sqrt(value); break;
-						}
-					}
-				}
-
-				progress.setStep(row);
-			}
-		});
+	local::set_sparse_row_data_impl<uint64_t, uint32_t, biovault::bfloat16_t>(this->m_data, column_index, row_offset, data, transformType);
 }
+
+
+void DataContainerInterface::set_sparse_row_data(H5Utils::VectorHolder& column_index, H5Utils::VectorHolder& row_offset, H5Utils::VectorHolder& data, TRANSFORM::Type transformType)
+{
+	hdps::Dataset<Points> dataset = m_data;
+	column_index.visit([dataset, &row_offset, &data, transformType](auto& vec)
+	{
+		return local::set_sparse_row_data_T1(dataset, vec, row_offset, data, transformType);
+	});
+}
+
+
 void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
 	long long lrows = ((long long)m_data->getNumPoints());

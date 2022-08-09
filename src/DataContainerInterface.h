@@ -3,6 +3,7 @@
 #include "PointData.h"
 #include "DataTransform.h"
 #include "Dataset.h"
+#include "H5Utils.h"
 
 typedef std::uint64_t DataPointID;
 typedef std::uint64_t MarkerID;
@@ -52,6 +53,10 @@ public:
 
 	void set_sparse_row_data(std::vector<uint64_t> &i, std::vector<uint32_t> &p, std::vector<float> &x, TRANSFORM::Type transformType);
 	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<biovault::bfloat16_t>& x, TRANSFORM::Type transformType);
+	void set_sparse_row_data(H5Utils::VectorHolder& i, H5Utils::VectorHolder& p, H5Utils::VectorHolder& x, TRANSFORM::Type transformType);
+	
+	
+
 	void increase_sparse_row_data(std::vector<uint64_t> &i, std::vector<uint32_t> &p, std::vector<float> &x, TRANSFORM::Type transformType);
 
 	

@@ -167,6 +167,99 @@ namespace H5Utils
 		}
 		
 	}
+
+	H5::PredType getPredTypeFromDataset(const H5::DataSet& dataset)
+	{
+		auto typeClass = dataset.getTypeClass();
+		if (typeClass == H5T_FLOAT)
+		{
+			H5::FloatType floatType = dataset.getFloatType();
+			if (floatType.getSize() == 4)
+				return H5::PredType::NATIVE_FLOAT;
+			else
+				return	H5::PredType::NATIVE_DOUBLE;
+		}
+		else if (typeClass == H5T_INTEGER)
+		{
+			H5::IntType intType = dataset.getIntType();
+			H5T_sign_t intSign = intType.getSign();
+			auto intSize = intType.getSize();
+			if (intSign == H5T_SGN_NONE)
+			{
+				switch (intType.getSize())
+				{
+				case 1: return H5::PredType::NATIVE_UINT8;
+				case 2: return H5::PredType::NATIVE_UINT16;
+				case 4: return H5::PredType::NATIVE_UINT32;
+				case 8: return H5::PredType::NATIVE_UINT64;
+				}
+			}
+			else if (intSign == H5T_SGN_2)
+			{
+				switch (intType.getSize())
+				{
+				case 1: return H5::PredType::NATIVE_INT8;
+				case 2: return H5::PredType::NATIVE_INT16;
+				case 4: return H5::PredType::NATIVE_INT32;
+				case 8: return H5::PredType::NATIVE_INT64;
+				}
+			}
+		}
+		// the default
+		return H5::PredType::NATIVE_DOUBLE;
+	}
+
+	bool read_vector(H5::Group& group, const std::string& name, VectorHolder& vectorHolder)
+	{
+		if (!group.exists(name))
+			return false;
+
+		H5::DataSet dataset = group.openDataSet(name);
+
+		H5::PredType predType = getPredTypeFromDataset(dataset);
+		if (predType == H5::PredType::NATIVE_FLOAT)
+		{
+			return read_vector<float>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_UINT8)
+		{
+			return read_vector<std::uint8_t>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_UINT16)
+		{
+			return read_vector<std::uint16_t>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_UINT32)
+		{
+			return read_vector<std::uint32_t>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_UINT64)
+		{
+			return read_vector<std::uint64_t>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_INT8)
+		{
+			return read_vector<std::int8_t>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_INT16)
+		{
+			return read_vector<std::int16_t>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_INT32)
+		{
+			return read_vector<std::int32_t>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_INT16)
+		{
+			return read_vector<std::int64_t>(group, name, vectorHolder, predType);
+		}
+		if (predType == H5::PredType::NATIVE_DOUBLE)
+		{
+			return read_vector<double>(group, name, vectorHolder, predType);
+		}
+		return false;
+	}
+
 	bool read_vector_string(H5::Group group, const std::string& name, std::vector<std::string>& result)
 	{
 		try
@@ -985,64 +1078,7 @@ namespace H5Utils
 	}
 
 
-	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points> parent, QString name)
-	{
-		const std::size_t numberOfDimensions = numericalDimensionNames.size();
-		if (numberOfDimensions)
-		{
-
-
-
-
-
-			std::size_t nrOfSamples = numericalData.size() / numberOfDimensions;
-
-
-			QString numericalDatasetName = "Numerical MetaData";
-			if (!name.isEmpty())
-			{
-				// if numericalMetaDataDimensionNames start with name, remove it
-				for (auto& dimName : numericalDimensionNames)
-				{
-					if (dimName.indexOf(name) == 0)
-					{
-						dimName.remove(0, name.length());
-					}
-					// remove forward slash from dimName if it has one
-					while (dimName[0] == '/')
-						dimName.remove(0, 1);
-					while (dimName[0] == '\\')
-						dimName.remove(0, 1);
-				}
-				// remove forward slash from name if it has one
-				while (name[0] == '/')
-					name.remove(0, 1);
-				while (name[0] == '\\')
-					name.remove(0, 1);
-				numericalDatasetName = name /* + " (numerical)"*/;
-			}
-
-			
-			Dataset<Points> numericalMetadataDataset = core->createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
-			core->notifyDatasetAdded(numericalMetadataDataset);
-			
-			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
-			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
-			numericalMetadataDataset->getDataHierarchyItem().setTaskRunning();
-			
-			if (transpose)
-			{
-				H5Utils::transpose(numericalData.begin(), numericalData.end(), nrOfSamples, numericalMetadataDataset->getDataHierarchyItem());
-			}
-			
-			numericalMetadataDataset->setDataElementType<float>();
-			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
-			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
-			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
-      
-			core->notifyDatasetChanged(numericalMetadataDataset);
-		}
-	}
+	
 
 	void addClusterMetaData(hdps::CoreInterface *core, std::map<QString, std::vector<unsigned int>> &indices, QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors)
 	{

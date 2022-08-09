@@ -19,6 +19,8 @@
 
 #include <set>
 
+#include "DataContainerInterface.h"
+
 using namespace hdps;
 
 namespace H5AD
@@ -72,53 +74,29 @@ namespace H5AD
 	
 	  
 	
-	void LoadData(const H5::DataSet &dataset, Dataset<Points> pointsDataset, int storageType)
+	void LoadData(const H5::DataSet &dataset, Dataset<Points> pointsDataset)
 	{
-		if(storageType == 2) // BFLOAT16
+		
+		H5Utils::MultiDimensionalData<float> mdd;
+		if (H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT))
 		{
-				H5Utils::MultiDimensionalData<float> mdd;
-				if (H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT))
-				{
-					if (mdd.size.size() == 2)
-					{
-						std::vector<biovault::bfloat16_t> data16(mdd.data.cbegin(), mdd.data.cend());
-						pointsDataset->setData(std::move(data16), mdd.size[1]);
-					}
-				}
-		}
-		else
-		{
-			H5Utils::MultiDimensionalData<float> mdd;
-			if (H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT))
+
+			if (mdd.size.size() == 2)
 			{
-				if (mdd.size.size() == 2)
-				{
-					pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
-				}
+				pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
 			}
 		}
-		
-
-		
 	}
 
-	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset,int storageType)
+	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset)
 	{
 		bool result = true;
 		std::vector<float> data;
-		std::vector<biovault::bfloat16_t> data16;
 		std::vector<std::uint64_t> indices;
 		std::vector<std::uint32_t> indptr;
 
-		if (storageType == 2 ) // BFLOAT16
-		{
-			result &= H5Utils::read_vector(group, "data", &data16, H5::PredType::NATIVE_FLOAT);
-		}
-		else
-		{
-			result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT);
-		}
 
+		result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT);
 		if (result)
 			result &= H5Utils::read_vector(group, "indices", &indices, H5::PredType::NATIVE_UINT64);
 		if (result)
@@ -130,10 +108,7 @@ namespace H5AD
 			std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
 			std::uint64_t ysize = *std::max_element(indices.cbegin(), indices.cend()) + 1;
 			dci.resize(xsize, ysize);
-			if(storageType == 2) // BFLOAT16
-				dci.set_sparse_row_data(indices, indptr, data16, TRANSFORM::None());
-			else
-				dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+			dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
 		}
 	}
 
@@ -206,6 +181,7 @@ namespace H5AD
 		
 	}
 
+	template<typename numericMetaDataType>
 	void LoadSampleNamesAndMetaData(H5::DataSet &dataset, Dataset<Points> pointsDataset, hdps::CoreInterface* _core)
 	{
 
@@ -213,8 +189,6 @@ namespace H5AD
 		if (h5datasetName[0] == '/')
 			h5datasetName.erase(h5datasetName.cbegin());
 		std::map<std::string, std::vector<QVariant> > compoundMap;
-
-		typedef float numericMetaDataType;
 
 		if (H5Utils::read_compound(dataset, compoundMap))
 		{
@@ -289,22 +263,22 @@ namespace H5AD
 		bool containsSparseMatrix = false;
 		if (nrOfObjects > 2)
 		{
-			// check for sparse data
-			std::vector<float> data;
-			std::vector<std::uint64_t> indices;
-			std::vector<std::uint32_t> indptr;
-			containsSparseMatrix = H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT);
+			H5Utils::VectorHolder data;
+			H5Utils::VectorHolder indices;
+			H5Utils::VectorHolder indptr;
+			
+			containsSparseMatrix = H5Utils::read_vector(group, "data", data);
 			if (containsSparseMatrix)
-				containsSparseMatrix &= H5Utils::read_vector(group, "indices", &indices, H5::PredType::NATIVE_UINT64);
+				containsSparseMatrix &= H5Utils::read_vector(group, "indices", indices);
 			if (containsSparseMatrix)
-				containsSparseMatrix &= H5Utils::read_vector(group, "indptr", &indptr, H5::PredType::NATIVE_UINT32);
+				containsSparseMatrix &= H5Utils::read_vector(group, "indptr", indptr);
 
 			if (containsSparseMatrix)
 			{
 				std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
 				if (xsize == pointsDataset->getNumPoints())
 				{
-					std::uint64_t ysize = *std::max_element(indices.cbegin(), indices.cend()) + 1;
+					std::uint64_t ysize = indices.visit<std::uint64_t>([](auto& vec) { return *std::max_element(vec.cbegin(), vec.cend()); }) + 1;
 
 					std::vector<QString> dimensionNames(ysize);
 					for (std::size_t l = 0; l < ysize; ++l)
@@ -315,10 +289,17 @@ namespace H5AD
 					while (numericalDatasetName[0] == '\\')
 						numericalDatasetName.remove(0, 1);
 					Dataset<Points> numericalDataset = _core->createDerivedDataset(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
+					
+					data.visit([&numericalDataset](auto& vec) {typedef typename std::decay_t<decltype(vec)> v; numericalDataset->setDataElementType<v::value_type>(); });
+					
+					
+					
 					_core->notifyDatasetAdded(numericalDataset);
 					DataContainerInterface dci(numericalDataset);
 					dci.resize(xsize, ysize);
 					dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+					
+
 					numericalDataset->setDimensionNames(dimensionNames);
 					_core->notifyDatasetChanged(numericalDataset);
 				}
@@ -409,7 +390,8 @@ namespace H5AD
 		result.clear();
 		return false;
 	}
-	
+
+	template<typename numericalMetaDataType>
 	void LoadSampleNamesAndMetaData(H5::Group &group,  Dataset<Points>  pointsDataset, CoreInterface *_core)
 	{
 
@@ -420,7 +402,7 @@ namespace H5AD
 			return;
 
 
-		std::vector<float> numericalMetaData;
+		std::vector<numericalMetaDataType> numericalMetaData;
 		std::size_t nrOfNumericalMetaData = 0;
 		std::vector<QString> numericalMetaDataDimensionNames;
 		std::size_t nrOfRows = pointsDataset->getNumPoints();
@@ -697,7 +679,7 @@ namespace H5AD
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group group2 = group.openGroup(objectName1);
-						LoadSampleNamesAndMetaData(group2, pointsDataset, _core);
+						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, pointsDataset, _core);
 					}
 				}
 
@@ -720,6 +702,10 @@ HDF5_AD_Loader::HDF5_AD_Loader(hdps::CoreInterface *core)
 {
 	_core = core;
 }
+
+
+
+
 bool HDF5_AD_Loader::open(const QString& fileName)
 {
 	try
@@ -727,6 +713,10 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 		_file.reset(new H5::H5File(fileName.toLatin1().constData(), H5F_ACC_RDONLY));
 		auto nrOfObjects = _file->getNumObjs();
 		bool dataFound = false;
+
+		
+
+
 		for (auto fo = 0; fo < nrOfObjects; ++fo)
 		{
 			std::string objectName1 = _file->getObjnameByIdx(fo);
@@ -812,8 +802,11 @@ bool HDF5_AD_Loader::load(int storageType)
 					H5::DataSet dataset = _file->openDataSet(objectName1);
 
 					pointsDataset = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
-					
-					H5AD::LoadData(dataset, pointsDataset, storageType);
+					if (storageType == 2)
+						pointsDataset->setDataElementType<biovault::bfloat16_t>();
+					else
+						pointsDataset->setDataElementType<float>();
+					H5AD::LoadData(dataset, pointsDataset);
 					rows = pointsDataset->getNumPoints();
 					columns = pointsDataset->getNumDimensions();
 				}
@@ -823,8 +816,12 @@ bool HDF5_AD_Loader::load(int storageType)
 				if (objectName1 == "X")
 				{
 					H5::Group group = _file->openGroup(objectName1);
-					pointsDataset = H5Utils::createPointsDataset(_core);
-					H5AD::LoadData(group, pointsDataset, storageType);
+					pointsDataset = H5Utils::createPointsDataset(_core, true, QFileInfo(_fileName).baseName());
+					if(storageType == 2)
+						pointsDataset->setDataElementType<biovault::bfloat16_t>();
+					else
+						pointsDataset->setDataElementType<float>();
+					H5AD::LoadData(group, pointsDataset);
 					rows = pointsDataset->getNumPoints();
 					columns = pointsDataset->getNumDimensions();
 				}
@@ -839,7 +836,7 @@ bool HDF5_AD_Loader::load(int storageType)
 		pointsDataset->setDimensionNames(_dimensionNames);
 		pointsDataset->setProperty("Sample Names", QList<QVariant>(_sampleNames.cbegin(), _sampleNames.cend()));
 
-		std::set<std::string> objectsToSkip = { "X", "var", "raw.X", "raw.var", "raw/X", "raw/var"};
+		std::set<std::string> objectsToSkip = { "X", "var", "raw.X", "raw.var", "raw", "obsp"};
 		
 		// now we look for nice to have data
 		try
@@ -855,12 +852,18 @@ bool HDF5_AD_Loader::load(int storageType)
 					if (objectType1 == H5G_DATASET)
 					{
 						H5::DataSet dataset = _file->openDataSet(objectName1);
-						H5AD::LoadSampleNamesAndMetaData(dataset, pointsDataset, _core);
+						if(storageType == 2)
+							H5AD::LoadSampleNamesAndMetaData<biovault::bfloat16_t>(dataset, pointsDataset, _core);
+						else
+							H5AD::LoadSampleNamesAndMetaData<float>(dataset, pointsDataset, _core);
 					}
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group group = _file->openGroup(objectName1);
-						H5AD::LoadSampleNamesAndMetaData(group, pointsDataset, _core);
+						if (storageType == 2)
+							H5AD::LoadSampleNamesAndMetaData<biovault::bfloat16_t>(group, pointsDataset, _core);
+						else
+							H5AD::LoadSampleNamesAndMetaData<float>(group, pointsDataset, _core);
 					}
 				}
 				else if (objectName1 == "var")

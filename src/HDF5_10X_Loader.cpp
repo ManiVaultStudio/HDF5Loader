@@ -315,7 +315,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 					if (nrOfNumericalMetaData)
 					{
-						H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
+						H5Utils::addNumericalMetaData<float>(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
 					}
 				}
 

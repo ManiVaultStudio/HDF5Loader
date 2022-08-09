@@ -10,8 +10,10 @@
 #include <QColor>
 #include "PointData.h"
 #include "Dataset.h"
-#include "DataHierarchyItem.h"
-#include <QBitArray>
+#include <iostream>
+#include <cstdint>
+#include <QInputDialog>
+
 
 
 namespace hdps
@@ -21,6 +23,264 @@ namespace hdps
 
 namespace H5Utils
 {
+
+	class VectorHolder // copied form PointData for now, and added double
+	{
+	private:
+		using TupleOfVectors = std::tuple <
+			std::vector<float>,
+			std::vector<biovault::bfloat16_t>,
+			std::vector<std::int64_t>,
+			std::vector<std::uint64_t>,
+			std::vector<std::int32_t>,
+			std::vector<std::uint32_t>,
+			std::vector<std::int16_t>,
+			std::vector<std::uint16_t>,
+			std::vector<std::int8_t>,
+			std::vector<std::uint8_t>,
+			std::vector<double> >;
+
+		
+
+	public:
+		enum class ElementTypeSpecifier
+		{
+			float32,
+			bfloat16,
+			int64,
+			uint64,
+			int32,
+			uint32,
+			int16,
+			uint16,
+			int8,
+			uint8,
+		};
+
+		static constexpr std::array<const char*, std::tuple_size<TupleOfVectors>::value> getElementTypeNames()
+		{
+			return
+			{ {
+				"float32",
+				"bfloat16",
+				"int64",
+				"uint64",
+				"int32",
+				"uint32",
+				"int16",
+				"uint16",
+				"int8",
+				"uint8",
+				"float64"
+			} };
+		}
+
+	private:
+		// Tuple of vectors. Only the vector whose value_type corresponds to _elementTypeSpecifier
+	   // is selected. (The other vector is ignored, and could be cleared.) The vector stores the
+	   // point data in dimension-major order
+	   // Note: Instead of std::tuple, std::variant (from C++17) might be more appropriate, but at
+	   // the moment of writing, C++17 may not yet be enabled system wide.
+		TupleOfVectors _tupleOfVectors;
+
+		// Specifies which vector is selected, based on its value_type.
+		ElementTypeSpecifier _elementTypeSpecifier{};
+
+		// Tries to find the element type specifier that corresponds to ElementType.
+		template <typename ElementType, typename Head, typename... Tail>
+		constexpr static ElementTypeSpecifier recursiveFindElementTypeSpecifier(
+			const std::tuple<Head, Tail...>*,
+			const int temp = 0)
+		{
+			using HeadValueType = typename Head::value_type;
+
+			if (std::is_same<ElementType, HeadValueType>::value)
+			{
+				return static_cast<ElementTypeSpecifier>(temp);
+			}
+			else
+			{
+				constexpr const std::tuple<Tail...>* tailNullptr{ nullptr };
+				return recursiveFindElementTypeSpecifier<ElementType>(tailNullptr, temp + 1);
+			}
+		}
+
+
+		template <typename ElementType>
+		constexpr static ElementTypeSpecifier recursiveFindElementTypeSpecifier(const std::tuple<>*, const int)
+		{
+			return ElementTypeSpecifier{}; // Should not occur!
+		}
+
+		template <typename ReturnType, typename VectorHolderType, typename FunctionObject, typename Head, typename... Tail>
+		static ReturnType recursiveVisit(VectorHolderType& vectorHolder, FunctionObject functionObject, const std::tuple<Head, Tail...>*)
+		{
+			using HeadValueType = typename Head::value_type;
+
+			if (vectorHolder.template isSameElementType<HeadValueType>())
+			{
+				return functionObject(vectorHolder.template getVector<HeadValueType>());
+			}
+			else
+			{
+				constexpr const std::tuple<Tail...>* tailNullptr{ nullptr };
+				return recursiveVisit<ReturnType>(vectorHolder, functionObject, tailNullptr);
+			}
+		}
+
+		template <typename ReturnType, typename VectorHolderType, typename FunctionObject>
+		static ReturnType recursiveVisit(VectorHolderType&, FunctionObject&, const std::tuple<>*)
+		{
+			struct VisitException : std::exception
+			{
+				const char* what() const noexcept override
+				{
+					return "visit error!";
+				}
+			};
+			throw VisitException{};
+		}
+
+	public:
+
+		/// Yields the n-th supported element type.
+		template <std::size_t N>
+		using ElementTypeAt = typename std::tuple_element_t<N, TupleOfVectors>::value_type;
+
+		/// Defaulted default-constructor. Ensures that the element type
+		/// specifier is default-initialized (to "float32").
+		VectorHolder() = default;
+
+		/// Explicit constructor that copies the specified vector into the
+		/// internal data structure. Ensures that the element type specifier
+		/// matches the value type of the vector.
+		template <typename T>
+		explicit VectorHolder(const std::vector<T>& vec)
+			:
+			_elementTypeSpecifier{ getElementTypeSpecifier<T>() }
+		{
+			std::get<std::vector<T>>(_tupleOfVectors) = vec;
+		}
+
+
+		/// Explicit constructor that efficiently "moves" the specified vector
+		/// into the internal data structure. Ensures that the element type
+		/// specifier matches the value type of the vector.
+		template <typename T>
+		explicit VectorHolder(std::vector<T>&& vec)
+			:
+			_elementTypeSpecifier{ getElementTypeSpecifier<T>() }
+		{
+			std::get<std::vector<T>>(_tupleOfVectors) = std::move(vec);
+		}
+
+
+		// Similar to C++17 std::visit.
+		template <typename ReturnType = void, typename FunctionObject>
+		ReturnType constVisit(FunctionObject functionObject) const
+		{
+			constexpr const TupleOfVectors* const tupleNullptr{ nullptr };
+			return recursiveVisit<ReturnType>(*this, functionObject, tupleNullptr);
+		}
+
+
+		// Similar to C++17 std::visit.
+		template <typename ReturnType = void, typename FunctionObject>
+		ReturnType visit(FunctionObject functionObject)
+		{
+			constexpr const TupleOfVectors* const tupleNullptr{ nullptr };
+			return recursiveVisit<ReturnType>(*this, functionObject, tupleNullptr);
+		}
+
+		template <typename T>
+		static constexpr ElementTypeSpecifier getElementTypeSpecifier()
+		{
+			constexpr const TupleOfVectors* const tupleNullptr{ nullptr };
+			return recursiveFindElementTypeSpecifier<T>(tupleNullptr);
+		}
+
+		template <typename T>
+		bool isSameElementType() const
+		{
+			constexpr auto elementTypeSpecifier = getElementTypeSpecifier<T>();
+			return elementTypeSpecifier == _elementTypeSpecifier;
+		}
+
+		template <typename T>
+		const std::vector<T>& getConstVector() const
+		{
+			// This function should only be used to access the currently selected vector.
+			assert(isSameElementType<T>());
+			return std::get<std::vector<T>>(_tupleOfVectors);
+		}
+
+		template <typename T>
+		const std::vector<T>& getVector() const
+		{
+			return getConstVector<T>();
+		}
+
+		template <typename T>
+		std::vector<T>& getVector()
+		{
+			return const_cast<std::vector<T>&>(getConstVector<T>());
+		}
+
+		/// Just forwarding to the corresponding member function of the currently selected std::vector.
+		std::size_t size() const
+		{
+			return constVisit<std::size_t>([](const auto& vec) { return vec.size(); });
+		}
+
+		/// Just forwarding to the corresponding member function of the currently selected std::vector.
+		void resize(const std::size_t newSize)
+		{
+			visit([newSize](auto& vec) { vec.resize(newSize); });
+		}
+
+		/// Just forwarding to the corresponding member function of the currently selected std::vector.
+		void clear()
+		{
+			visit([](auto& vec) { return vec.clear(); });
+		}
+
+		/// Just forwarding to the corresponding member function of the currently selected std::vector.
+		void shrink_to_fit()
+		{
+			visit([](auto& vec) { return vec.shrink_to_fit(); });
+		}
+
+		void setElementTypeSpecifier(const ElementTypeSpecifier elementTypeSpecifier)
+		{
+			_elementTypeSpecifier = elementTypeSpecifier;
+		}
+
+		ElementTypeSpecifier getElementTypeSpecifier() const
+		{
+			return _elementTypeSpecifier;
+		}
+
+
+		/// Resizes the currently active internal data vector to the specified
+		/// number of elements, and converts the elements of the specified data
+		/// to the internal data element type, by static_cast. 
+		template <typename T>
+		void convertData(const T* const data, const std::size_t numberOfElements)
+		{
+			resize(numberOfElements);
+
+			visit([data](auto& vec)
+				{
+					std::size_t i{};
+					for (auto& elem : vec)
+					{
+						elem = static_cast<std::remove_reference_t<decltype(elem)>>(data[i]);
+						++i;
+					}
+				});
+		}
+	};
+
 	template<typename T>
 	class MultiDimensionalData
 	{
@@ -61,8 +321,10 @@ namespace H5Utils
 		return true;
 	}
 
+	
 
-
+	
+	
 	template<typename T>
 	bool read_vector(H5::Group &group, const std::string &name, std::vector<T>*vector_ptr, const H5::DataType &mem_type)
 	{
@@ -70,8 +332,9 @@ namespace H5Utils
 		if (!group.exists(name))
 			return false;
 		H5::DataSet dataset = group.openDataSet(name);
-
+		
 		H5::DataSpace dataspace = dataset.getSpace();
+		
 		/*
 		* Get the number of dimensions in the dataspace.
 		*/
@@ -99,6 +362,14 @@ namespace H5Utils
 		return true;
 	}
 
+	template<typename T>
+	bool read_vector(H5::Group& group, const std::string& name, VectorHolder& vectorHolder, H5::PredType predType)
+	{
+		vectorHolder.setElementTypeSpecifier(VectorHolder::getElementTypeSpecifier<T>());
+		return read_vector(group, name, &vectorHolder.getVector<T>(), predType);
+	}
+
+	bool read_vector(H5::Group& group, const std::string& name, VectorHolder& vectorHolder);
 	
 	bool read_vector_string(H5::Group group, const std::string& name, std::vector<std::string>& result);
 	bool read_vector_string(H5::Group group, const std::string& name, std::vector<QString>& result);
@@ -201,8 +472,68 @@ namespace H5Utils
 	
 	hdps::Dataset<Points> createPointsDataset(::hdps::CoreInterface* core,bool ask=true, QString=QString());
 
+	template<typename numericalMetaDataType>
+	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<numericalMetaDataType>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points> parent, QString name = QString())
+	{
+		const std::size_t numberOfDimensions = numericalDimensionNames.size();
+		if (numberOfDimensions)
+		{
+
+			std::size_t nrOfSamples = numericalData.size() / numberOfDimensions;
+
+			//std::cout << "DEBUG: " << "addNumericalMetaData: " << nrOfSamples << " x " << numberOfDimensions << std::endl;
+			QString numericalDatasetName = "Numerical MetaData";
+			if (!name.isEmpty())
+			{
+				// if numericalMetaDataDimensionNames start with name, remove it
+				for (auto& dimName : numericalDimensionNames)
+				{
+					if (dimName.indexOf(name) == 0)
+					{
+						dimName.remove(0, name.length());
+					}
+					// remove forward slash from dimName if it has one
+					while (dimName[0] == '/')
+						dimName.remove(0, 1);
+					while (dimName[0] == '\\')
+						dimName.remove(0, 1);
+				}
+				// remove forward slash from name if it has one
+				while (name[0] == '/')
+					name.remove(0, 1);
+				while (name[0] == '\\')
+					name.remove(0, 1);
+				numericalDatasetName = name /* + " (numerical)"*/;
+			}
+
+
+			hdps::Dataset<Points> numericalMetadataDataset = core->createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
+			numericalMetadataDataset->setDataElementType<numericalMetaDataType>();
+
+			core->notifyDatasetAdded(numericalMetadataDataset);
+
+			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
+			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
+			numericalMetadataDataset->getDataHierarchyItem().setTaskRunning();
+
+			if (transpose)
+			{
+				H5Utils::transpose(numericalData.begin(), numericalData.end(), nrOfSamples, numericalMetadataDataset->getDataHierarchyItem());
+			}
+
+			numericalMetadataDataset->setDataElementType<numericalMetaDataType>();
+			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
+			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
+			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
+
+			core->notifyDatasetChanged(numericalMetadataDataset);
+		}
+	}
+
 	
-	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<float>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points> parent, QString name=QString());
 	void addClusterMetaData(hdps::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>());
+
+
+	
 }
 
