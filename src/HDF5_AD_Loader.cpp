@@ -20,6 +20,7 @@
 #include <set>
 
 #include "DataContainerInterface.h"
+#include <omp.h>
 
 using namespace hdps;
 
@@ -453,12 +454,14 @@ namespace H5AD
 					DataHierarchyItem* foundDataset = GetDerivedDataset(datasetNameToFind, pointsDataset);
 					if (foundDataset)
 					{
+						foundDataset->setLocked(true);
 						if (foundDataset->getDataType() == DataType("Clusters"))
 						{
-							std::cout << " --- " << datasetNameToFind.toStdString() << " --- " << std::endl;
+							//std::cout << " --- " << datasetNameToFind.toStdString() << " --- " << std::endl;
 							auto& clusters = foundDataset->getDataset<Clusters>()->getClusters();
 							int unchangedClusterColors = 0;
-							for (std::size_t i = 0; i < clusters.size(); ++i)
+							//#pragma  omp parallel for schedule(dynamic,1)
+							for (long long i = 0; i < clusters.size(); ++i)
 							{
 								const auto& clusterIndices = clusters[i].getIndices();
 								std::set<uint32_t> clusterIndicesSet(clusterIndices.cbegin(), clusterIndices.cend());
@@ -466,19 +469,16 @@ namespace H5AD
 								for (auto codedCat = codedCategories.cbegin(); codedCat != codedCategories.cend(); ++codedCat)
 								{
 									const auto& indices = codedCat->second;
-									if( indices.size() >= clusterIndices.size())
+									if( indices.size() == clusterIndices.size())
 									{
+										
 										std::set<uint32_t> indicesSet(indices.cbegin(), indices.cend());
-										if (std::includes(indices.cbegin(), indices.cend(), clusterIndices.cbegin(), clusterIndices.cend()))
+										if(indicesSet == clusterIndicesSet)
 										{
 											bool subset = (indices.size() > clusterIndices.size());
 											QString newColor = QColor::isValidColor(codedCat->first) ? codedCat->first : "#000000";
-											if (subset)
-												std::cout << "* ";
-											else
-												std::cout << "  ";
-											std::cout << "changing cluster " << clusters[i].getName().toStdString() << " color " << clusters[i].getColor().name().toStdString() << " to " << newColor.toStdString() << std::endl;
-											clusters[i].setColor(codedCat->first);
+											
+											clusters[i].setColor(newColor);
 											clusterColorChanged = true;
 											break;
 										}
@@ -486,12 +486,32 @@ namespace H5AD
 								}
 								if(!clusterColorChanged)
 								{
-									++unchangedClusterColors;
-									std::cout << "cluster " << clusters[i].getName().toStdString() << " color " << clusters[i].getColor().name().toStdString() << " was not changed" << std::endl;
-									
+									for (auto codedCat = codedCategories.cbegin(); codedCat != codedCategories.cend(); ++codedCat)
+									{
+										const auto& indices = codedCat->second;
+										if (indices.size() > clusterIndices.size())
+										{
+											std::set<uint32_t> indicesSet(indices.cbegin(), indices.cend());
+											if (std::includes(indicesSet.cbegin(), indicesSet.cend(), clusterIndicesSet.cbegin(), clusterIndicesSet.cend()))
+											{
+												bool subset = (indices.size() > clusterIndices.size());
+												QString newColor = QColor::isValidColor(codedCat->first) ? codedCat->first : "#000000";
+												clusters[i].setColor(newColor);
+												clusterColorChanged = true;
+												break;
+											}
+										}
+									}
 								}
-								Application::core()->notifyDatasetChanged(foundDataset->getDataset());
+								if(!clusterColorChanged)
+								{
+									++unchangedClusterColors;
+									clusters[i].setColor("#000000");
+								//	std::cout << "cluster " << clusters[i].getName().toStdString() << " color " << clusters[i].getColor().name().toStdString() << " was not changed" << std::endl;
+								}
 							}
+							if(unchangedClusterColors < clusters.size())
+								Application::core()->notifyDatasetChanged(foundDataset->getDataset());
 
 							if(unchangedClusterColors)
 							{
@@ -504,6 +524,7 @@ namespace H5AD
 								H5Utils::addClusterMetaData(_core, codedCategories, h5groupName.c_str(), pointsDataset, colors);
 							}
 						}
+						foundDataset->setLocked(false);
 					}
 				}
 				else
@@ -541,6 +562,7 @@ namespace H5AD
 						H5::DataSet dataSet = group.openDataSet(objectName1);
 						if (!((objectName1 == "index") || (objectName1 == "_index")))
 						{
+							
 							if (categories.find(objectName1) != categories.end())
 							{
 								if (dataSet.attrExists("categories"))
@@ -556,10 +578,123 @@ namespace H5AD
 											{
 												indices[labels[index[i]]].push_back((i));
 											}
-											H5Utils::addClusterMetaData(_core, indices, dataSet.getObjName().c_str(), pointsDataset);
+											for (auto indices_iterator = indices.begin(); indices_iterator != indices.end(); ++indices_iterator)
+											{
+												std::sort(indices_iterator->second.begin(), indices_iterator->second.end());
+												std:unique(indices_iterator->second.begin(), indices_iterator->second.end());
+												assert(indices_iterator->second.size() > 0);
+											}
+											if (load_colors == 0)
+												H5Utils::addClusterMetaData(_core, indices, dataSet.getObjName().c_str(), pointsDataset);
+											else
+											{
+												const std::vector<QString>& items = categories[objectName1];
+												bool itemsAreColors = true;
+												for (std::size_t i = 0; i < items.size(); ++i)
+												{
+													if (items[i] != "NA")
+													{
+														if (!QColor::isValidColor(items[i]))
+														{
+
+															itemsAreColors = false;
+															break;
+														}
+													}
+												}
+												if (itemsAreColors)
+												{
+													QString datasetNameToFind = h5groupName.c_str();
+													datasetNameToFind += "/";
+													QString temp = objectName1.c_str();
+													
+													temp.resize(posFound);
+													temp += "_label";
+													datasetNameToFind += temp;
+													if (datasetNameToFind[0] == '/')
+														datasetNameToFind.remove(0, 1);
+													std::cout << "matching colors for " << datasetNameToFind.toStdString() << "  " << std::endl;
+													DataHierarchyItem* foundDataset = GetDerivedDataset(datasetNameToFind, pointsDataset);
+													if (foundDataset)
+													{
+														foundDataset->setLocked(true);
+														if (foundDataset->getDataType() == DataType("Clusters"))
+														{
+															
+															auto& clusters = foundDataset->getDataset<Clusters>()->getClusters();
+															int unchangedClusterColors = 0;
+															//#pragma omp parallel for schedule(dynamic,1)
+															for (long long i = 0; i < clusters.size(); ++i)
+															{
+																const auto& clusterIndices = clusters[i].getIndices();
+																assert(std::is_sorted(clusterIndices.cbegin(), clusterIndices.cend()));
+																bool clusterColorChanged = false;
+																for (auto indices_iterator = indices.cbegin(); indices_iterator != indices.cend(); ++indices_iterator)
+																{
+																	const auto& colorIndices = indices_iterator->second;
+																	assert(std::is_sorted(colorIndices.cbegin(), colorIndices.cend()));
+																	if(clusterIndices == colorIndices)
+																	{
+																		QString newColor = QColor::isValidColor(indices_iterator->first) ? indices_iterator->first : "#000000";
+																		clusters[i].setColor(newColor);
+																		
+																		clusterColorChanged = true;
+																		break;
+																	}
+																}
+																if(!clusterColorChanged)
+																{
+																	std::cout << "no exact match found for " << clusters[i].getName().toStdString() << std::endl;
+																	for (auto indices_iterator = indices.cbegin(); indices_iterator != indices.cend(); ++indices_iterator)
+																	{
+																		const auto& colorIndices = indices_iterator->second;
+																		assert(std::is_sorted(colorIndices.cbegin(), colorIndices.cend()));
+																		if (colorIndices.size() > clusterIndices.size())
+																		{
+																			
+																			if (std::includes(colorIndices.cbegin(), colorIndices.cend(), clusterIndices.cbegin(), clusterIndices.cend()))
+																			{
+																				QString newColor = QColor::isValidColor(indices_iterator->first) ? indices_iterator->first : "#000000";
+																				std::cout << "match found for " << clusters[i].getName().toStdString() << " color = " << newColor.toStdString() << " (" << colorIndices.size() << " vs " << clusterIndices.size() << ")"<< std::endl;
+																				clusters[i].setColor(newColor);
+																				
+																				clusterColorChanged = true;
+																				break;
+																			}
+																		}
+																	}
+																}
+																
+																if (!clusterColorChanged)
+																{
+																	++unchangedClusterColors;
+																	std::cout << "no  match found for " << clusters[i].getName().toStdString() << std::endl;
+																	clusters[i].setColor("#000000");
+																}
+																
+															}
+															if(unchangedClusterColors < clusters.size())
+																Application::core()->notifyDatasetChanged(foundDataset->getDataset());
+															if (unchangedClusterColors)
+															{
+																// if not all cluster colors where changed, we will add the color as well so at least it's visible.
+																std::map<QString, QColor> colors;
+																for (auto it = indices.cbegin(); it != indices.cend(); ++it)
+																	colors[it->first] = QColor(it->first);
+
+																H5Utils::addClusterMetaData(_core, indices, dataSet.getObjName().c_str(), pointsDataset, colors);
+
+															}
+														}
+														foundDataset->setLocked(false);
+													}
+
+												}
+											}
 										}
 									}
 								}
+									
 							}
 							else
 							{
