@@ -9,7 +9,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 
 if(MSVC)
-  add_definitions(/MP2)
+  add_definitions(/MP1)
 endif()
 
 if(MSVC)
