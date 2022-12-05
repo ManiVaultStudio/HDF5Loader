@@ -95,6 +95,7 @@ jobs:
           ssh-private-key: ${{ secrets.RULESSUPPORT_DEPLOY_KEY }}
 
       - name: Install SSH deploy key for rulessupport
+        if: "!contains(matrix.os, 'self-hosted')"
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.RULESSUPPORT_DEPLOY_KEY }}
