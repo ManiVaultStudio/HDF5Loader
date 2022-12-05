@@ -114,7 +114,7 @@ jobs:
 
       - name: Linux Mac build github hosted
         if: "!startsWith(runner.os, 'Windows') && !contains(matrix.os, 'self-hosted')"
-        uses: hdps/github-actions/conan_linuxmac_build
+        uses: hdps/github-actions/conan_linuxmac_build@main
         with:
           conan-compiler: ${{matrix.build-compiler}}
           conan-compiler-version: ${{matrix.build-cversion}}
@@ -127,7 +127,7 @@ jobs:
 
       - name: Mac M1 build self-hosted
         if: "contains(matrix.os, 'macOS') && contains(matrix.os, 'self-hosted') && contains(matrix.os, 'X64') "
-        uses: hdps/github-actions/conan_selfhosted_m1_build
+        uses: hdps/github-actions/conan_selfhosted_m1_build@main
         with:
           conan-compiler: ${{matrix.build-compiler}}
           conan-compiler-version: ${{matrix.build-cversion}}
