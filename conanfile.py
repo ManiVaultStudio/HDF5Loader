@@ -111,6 +111,8 @@ class HDF5LoaderConan(ConanFile):
         if self.settings.os == "Linux" or self.settings.os == "Macos":
             tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = "ON"
         tc.variables["CMAKE_PREFIX_PATH"] = qt_root
+        if self.settings.os == "Macos":
+            tc.variables["BREW_PATH"] = os.environ.get("BREW_ARCH_PATH", "brew")
         tc.generate()
 
     def _configure_cmake(self):

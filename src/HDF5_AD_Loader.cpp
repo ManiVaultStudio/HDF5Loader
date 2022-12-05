@@ -291,8 +291,10 @@ namespace H5AD
 						numericalDatasetName.remove(0, 1);
 					Dataset<Points> numericalDataset = _core->createDerivedDataset(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
 					
-					data.visit([&numericalDataset](auto& vec) {typedef typename std::decay_t<decltype(vec)> v; numericalDataset->setDataElementType<v::value_type>(); });
-					
+					data.visit([&numericalDataset](auto& vec) {
+						typedef typename std::decay_t<decltype(vec)> v;
+						numericalDataset->setDataElementType<typename v::value_type>();
+					});
 					
 					
 					_core->notifyDatasetAdded(numericalDataset);
