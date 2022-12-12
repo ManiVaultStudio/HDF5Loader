@@ -70,17 +70,17 @@ endif()
 file(TO_CMAKE_PATH $ENV{HDPS_INSTALL_DIR} INSTALL_DIR)
 find_package(Qt6 COMPONENTS Widgets WebEngineWidgets REQUIRED)
 
-set(USE_ARTIFACTORY_LIBS TRUE CACHE BOOL "Use the prebuilt libraries from artifactory")
-if(NOT USE_ARTIFACTORY_LIBS)
-	set(ARTIFACTORY_LIBS_INSTALLED FALSE CACHE BOOL "The prebuild libraries from artifactory are installed")
+set(USE_HDF5_ARTIFACTORY_LIBS FALSE CACHE BOOL "Use the prebuilt libraries from artifactory")
+if(NOT USE_HDF5_ARTIFACTORY_LIBS)
+	set(HDF5_ARTIFACTORY_LIBS_INSTALLED FALSE CACHE BOOL "The prebuild libraries from artifactory are installed")
 endif()
 
 set(LIBRARY_INSTALL_DIR ${PROJECT_BINARY_DIR})
 include(InstallArtifactoryPackage)
 
-if (USE_ARTIFACTORY_LIBS)
+if (USE_HDF5_ARTIFACTORY_LIBS)
 ####### EITHER USE THE HDF5 +ZLIB FROM ARTIFACTORY #########
-	if (NOT ARTIFACTORY_LIBS_INSTALLED)
+	if (NOT HDF5_ARTIFACTORY_LIBS_INSTALLED)
 		# The hdf5 library on lkeb-artifactory built by 'lkeb' includes zlib - it is a combined (DEBUG + RELEASE) package
 		install_artifactory_package(PACKAGE_NAME hdf5 PACKAGE_VERSION ${hdf5_VERSION} PACKAGE_BUILDER lkeb COMBINED_PACKAGE)
 		message(STATUS "hdf5 ROOT path: ${hdf5_ROOT}")
@@ -90,7 +90,7 @@ if (USE_ARTIFACTORY_LIBS)
 	find_package (HDF5 COMPONENTS C CXX HL REQUIRED static)  # Using the static cpp library 
 	set(_HDF5_LIBS hdf5-static hdf5_cpp-static) # The hdf5 cmake file defined targets
 
-	set (ARTIFACTORY_LIBS_INSTALLED "${HDF5_FOUND}" CACHE BOOL "" FORCE)
+	set (HDF5_ARTIFACTORY_LIBS_INSTALLED "${HDF5_FOUND}" CACHE BOOL "" FORCE)
 
 	# Artifactory HDF5 bundles zlib in a subdirectory and provides a hint as to the root path
 	# or you can use a self built zlib
@@ -144,8 +144,8 @@ else()
 	)
 
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
-	SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
-	target_include_directories (${PROJECT} ${HDF5_INCLUDE_DIRS})
+	SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src " " ${SOURCE_DIR}/c++/src " " ${BINARY_DIR} ${BINARY_DIR}/src)
+	target_include_directories (${PROJECT} PUBLIC ${HDF5_INCLUDE_DIRS})
 
 	if(MSVC)
 		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>)
