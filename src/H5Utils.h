@@ -1,6 +1,7 @@
 #pragma once
 
 #include <DataHierarchyItem.h>
+#include <CoreInterface.h>
 
 #include "H5Cpp.h"
 #include <string>
@@ -510,7 +511,7 @@ namespace H5Utils
 			hdps::Dataset<Points> numericalMetadataDataset = core->createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
 			numericalMetadataDataset->setDataElementType<numericalMetaDataType>();
 
-			core->notifyDatasetAdded(numericalMetadataDataset);
+			hdps::events().notifyDatasetAdded(numericalMetadataDataset);
 
 			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
@@ -526,7 +527,7 @@ namespace H5Utils
 			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
 			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
 
-			core->notifyDatasetChanged(numericalMetadataDataset);
+			hdps::events().notifyDatasetChanged(numericalMetadataDataset);
 		}
 	}
 

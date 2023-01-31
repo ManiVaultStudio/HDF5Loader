@@ -1072,7 +1072,7 @@ namespace H5Utils
 
 		
 		hdps::Dataset<Points> newDataset = core->addDataset("Points", dataSetName);
-		core->notifyDatasetAdded(newDataset);
+		events().notifyDatasetAdded(newDataset);
 		
 		return newDataset;
 	}
@@ -1101,7 +1101,7 @@ namespace H5Utils
 		}
 		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", name, parent);
 
-		core->notifyDatasetAdded(clusterDataset);
+		events().notifyDatasetAdded(clusterDataset);
 		
 		clusterDataset->getClusters().reserve(indices.size());
 		
@@ -1119,7 +1119,7 @@ namespace H5Utils
 		}
 
 		// Notify others that the clusters have changed
-		core->notifyDatasetChanged(clusterDataset);
+		events().notifyDatasetChanged(clusterDataset);
 		
 	}
 
