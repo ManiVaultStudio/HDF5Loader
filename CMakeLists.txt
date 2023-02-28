@@ -8,6 +8,12 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 
+# -----------------------------------------------------------------------------
+# Library versions
+# -----------------------------------------------------------------------------
+set(hdf5_VERSION 1.12.1)
+set(zlib_VERSION 1.2.11)
+
 if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /DWIN32 /EHsc /MP /bigobj")
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:LIBCMT")
@@ -26,62 +32,91 @@ else()
     message(WARNING, "OpenMP not found!")    
 endif()
 
+if (USE_ARTIFACTORY_LIBS) 
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:MSVCRT /NODEFAULTLIB:LIBCMT")
+endif()
+
 
 # Normalize the incoming install path
 file(TO_CMAKE_PATH $ENV{HDPS_INSTALL_DIR} INSTALL_DIR)
 find_package(Qt6 COMPONENTS Widgets WebEngineWidgets REQUIRED)
 
+if(NOT USE_ARTIFACTORY_LIBS)
+    set(USE_ARTIFACTORY_LIBS TRUE CACHE BOOL "Use the prebuilt libraries from artifactory")
+endif()
 
-# Het HDF5 with ZLIB
-include(ExternalProject)
+include(InstallArtifactoryPackage)
+set(LIBRARY_INSTALL_DIR ${PROJECT_BINARY_DIR})
+if (USE_ARTIFACTORY_LIBS)
+	if (NOT ARTIFACTORY_LIBS_INSTALLED) 
+		message(STATUS "Installing artifactory packages to: ${LIBRARY_INSTALL_DIR}")
+		# Both HDILib and flann are available prebuilt in the lkeb-artifactory as combined Debug/Release packages
+		# lz4 is also available in the lkb-artifactory in separate Debug and |Release packages
+		install_artifactory_package(hdf5 ${hdf5_VERSION} lkeb TRUE) 
+		install_artifactory_package(zlib ${zlib_VERSION} _ FALSE)
 
-set(HDF5_PREFIX hdf5)
-set(HDF5_GIT_TAG  hdf5-1_12_1)
-set(git_stash_save_options --all --quiet)
-if(MSVC)
-set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
-endif(MSVC)
-if(APPLE)
-set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_debug.a>$<$<CONFIG:Release>:libhdf5.a>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_debug.a>$<$<CONFIG:Release>:libhdf5_cpp.a>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/libz.a"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
-endif(APPLE)
-if(LINUX)
-set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5_cpp.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libz.a"  "${EXECUTABLE_OUTPUT_PATH}")
-endif(LINUX)
+		message(STATUS "module path ${CMAKE_MODULE_PATH}")
+		message(STATUS "Call find_package hdf5 search ${LIBRARY_INSTALL_DIR}/hdf5/share/cmake/hdf5")
+		find_package(HDF5 COMPONENTS CXX static PATHS "${LIBRARY_INSTALL_DIR}/hdf5/share/cmake/hdf5" CONFIG REQUIRED)
+		message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
+		set(ARTIFACTORY_LIBS_INSTALLED TRUE CACHE BOOL "Use the prebuilt libraries from artifactory" FORCE)
+	endif()
+else()
+	# Het HDF5 with ZLIB
+	include(ExternalProject)
 
-ExternalProject_Add(hdf5
-GIT_REPOSITORY https://github.com/HDFGroup/hdf5.git
-GIT_TAG ${HDF5_GIT_TAG}
-GIT_SHALLOW ON
-UPDATE_COMMAND ""
-PREFIX ${HDF5_PREFIX}
-CMAKE_ARGS
-        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}
- -DBUILD_SHARED_LIBS=OFF
- -DHDF5_BUILD_CPP_LIB=ON
- -DBUILD_TESTING=OFF 
- -DHDF5_BUILD_EXAMPLES=OFF 
- -DHDF5_BUILD_HL_LIB=OFF 
- -DHDF5_BUILD_TOOLS=OFF 
- -DHDF5_BUILD_UTILS=OFF
- -DHDF5_ENABLE_EMBEDDED_LIBINFO=OFF 
- -DHDF5_ENABLE_HSIZET=OFF 
- -DHDF5_ALLOW_EXTERNAL_SUPPORT="GIT" 
- -DHDF5_ENABLE_Z_LIB_SUPPORT=ON
- -DZLIB_URL=https://github.com/madler/zlib 
- -DZLIB_BRANCH=master
- 
- INSTALL_COMMAND ""
-)
+	set(HDF5_PREFIX hdf5)
+	message(STATUS " HDF5_VERSION: ${hdf5_VERSION}")
+	string(REPLACE "." "_" hdf5_UNDERSCORE_VERSION ${hdf5_VERSION})
+	message(STATUS " GitHub Tag: ${hdf5_UNDERSCORE_VERSION}")
+	set(HDF5_GIT_TAG  "hdf5-${hdf5_UNDERSCORE_VERSION}")
+	set(git_stash_save_options --all --quiet)
+	if(MSVC)
+	set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
+	endif(MSVC)
+	if(APPLE)
+	set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_debug.a>$<$<CONFIG:Release>:libhdf5.a>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_debug.a>$<$<CONFIG:Release>:libhdf5_cpp.a>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/libz.a"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
+	endif(APPLE)
+	if(LINUX)
+	set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5_cpp.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libz.a"  "${EXECUTABLE_OUTPUT_PATH}")
+	endif(LINUX)
 
-ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
-SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
- 
- message(STATUS ${SOURCE_DIR})
- message(STATUS ${BINARY_DIR})
+	ExternalProject_Add(hdf5
+	GIT_REPOSITORY https://github.com/HDFGroup/hdf5.git
+	GIT_TAG ${HDF5_GIT_TAG}
+	GIT_SHALLOW ON
+	UPDATE_COMMAND ""
+	PREFIX ${HDF5_PREFIX}
+	CMAKE_ARGS
+			-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+			-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}
+	-DBUILD_SHARED_LIBS=OFF
+	-DHDF5_BUILD_CPP_LIB=ON
+	-DBUILD_TESTING=OFF 
+	-DHDF5_BUILD_EXAMPLES=OFF 
+	-DHDF5_BUILD_HL_LIB=OFF 
+	-DHDF5_BUILD_TOOLS=OFF 
+	-DHDF5_BUILD_UTILS=OFF
+	-DHDF5_ENABLE_EMBEDDED_LIBINFO=OFF 
+	-DHDF5_ENABLE_HSIZET=OFF 
+	-DHDF5_ALLOW_EXTERNAL_SUPPORT="GIT" 
+	-DHDF5_ENABLE_Z_LIB_SUPPORT=ON
+	-DZLIB_URL=https://github.com/madler/zlib 
+	-DZLIB_BRANCH=master
 
-include_directories (${HDF5_INCLUDE_DIRS})
-include_directories("${INSTALL_DIR}/$<CONFIGURATION>/include/")
+	INSTALL_COMMAND ""
+	)
+
+	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
+	SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
+
+	message(STATUS ${SOURCE_DIR})
+	message(STATUS ${BINARY_DIR})
+
+	include_directories (${HDF5_INCLUDE_DIRS})
+	include_directories("${INSTALL_DIR}/$<CONFIG>/include/")
+endif()
+
 
 set(SOURCES
 	src/HDF5Loader.h
@@ -121,9 +156,17 @@ if(MSVC)
 else()
     set(LIB_LINK_SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}")
 endif(MSVC)
-set(HDPS_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIGURATION>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}HDPS_Public${LIB_LINK_SUFFIX}")
-set(POINTDATA_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIGURATION>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}PointData${LIB_LINK_SUFFIX}")
-set(CLUSTERDATA_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIGURATION>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}ClusterData${LIB_LINK_SUFFIX}")
+set(HDPS_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIG>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}HDPS_Public${LIB_LINK_SUFFIX}")
+set(POINTDATA_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIG>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}PointData${LIB_LINK_SUFFIX}")
+set(CLUSTERDATA_LINK_LIBRARY "${INSTALL_DIR}/$<CONFIG>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}ClusterData${LIB_LINK_SUFFIX}")
+
+if (NOT USE_ARTIFACTORY_LIBS)
+	add_dependencies(${PROJECT} hdf5)
+else()
+	target_include_directories("${PROJECT}" PRIVATE "${HDF5_INCLUDE_DIR}")
+	target_include_directories("${PROJECT}" PRIVATE "${LIBRARY_INSTALL_DIR}/zlib/$<CONFIG>/include")
+	target_include_directories("${PROJECT}" PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
+endif()
 
 target_compile_definitions(${PROJECT} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
 target_link_libraries(${PROJECT} Qt6::Widgets)
@@ -131,17 +174,27 @@ target_link_libraries(${PROJECT} Qt6::WebEngineWidgets)
 target_link_libraries(${PROJECT} "${HDPS_LINK_LIBRARY}")
 target_link_libraries(${PROJECT} "${POINTDATA_LINK_LIBRARY}")
 target_link_libraries(${PROJECT} "${CLUSTERDATA_LINK_LIBRARY}")
-if(MSVC)
-	target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>)
-	target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>)
-	target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>)
+if (NOT USE_ARTIFACTORY_LIBS)
+	if(MSVC)
+		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>)
+		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>)
+		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>)
+	else()
+		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libz${CMAKE_STATIC_LIBRARY_SUFFIX})
+		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5_cpp${CMAKE_STATIC_LIBRARY_SUFFIX})
+		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5${CMAKE_STATIC_LIBRARY_SUFFIX})
+	endif()
 else()
-	target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libz${CMAKE_STATIC_LIBRARY_SUFFIX})
-	target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5_cpp${CMAKE_STATIC_LIBRARY_SUFFIX})
-	target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5${CMAKE_STATIC_LIBRARY_SUFFIX})
+
+	if(MSVC)
+		target_link_libraries(${PROJECT} ${LIBRARY_INSTALL_DIR}/zlib/$<CONFIG>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}zlib${LIB_LINK_SUFFIX})
+	else()
+		target_link_libraries(${PROJECT} ${LIBRARY_INSTALL_DIR}/zlib/$<CONFIG>/lib/${CMAKE_SHARED_LIBRARY_PREFIX}z${LIB_LINK_SUFFIX})
+	endif()
+	target_link_libraries (${PROJECT} ${HDF5_CXX_STATIC_LIBRARY})
 endif()
 
-add_dependencies(${PROJECT} hdf5)
+
 
 install(TARGETS ${PROJECT}
    RUNTIME DESTINATION Plugins COMPONENT SHAREDLIB
