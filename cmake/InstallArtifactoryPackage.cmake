@@ -154,6 +154,7 @@ endmacro()
 function(install_artifactory_package)
     set (flags COMBINED_PACKAGE)
     set (oneValueArgs PACKAGE_NAME PACKAGE_VERSION PACKAGE_BUILDER)
+    message(STATUS "Calling install_artifactory_package with: ${ARGV}")
     cmake_parse_arguments(iaparg "${flags}" "${oneValueArgs}" "" ${ARGN})
 
     message(STATUS "Installing package * ${iaparg_PACKAGE_NAME} * from lkeb-artifactory.lumc.nl, combined: ${iaparg_COMBINED_PACKAGE}")
