@@ -8,6 +8,7 @@ items.find(
 		"@conan.settings.compiler": {"$eq" : "@compiler_name@"},
 		"@conan.settings.compiler.version": {"$match" : "@compiler_version@*"},
 		@build_runtime_type@,
-		"@conan.options.shared":{"$eq" : "@option_shared@"}
+		"@conan.options.shared":{"$eq" : "@option_shared@"},
+		"@conan.options.with_zlib": {"$match": "True"}
 	}
 )

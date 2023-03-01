@@ -420,7 +420,7 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 // 		}
 
 
-		_core->notifyDatasetAdded(points);
+		events().notifyDatasetAdded(points);
 
 
 		return points.get();

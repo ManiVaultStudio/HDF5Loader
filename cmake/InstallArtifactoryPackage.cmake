@@ -93,7 +93,8 @@ endfunction()
 macro(get_artifactory_package
         package_name package_version package_builder
         compiler_name compiler_version os_name is_combined_package)
-    if(is_combined_package)
+    if("${is_combined_package}")
+        message(status " Getting combined Debug & Release package")
         # retrieve the single combined package from lkeb-artifactory
         file(REMOVE ${PROJECT_BINARY_DIR}/aql.json)
         configure_file(${PROJECT_SOURCE_DIR}/cmake/aql_multi.json.in ${PROJECT_BINARY_DIR}/aql.json)
@@ -103,6 +104,7 @@ macro(get_artifactory_package
         execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${LIBRARY_INSTALL_DIR}/${package_name}")
         execute_process(COMMAND ${CMAKE_COMMAND} -E tar xv "${PROJECT_SOURCE_DIR}/${package_name}.tgz" WORKING_DIRECTORY "${LIBRARY_INSTALL_DIR}/${package_name}")
     else()
+        message(status " Getting separate Release and Debug packages")
         # retrieve the separate Release and Debug packages  from lkeb-artifactory
         set(option_shared "False") # hardcoded - TODO make parameter
         file(REMOVE ${PROJECT_BINARY_DIR}/aql.json)
@@ -142,26 +144,31 @@ endmacro()
 # package_name : a package in the lkeb-artifactory - e.g. HDILib or flann
 # package_version: the version to be installed
 # package_builder: the artifactory submitter (usually biovault or lkeb)
-# is_combined_package: either TRUE or FALSE:
-#           TRUE - the package contains both debug and release
-#           FALSE - the package contains either debug or release 
+# COMBINED_PACKAGE: provide the flag to indicate that: 
+#           - the package contains both debug and release
+#     without this flag the implication is:
+#           - the package contains either debug or release (two packages will be retrieved)
+#
+# Return: sets ${package_name}_ROOT in the caller scope
 
-function(install_artifactory_package package_name package_version package_builder is_combined_package)
-    cmake_parse_arguments(PARSE_ARGV 0 IAPARG 
-        "COMBINED_PACKAGE"
-        "PACKAGE_NAME;PACKAGE_VERSION;PACKAGE_BUILDER;"
-        "" ${ARGN})
+function(install_artifactory_package)
+    set (flags COMBINED_PACKAGE)
+    set (oneValueArgs PACKAGE_NAME PACKAGE_VERSION PACKAGE_BUILDER)
+    cmake_parse_arguments(iaparg "${flags}" "${oneValueArgs}" "" ${ARGN})
 
-    message(STATUS "Installing package * ${package_name} * from lkeb-artifactory.lumc.nl")
-    get_settings()
-    set(package_name ${package_name})
-    set(package_version ${package_version})
-    set(package_builder ${package_builder})
-    set(is_combined_package ${is_combined_package})
+    message(STATUS "Installing package * ${iaparg_PACKAGE_NAME} * from lkeb-artifactory.lumc.nl, combined: ${iaparg_COMBINED_PACKAGE}")
+    get_settings()  # Retrieve the settings from the build environment
 
-    get_artifactory_package("${package_name}" "${package_version}" "${package_builder}"
-        "${compiler_name}" "${compiler_version}"
-        "${os_name}" "${is_combined_package}")
-    # add the HDILib to the module path
-    set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/${package_name}" ${CMAKE_MODULE_PATH} PARENT_SCOPE)
+    set(package_name "${iaparg_PACKAGE_NAME}")
+    set(package_version "${iaparg_PACKAGE_VERSION}")
+    set(package_builder "${iaparg_PACKAGE_BUILDER}")
+    set(is_combined_package "${iaparg_COMBINED_PACKAGE}")
+    get_artifactory_package(
+        "${package_name}" "${package_version}" "${package_builder}"
+        "${compiler_name}" "${compiler_version}" "${os_name}"
+        "${is_combined_package}")
+    # set <PackageName>_ROOT for find_package
+
+    set(${package_name}_ROOT "${LIBRARY_INSTALL_DIR}/${package_name}" PARENT_SCOPE)
+
 endfunction()

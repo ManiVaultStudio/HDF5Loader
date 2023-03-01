@@ -36,14 +36,24 @@ jobs:
           #   build-os: Linux
           #   build-libcxx: libstdc++
 
-          - name: Macos_xcode12.4
-            os: macos-11
-            build-compiler: apple-clang
-            build-cversion: "12.0"
-            build-config: Release
-            build-os: Macos
-            build-xcode-version: 12.4
-            build-libcxx: libc++
+          #- name: Macos_xcode12.4
+          #  os: macos-11
+          #  build-compiler: apple-clang
+          #  build-cversion: "12.0"
+          #  build-config: Release
+          #  build-os: Macos
+          #  build-xcode-version: 12.4
+          #  build-libcxx: libc++
+
+          # Using self hosted runner
+          #- name: Macos_xcode12.4
+          #  os: [self-hosted, macOS, X64]
+          #  build-compiler: apple-clang
+          #  build-cversion: "12.0"
+          #  build-config: Release
+          #  build-os: Macos
+          #  build-xcode-version: 12.4
+          #  build-libcxx: libc++  
 
     steps:
       - name: Checkout the source
@@ -64,10 +74,13 @@ jobs:
         run: |
           sudo xcode-select -switch /Applications/Xcode_${{matrix.build-xcode-version}}.app
 
-      - name: Setup python version
-        uses: actions/setup-python@v1
+      # Self-hosted runners should have python and other software preconfigured
+      - name: Setup python 3 version
+        if: "!contains(matrix.os, 'self-hosted')" 
+        uses: actions/setup-python@v4
         with:
-          python-version: "3.7"
+          python-version: '3.9'
+          architecture: x64
 
       # windows-2016 need the SSHAgentFeature added
       - name: Start ssh key agent
@@ -82,6 +95,7 @@ jobs:
           ssh-private-key: ${{ secrets.RULESSUPPORT_DEPLOY_KEY }}
 
       - name: Install SSH deploy key for rulessupport
+        if: "!contains(matrix.os, 'self-hosted')"
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.RULESSUPPORT_DEPLOY_KEY }}
@@ -99,9 +113,22 @@ jobs:
           conan-pem: ${{secrets.LKEB_CERT_CHAIN}}
           rs_ssh_key: ${{ secrets.RULESSUPPORT_DEPLOY_KEY }}
 
-      - name: Linux Mac build
-        if: "!startsWith(runner.os, 'Windows')"
+      - name: Linux Mac build github hosted
+        if: "!startsWith(runner.os, 'Windows') && !contains(matrix.os, 'self-hosted')"
         uses: hdps/github-actions/conan_linuxmac_build@main
+        with:
+          conan-compiler: ${{matrix.build-compiler}}
+          conan-compiler-version: ${{matrix.build-cversion}}
+          conan-libcxx-version: ${{matrix.build-libcxx}}
+          conan-build-type: ${{matrix.build-config}}
+          conan-build-os: ${{matrix.build-os}}
+          conan-user: ${{secrets.LKEB_ARTIFACTORY_USER}}
+          conan-password: ${{secrets.LKEB_ARTIFACTORY_PASSWORD}}
+          conan-pem: ${{secrets.LKEB_CERT_CHAIN}}
+
+      - name: Mac M1 build self-hosted
+        if: "contains(matrix.os, 'macOS') && contains(matrix.os, 'self-hosted') && contains(matrix.os, 'X64') "
+        uses: hdps/github-actions/conan_selfhosted_m1_build@main
         with:
           conan-compiler: ${{matrix.build-compiler}}
           conan-compiler-version: ${{matrix.build-cversion}}

@@ -291,18 +291,20 @@ namespace H5AD
 						numericalDatasetName.remove(0, 1);
 					Dataset<Points> numericalDataset = _core->createDerivedDataset(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
 					
-					data.visit([&numericalDataset](auto& vec) {typedef typename std::decay_t<decltype(vec)> v; numericalDataset->setDataElementType<v::value_type>(); });
+					data.visit([&numericalDataset](auto& vec) {
+						typedef typename std::decay_t<decltype(vec)> v;
+						numericalDataset->setDataElementType<typename v::value_type>();
+					});
 					
 					
-					
-					_core->notifyDatasetAdded(numericalDataset);
+					events().notifyDatasetAdded(numericalDataset);
 					DataContainerInterface dci(numericalDataset);
 					dci.resize(xsize, ysize);
 					dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
 					
 
 					numericalDataset->setDimensionNames(dimensionNames);
-					_core->notifyDatasetChanged(numericalDataset);
+					events().notifyDatasetChanged(numericalDataset);
 				}
 			}
 		}
@@ -511,7 +513,7 @@ namespace H5AD
 								}
 							}
 							if(unchangedClusterColors < clusters.size())
-								Application::core()->notifyDatasetChanged(foundDataset->getDataset());
+								events().notifyDatasetChanged(foundDataset->getDataset());
 
 							if(unchangedClusterColors)
 							{
@@ -674,7 +676,8 @@ namespace H5AD
 																
 															}
 															if(unchangedClusterColors < clusters.size())
-																Application::core()->notifyDatasetChanged(foundDataset->getDataset());
+																events().notifyDatasetChanged(foundDataset->getDataset());
+
 															if (unchangedClusterColors)
 															{
 																// if not all cluster colors where changed, we will add the color as well so at least it's visible.
@@ -797,7 +800,7 @@ namespace H5AD
 															for (std::size_t i = 0; i < clusters.size(); ++i)
 																clusters[i].setColor(items[i]);
 
-															Application::core()->notifyDatasetChanged(foundDataset->getDataset());
+															events().notifyDatasetChanged(foundDataset->getDataset());
 														}
 													}
 												}
@@ -1127,7 +1130,7 @@ bool HDF5_AD_Loader::load(int storageType)
 		
 
 		
-		_core->notifyDatasetChanged(pointsDataset);
+		events().notifyDatasetChanged(pointsDataset);
 		return true;
 	}
 	catch (std::exception &e)
