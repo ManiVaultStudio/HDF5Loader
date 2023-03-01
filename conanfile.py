@@ -111,13 +111,13 @@ class HDF5LoaderConan(ConanFile):
         if self.settings.os == "Linux" or self.settings.os == "Macos":
             tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = "ON"
         tc.variables["CMAKE_PREFIX_PATH"] = qt_root
-        tc.variables["USE_ARTIFACTORY_LIBS"] = "ON"
+        tc.variables["USE_HDF5_ARTIFACTORY_LIBS"] = "ON"
         tc.generate()
 
     def _configure_cmake(self):
         cmake = CMake(self)
-        cmake.configure(build_script_folder="hdps/HDF5Loader")
         cmake.verbose = True
+        cmake.configure(build_script_folder="hdps/HDF5Loader")
         return cmake
 
     def build(self):
@@ -134,7 +134,7 @@ class HDF5LoaderConan(ConanFile):
         shutil.copytree(hdps_pkg_root, self.install_dir)
 
         cmake = self._configure_cmake()
-        cmake.build(build_type="Debug")
+        cmake.build(build_type="Debug", cli_args=["--verbose"])
         cmake.install(build_type="Debug")
 
         # cmake_release = self._configure_cmake()
