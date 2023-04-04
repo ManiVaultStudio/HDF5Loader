@@ -14,7 +14,7 @@ set(CMAKE_AUTOMOC ON)
 set(hdf5_VERSION 1.12.1)
 
 if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /DWIN32 /EHsc /MP /bigobj")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /DWIN32 /EHsc /MP /bigobj /permissive- /Zc:__cplusplus")
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /NODEFAULTLIB:LIBCMT")
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MDd")
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MD")
@@ -37,6 +37,33 @@ set(USE_HDF5_ARTIFACTORY_LIBS FALSE CACHE BOOL "Use the prebuilt libraries from 
 if(NOT USE_HDF5_ARTIFACTORY_LIBS)
 	set(HDF5_ARTIFACTORY_LIBS_INSTALLED FALSE CACHE BOOL "The prebuild libraries from artifactory are installed")
 endif()
+
+set(SOURCES
+	src/HDF5Loader.h
+	src/HDF5Loader.cpp
+	src/HDF5LoaderFactory.h
+	src/HDF5LoaderFactory.cpp
+	src/HDF5Loader.json
+
+	src/DataContainerInterface.h
+	src/DataContainerInterface.cpp
+	src/H5Utils.h
+	src/H5Utils.cpp
+	src/DataTransform.h
+	src/DataTransform.cpp
+
+	src/HDF5_TOME_Loader.h
+	src/HDF5_TOME_Loader.cpp
+
+	src/HDF5_10X_Loader.h
+	src/HDF5_10X_Loader.cpp
+
+	src/HDF5_AD_Loader.h
+	src/HDF5_AD_Loader.cpp
+)
+
+source_group( Plugin FILES ${SOURCES})
+add_library(${PROJECT} SHARED ${SOURCES})
 
 include(InstallArtifactoryPackage)
 set(LIBRARY_INSTALL_DIR ${PROJECT_BINARY_DIR})
@@ -106,35 +133,9 @@ else()
 	message(STATUS ${SOURCE_DIR})
 	message(STATUS ${BINARY_DIR})
 
-	include_directories (${HDF5_INCLUDE_DIRS})
-	include_directories("${INSTALL_DIR}/$<CONFIG>/include/")
+	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIRS})
+	target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
 endif()
-
-set(SOURCES
-	src/HDF5Loader.h
-	src/HDF5Loader.cpp
-	src/HDF5LoaderFactory.h
-	src/HDF5LoaderFactory.cpp
-	src/HDF5Loader.json
-
-	src/DataContainerInterface.h
-	src/DataContainerInterface.cpp
-	src/H5Utils.h
-	src/H5Utils.cpp
-	src/DataTransform.h
-	src/DataTransform.cpp
-
-	src/HDF5_TOME_Loader.h
-	src/HDF5_TOME_Loader.cpp
-
-	src/HDF5_10X_Loader.h
-	src/HDF5_10X_Loader.cpp
-
-	src/HDF5_AD_Loader.h
-	src/HDF5_AD_Loader.cpp
-)
-source_group( Plugin FILES ${SOURCES})
-add_library(${PROJECT} SHARED ${SOURCES})
 
 find_package(OpenMP REQUIRED)
 if(OPENMP_FOUND)
@@ -152,7 +153,8 @@ message(STATUS ${SOURCE_DIR})
 message(STATUS ${BINARY_DIR})
 target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIGURATION>/include/")
 
-set_property(TARGET ${PROJECT} PROPERTY CXX_STANDARD 14)
+target_compile_features(${PROJECT} PRIVATE cxx_std_17)
+
 if(MSVC)
     set(LIB_LINK_SUFFIX ".lib") 
 else()
