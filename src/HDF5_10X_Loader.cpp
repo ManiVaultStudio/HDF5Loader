@@ -14,12 +14,12 @@
 #include "DataContainerInterface.h"
 #include <iostream>
 
-#include "Cluster.h"
-#include "ClusterData.h"
+#include "ClusterData/Cluster.h"
+#include "ClusterData/ClusterData.h"
 #include "DataHierarchyItem.h"
 #include "util/Miscellaneous.h"
 
-#include "biovault_bfloat16.h"
+#include "biovault_bfloat16/biovault_bfloat16.h"
 #include "H5Utils.h"
 #if defined(_OPENMP)
 #include <omp.h>

@@ -9,7 +9,7 @@
 #include <map>
 #include <QVariant>
 #include <QColor>
-#include "PointData.h"
+#include "PointData/PointData.h"
 #include "Dataset.h"
 #include <iostream>
 #include <cstdint>

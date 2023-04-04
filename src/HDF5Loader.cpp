@@ -14,7 +14,7 @@
 #include <QString>
 #include <QStringList>
 #include <QSettings>
-#include "PointData.h"
+#include "PointData/PointData.h"
 #include "QMessageBox"
 
 

@@ -14,8 +14,8 @@
 #include "DataContainerInterface.h"
 #include <iostream>
 
-#include "Cluster.h"
-#include "ClusterData.h"
+#include "ClusterData/Cluster.h"
+#include "ClusterData/ClusterData.h"
 
 #include <set>
 

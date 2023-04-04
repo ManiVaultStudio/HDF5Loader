@@ -3,9 +3,9 @@
 #include <cstdint>
 #include <QInputDialog>
 #include <QMainWindow>
-#include "Cluster.h"
-#include "ClusterData.h"
-#include "PointData.h"
+#include "ClusterData/Cluster.h"
+#include "ClusterData/ClusterData.h"
+#include "PointData/PointData.h"
 #include "DataHierarchyItem.h"
 
 namespace H5Utils
