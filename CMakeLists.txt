@@ -153,7 +153,7 @@ message(STATUS ${SOURCE_DIR})
 message(STATUS ${BINARY_DIR})
 target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIGURATION>/include/")
 
-set_property(TARGET ${PROJECT} PROPERTY CXX_STANDARD 14)
+target_compile_features(${PROJECT} PRIVATE cxx_std_17)
 
 set(HDPS_LINK_PATH "${INSTALL_DIR}/$<CONFIGURATION>/lib")
 set(PLUGIN_LINK_PATH "${INSTALL_DIR}/$<CONFIGURATION>/$<IF:$<CXX_COMPILER_ID:MSVC>,lib,Plugins>")
