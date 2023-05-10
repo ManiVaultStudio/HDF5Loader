@@ -8,6 +8,7 @@
 #include "PointData/PointData.h"
 #include "DataHierarchyItem.h"
 
+
 namespace H5Utils
 {
 	namespace local
@@ -63,7 +64,6 @@ namespace H5Utils
 		
 		bool read_var_length_compound_strings(const H5::DataSet &dataset, const std::string &name, std::vector<QVariant> &result)
 		{
-			
 			typedef VarLenStruct<char> StringStruct;
 
 			H5::CompType dataSetCompType = dataset.getCompType();
@@ -107,6 +107,8 @@ namespace H5Utils
 			}
 			return false;
 		}
+
+		
 
 		void CreateColorVector(std::size_t nrOfColors, std::vector<QColor>& colors)
 		{
@@ -249,7 +251,7 @@ namespace H5Utils
 		{
 			return read_vector<std::int32_t>(group, name, vectorHolder, predType);
 		}
-		if (predType == H5::PredType::NATIVE_INT16)
+		if (predType == H5::PredType::NATIVE_INT64)
 		{
 			return read_vector<std::int64_t>(group, name, vectorHolder, predType);
 		}
@@ -486,7 +488,7 @@ namespace H5Utils
 	{
 		try
 		{
-			H5::DataSpace dataspace = dataset.getSpace();
+			
 
 
 			H5::DataType datatype = dataset.getDataType();
@@ -541,11 +543,12 @@ namespace H5Utils
 				}
 				return false;
 			}
-			else
+			else if (datatype.getClass() == H5T_STRING)
 			{
 				/*
 				* Get the number of dimensions in the dataspace.
 				*/
+				H5::DataSpace dataspace = dataset.getSpace();
 				const int dimensions = dataspace.getSimpleExtentNdims();
 				std::size_t totalSize = 1;
 				if (dimensions > 0)
@@ -563,7 +566,8 @@ namespace H5Utils
 				{
 					return false;
 				}
-				read_strings(dataset, totalSize, result);
+				
+					read_strings(dataset, totalSize, result);
 				dataset.close();
 				return true;
 			}
@@ -644,12 +648,21 @@ namespace H5Utils
 			{
 				std::string componentName = compType.getMemberName(c);
 				auto componentClass = compType.getMemberClass(c);
-				if (componentClass == H5T_STRING && compType.getMemberStrType(c).isVariableStr())
+				if (componentClass == H5T_STRING)
 				{
-					
-					if (!local::read_var_length_compound_strings(dataset, componentName, result[componentName]))
+					if (compType.getMemberStrType(c).isVariableStr())
 					{
-						result.erase(componentName);
+						if (!local::read_var_length_compound_strings(dataset, componentName, result[componentName]))
+						{
+							result.erase(componentName);
+						}
+					}
+					else
+					{
+						if (!local::ExtractQVariantValues(raw_buffer, compType, componentName, result[componentName]))
+						{
+							result.erase(componentName);
+						}
 					}
 				}
 				else
@@ -664,24 +677,24 @@ namespace H5Utils
 					{
 						
 						std::size_t nrOfSamples = result[componentName].size();
-						std::vector<std::vector<double>> temp(listSize);
+					//	std::vector<std::vector<double>> temp(listSize);
 						for (int l = 0; l < listSize; ++l)
 						{
 							std::string newName = componentName + "_" + std::to_string(l + 1);
 							result[newName].resize(nrOfSamples);
 							result[newName][0] = list[l];
-							temp[l].resize(nrOfSamples);
-							temp[l][0] = list[l].toDouble();
+						//	temp[l].resize(nrOfSamples);
+						//	temp[l][0] = list[l].toDouble();
 						}
 						for (std::size_t i = 1; i < nrOfSamples; ++i)
 						{
 							list = result[componentName][i].toList();
-							for (int l = 0; l < listSize; ++l)
+							for (int l = 0; l < list.size(); ++l)
 							{
 								std::string newName = componentName + "_" + std::to_string(l + 1);
 								result[newName].resize(nrOfSamples);
 								result[newName][i] = list[l];
-								temp[l][i] = list[l].toDouble();
+						//		temp[l][i] = list[l].toDouble();
 							}
 						}
 						result.erase(componentName);
@@ -1078,9 +1091,25 @@ namespace H5Utils
 	}
 
 
-	
+	bool compareNumeric(const QString& a, const QString& b)
+	{
+		auto intA = a.toDouble();
+		int intB = b.toInt();
+		return a.toDouble() < b.toDouble();
+	}
 
-	void addClusterMetaData(hdps::CoreInterface *core, std::map<QString, std::vector<unsigned int>> &indices, QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors)
+	bool isNumericalVector(const std::vector<QString>& vec) {
+		for (const QString& str : vec) {
+			bool ok = false;
+			str.toDouble(&ok);
+			if (!ok) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	void addClusterMetaData(hdps::CoreInterface *core, std::map<QString, std::vector<unsigned int>> &indices,  QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix)
 	{
 		if (indices.size() <= 1)
 			return; // no point in adding only a single cluster
@@ -1092,14 +1121,26 @@ namespace H5Utils
 		{
 			std::vector<QColor> qcolors;
 			local::CreateColorVector(indices.size(), qcolors);
-			std::size_t index = 0;
+
+			// let's assume the indices contains numbers which can be sorted
+			std::vector<QString> sorted_labels;
+			sorted_labels.reserve(indices.size());
 			for (const auto& indice : indices)
+				sorted_labels.push_back(indice.first);
+			if(isNumericalVector(sorted_labels))
+				std::sort(sorted_labels.begin(), sorted_labels.end(), compareNumeric);
+			else
+				std::sort(sorted_labels.begin(), sorted_labels.end());
+			std::size_t index = 0;
+			for (const auto& label : sorted_labels)
 			{
-				colors[indice.first] = qcolors[index];
+				colors[label] = qcolors[index];
 				++index;
 			}
 		}
-		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", name, parent);
+
+		QString datasetName = prefix.isEmpty() ? name : prefix + name;
+		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", datasetName, parent);
 
 		events().notifyDatasetAdded(clusterDataset);
 		

@@ -20,7 +20,8 @@ class HDF5_AD_Loader
 	std::vector<QString> _sampleNames;
 	QString _fileName;
 
-	
+
+
 public:
 	HDF5_AD_Loader(hdps::CoreInterface *core);
 	

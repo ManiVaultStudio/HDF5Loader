@@ -24,9 +24,9 @@ public:
 	
 	
     HDF5Loader(PluginFactory* factory);
-    ~HDF5Loader() override;
+    ~HDF5Loader() Q_DECL_OVERRIDE;
 
-    void init() override;
+    void init() Q_DECL_OVERRIDE;
 
     void loadData() Q_DECL_OVERRIDE;
 
