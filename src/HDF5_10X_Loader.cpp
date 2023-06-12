@@ -360,6 +360,22 @@ bool HDF5_10X_Loader::open(const QString& fileName)
 				H5::DataSet dataset = group.openDataSet("genes");
 				result = H5Utils::read_vector_string(dataset, _dimensionNames);
 			}
+			else if (group.exists("features"))
+			{
+				H5::Group features = group.openGroup("features");
+				if (features.exists("name"))
+				{
+
+					H5::DataSet dataset = features.openDataSet("name");
+					result = H5Utils::read_vector_string(dataset, _dimensionNames);
+				}
+				else if (features.exists("id"))
+				{
+
+					H5::DataSet dataset = features.openDataSet("id");
+					result = H5Utils::read_vector_string(dataset, _dimensionNames);
+				}
+			}
 			if (group.exists("barcodes"))
 			{
 				H5::DataSet dataset = group.openDataSet("barcodes");
