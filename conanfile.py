@@ -112,6 +112,7 @@ class HDF5LoaderConan(ConanFile):
             tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = "ON"
         tc.variables["CMAKE_PREFIX_PATH"] = qt_root
         tc.variables["USE_HDF5_ARTIFACTORY_LIBS"] = "ON"
+        tc.variables["CMAKE_BUILD_PARALLEL_LEVEL"] = "1"  # Try single core build for out of memory problems
         tc.generate()
 
     def _configure_cmake(self):
