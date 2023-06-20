@@ -22,7 +22,7 @@ if(MSVC)
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MDd")
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MD")
 	set(CMAKE_CXX_FLAGS_RELEASE_INIT "/GL")
-	#set(CMAKE_SHARED_LINKER_FLAGS_INIT "/LTCG:PGOptimize")
+	set(CMAKE_SHARED_LINKER_FLAGS_INIT "/LTCG:PGOptimize")
 	
 endif(MSVC)
 
@@ -63,6 +63,9 @@ set(SOURCES
 
 	src/HDF5_AD_Loader.h
 	src/HDF5_AD_Loader.cpp
+
+	src/H5ADUtils.h
+	src/H5ADUtils.cpp
 )
 
 source_group( Plugin FILES ${SOURCES})
