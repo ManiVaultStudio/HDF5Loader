@@ -9,11 +9,6 @@ typedef std::uint64_t DataPointID;
 typedef std::uint64_t MarkerID;
 typedef float DataValue;
 
-;
-
-
-
-
 class DataContainerInterface // acting as a translation between Cytosplore Transcriptomics and PointData. Should be removed in the future
 {
 
