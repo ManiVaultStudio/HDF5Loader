@@ -442,6 +442,7 @@ namespace H5AD
 	}
 
 
+	
 	template<typename numericalMetaDataType>
 	void LoadSampleNamesAndMetaData(H5::Group& group, Dataset<Points>  pointsDataset, hdps::CoreInterface* _core)
 	{
@@ -631,7 +632,7 @@ namespace H5AD
 											for (auto indices_iterator = indices.begin(); indices_iterator != indices.end(); ++indices_iterator)
 											{
 												std::sort(indices_iterator->second.begin(), indices_iterator->second.end());
-											std:unique(indices_iterator->second.begin(), indices_iterator->second.end());
+												auto ignore = std::unique(indices_iterator->second.begin(), indices_iterator->second.end());
 												assert(indices_iterator->second.size() > 0);
 											}
 											if (load_colors == 0)
