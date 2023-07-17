@@ -4,6 +4,8 @@ set(PROJECT "HDF5Loader")
 
 PROJECT(${PROJECT})
 
+SET_PROPERTY(GLOBAL PROPERTY USE_FOLDERS ON)
+
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
@@ -11,8 +13,10 @@ set(CMAKE_AUTOMOC ON)
 # -----------------------------------------------------------------------------
 # Library versions
 # -----------------------------------------------------------------------------
-set(hdf5_VERSION 1.12.1)
 
+#set(hdf5_VERSION 1.12.1)
+SET(hdf5_VERSION "1.12.1" CACHE STRING "Version of HDF5 Library")
+SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.1)
 
 if(MSVC)
 	set(CMAKE_GENERATOR_TOOLSET "host=x64" CACHE STRING "Platform Toolset" FORCE)
@@ -23,6 +27,7 @@ if(MSVC)
 	
 	set(CMAKE_CXX_FLAGS_RELEASE_INIT "/GL")
 	set(CMAKE_SHARED_LINKER_FLAGS_INIT "/LTCG:PGOptimize")
+	
 	cmake_host_system_information(RESULT TOTAL_PHYSICAL_MEMORY QUERY TOTAL_PHYSICAL_MEMORY)
 	#message(STATUS "Available Memory = "${TOTAL_PHYSICAL_MEMORY} )
 	if(${TOTAL_PHYSICAL_MEMORY} LESS 16385)
@@ -104,6 +109,7 @@ else()
 	message(STATUS " GitHub Tag: ${hdf5_UNDERSCORE_VERSION}")
 	set(HDF5_GIT_TAG  "hdf5-${hdf5_UNDERSCORE_VERSION}")
 	set(git_stash_save_options --all --quiet)
+	
 	if(MSVC)
 	set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
 	endif(MSVC)
@@ -141,10 +147,9 @@ else()
 	)
 
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
-	SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
+	SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
+	
 
-	message(STATUS ${SOURCE_DIR})
-	message(STATUS ${BINARY_DIR})
 
 	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIRS})
 	target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")

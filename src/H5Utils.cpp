@@ -101,7 +101,9 @@ namespace H5Utils
 				* Release resources.  Note that H5Dvlen_reclaim works
 				* for variable-length strings as well as variable-length arrays.
 				*/
-				H5::DataSet::vlenReclaim(compType, dataset.getSpace(), H5P_DEFAULT, buffer.data());
+
+
+				H5::DataSet::vlenReclaim(buffer.data(), compType, dataset.getSpace());
 				buffer.clear();
 				return true;
 			}
@@ -442,7 +444,8 @@ namespace H5Utils
 					* Release resources.  Note that H5Dvlen_reclaim works
 					* for variable-length strings as well as variable-length arrays.
 					*/
-					H5::DataSet::vlenReclaim(strType, dataset.getSpace(), H5P_DEFAULT, buffer.data());
+					
+					H5::DataSet::vlenReclaim(buffer.data(), strType, dataset.getSpace());
 					buffer.clear();
 					return true;
 				}
@@ -537,7 +540,8 @@ namespace H5Utils
 					* Release resources.  Note that H5Dvlen_reclaim works
 					* for variable-length strings as well as variable-length arrays.
 					*/
-					H5::DataSet::vlenReclaim(strType, dataset.getSpace(), H5P_DEFAULT, buffer.data());
+					H5::DataSet::vlenReclaim(buffer.data(), strType, dataset.getSpace());
+					
 					buffer.clear();
 					return true;
 				}

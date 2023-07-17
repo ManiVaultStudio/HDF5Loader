@@ -494,15 +494,16 @@ namespace H5Utils
 						dimName.remove(0, name.length());
 					}
 					// remove forward slash from dimName if it has one
-					while (dimName[0] == '/')
+				
+					while ((dimName.size()) && (dimName[0] == '/'))
 						dimName.remove(0, 1);
-					while (dimName[0] == '\\')
+					while ((dimName.size()) && (dimName[0] == '\\'))
 						dimName.remove(0, 1);
 				}
 				// remove forward slash from name if it has one
-				while (name[0] == '/')
+				while ((name.size()) && (name[0] == '/'))
 					name.remove(0, 1);
-				while (name[0] == '\\')
+				while (name.size() && (name[0] == '\\'))
 					name.remove(0, 1);
 				numericalDatasetName = name /* + " (numerical)"*/;
 			}
