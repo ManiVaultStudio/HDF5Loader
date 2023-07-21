@@ -13,6 +13,11 @@ set(CMAKE_AUTOMOC ON)
 # -----------------------------------------------------------------------------
 # Library versions
 # -----------------------------------------------------------------------------
+SET(MANIVAULT_API_VERSION "New" CACHE STRING "ManiVault API Version")
+SET_PROPERTY(CACHE MANIVAULT_API_VERSION PROPERTY STRINGS Old New)
+add_compile_definitions(MANIVAULT_API_${MANIVAULT_API_VERSION})
+
+	
 
 #set(hdf5_VERSION 1.12.1)
 SET(hdf5_VERSION "1.12.1" CACHE STRING "Version of HDF5 Library")

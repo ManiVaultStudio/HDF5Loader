@@ -1164,10 +1164,12 @@ namespace H5Utils
 		}
 
 		// Notify others that the clusters have changed
+#if defined(MANIVAULT_API_Old)
 		events().notifyDatasetChanged(clusterDataset);
-		
+#elif defined(MANIVAULT_API_New)
+		events().notifyDatasetDataChanged(clusterDataset);
+#endif
 	}
-
 		
 
 }

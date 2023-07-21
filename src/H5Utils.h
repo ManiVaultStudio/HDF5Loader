@@ -528,7 +528,12 @@ namespace H5Utils
 			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
 			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
 
+#if defined(MANIVAULT_API_Old)
 			hdps::events().notifyDatasetChanged(numericalMetadataDataset);
+#elif defined(MANIVAULT_API_New)
+			hdps::events().notifyDatasetDataChanged(numericalMetadataDataset);
+#endif
+			
 		}
 	}
 

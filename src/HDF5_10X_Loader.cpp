@@ -307,7 +307,13 @@ shape	uint64	Tuple of (n_rows, n_columns)
 								assert(sum == rows);
 
 								// Notify others that the clusters have changed
+#if defined(MANIVAULT_API_Old)
 								events().notifyDatasetChanged(clusterDataset);
+#elif defined(MANIVAULT_API_New)
+								events().notifyDatasetDataChanged(clusterDataset);
+#endif
+								
+
 							}
 
 						} // if(ok)
@@ -591,7 +597,11 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
 					
 				}
+#if defined(MANIVAULT_API_Old)
 				events().notifyDatasetChanged(pointsDataset);
+#elif defined(MANIVAULT_API_New)
+				events().notifyDatasetDataChanged(pointsDataset);
+#endif
 			}
 
 		}

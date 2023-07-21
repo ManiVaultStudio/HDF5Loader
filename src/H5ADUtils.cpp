@@ -209,7 +209,14 @@ namespace H5AD
 
 
 					numericalDataset->setDimensionNames(dimensionNames);
+
+#ifdef MANIVAULT_API_Old
 					events().notifyDatasetChanged(numericalDataset);
+#endif
+#ifdef MANIVAULT_API_New
+					events().notifyDatasetDataChanged(numericalDataset);
+#endif
+					
 				}
 			}
 		}
@@ -264,10 +271,18 @@ namespace H5AD
 		const auto& children = pointsDataset->getDataHierarchyItem().getChildren();
 		for (auto it = children.begin(); it != children.end(); ++it)
 		{
+#if defined(MANIVAULT_API_Old)
 			if ((*it)->getGuiName() == name)
 			{
 				return *it;
 			}
+
+#elif defined(MANIVAULT_API_New)
+			if ((*it)->getId() == name)
+			{
+				return *it;
+			}
+#endif
 		}
 		return nullptr;
 	}
@@ -567,7 +582,14 @@ namespace H5AD
 									}
 								}
 								if (unchangedClusterColors < clusters.size())
+								{
+#if defined(MANIVAULT_API_Old)
 									events().notifyDatasetChanged(foundDataset->getDataset());
+#elif defined(MANIVAULT_API_New)
+									events().notifyDatasetDataChanged(foundDataset->getDataset());
+#endif
+								}
+									
 
 								if (unchangedClusterColors)
 								{
@@ -740,7 +762,14 @@ namespace H5AD
 
 																}
 																if (unchangedClusterColors < clusters.size())
+																{
+#if defined(MANIVAULT_API_Old)
 																	events().notifyDatasetChanged(foundDataset->getDataset());
+#elif defined(MANIVAULT_API_New)
+																	events().notifyDatasetDataChanged(foundDataset->getDataset());
+#endif
+																}
+																	
 
 																if (unchangedClusterColors)
 																{
@@ -866,7 +895,11 @@ namespace H5AD
 															for (std::size_t i = 0; i < clusters.size(); ++i)
 																clusters[i].setColor(items[i]);
 
-															events().notifyDatasetChanged(foundDataset->getDataset());
+															#if defined(MANIVAULT_API_Old)
+																events().notifyDatasetChanged(foundDataset->getDataset());
+#elif defined(MANIVAULT_API_New)
+															events().notifyDatasetDataChanged(foundDataset->getDataset());
+#endif
 														}
 													}
 												}

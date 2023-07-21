@@ -356,8 +356,13 @@ bool HDF5_AD_Loader::load(int storageType)
 		
 		
 
-		
+#if defined(MANIVAULT_API_Old)
 		events().notifyDatasetChanged(pointsDataset);
+#elif defined(MANIVAULT_API_New)
+		events().notifyDatasetDataChanged(pointsDataset);
+#endif
+		
+		
 		return true;
 	}
 	catch (std::exception &e)
