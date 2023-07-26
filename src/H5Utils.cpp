@@ -1113,13 +1113,13 @@ namespace H5Utils
 		return true;
 	}
 
-	void addClusterMetaData(hdps::CoreInterface *core, std::map<QString, std::vector<unsigned int>> &indices,  QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix)
+	void addClusterMetaData(hdps::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix)
 	{
 		if (indices.size() <= 1)
 			return; // no point in adding only a single cluster
 		while (name[0] == '/')
 			name.remove(0, 1);
-		while(name[0] == '\\')
+		while (name[0] == '\\')
 			name.remove(0, 1);
 		if (colors.empty())
 		{
@@ -1131,7 +1131,7 @@ namespace H5Utils
 			sorted_labels.reserve(indices.size());
 			for (const auto& indice : indices)
 				sorted_labels.push_back(indice.first);
-			if(isNumericalVector(sorted_labels))
+			if (isNumericalVector(sorted_labels))
 				std::sort(sorted_labels.begin(), sorted_labels.end(), compareNumeric);
 			else
 				std::sort(sorted_labels.begin(), sorted_labels.end());
@@ -1147,9 +1147,9 @@ namespace H5Utils
 		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", datasetName, parent);
 
 		events().notifyDatasetAdded(clusterDataset);
-		
+
 		clusterDataset->getClusters().reserve(indices.size());
-		
+
 		for (const auto& indice : indices)
 		{
 			Cluster cluster;

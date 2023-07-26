@@ -354,7 +354,6 @@ bool HDF5_AD_Loader::load(int storageType)
 			++bp;
 		}
 		
-		
 
 #if defined(MANIVAULT_API_Old)
 		events().notifyDatasetChanged(pointsDataset);
