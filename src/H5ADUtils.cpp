@@ -282,6 +282,11 @@ namespace H5AD
 			{
 				return *it;
 			}
+
+			if((*it)->getDataset()->getGuiName() == name)
+		    {
+				return *it;
+		    }
 #endif
 		}
 		return nullptr;
@@ -463,8 +468,9 @@ namespace H5AD
 	{
 
 		auto nrOfObjects = group.getNumObjs();
-		auto h5groupName = group.getObjName();
 
+		std::filesystem::path path(group.getObjName());
+		std::string h5GroupName = path.filename().string();
 		if (LoadSparseMatrix(group, pointsDataset, _core))
 			return;
 
@@ -486,12 +492,12 @@ namespace H5AD
 			if (count != pointsDataset->getNumPoints())
 				std::cout << "WARNING: " << "not all datapoints are accounted for" << std::endl;
 
-			std::size_t posFound = h5groupName.find("_color");
+			std::size_t posFound = h5GroupName.find("_color");
 			if (posFound == std::string::npos)
 			{
 				if (count == pointsDataset->getNumPoints())
 				{
-					H5Utils::addClusterMetaData(_core, codedCategories, h5groupName.c_str(), pointsDataset);
+					H5Utils::addClusterMetaData(_core, codedCategories, h5GroupName.c_str(), pointsDataset);
 				}
 			}
 			else
@@ -516,7 +522,7 @@ namespace H5AD
 					int options = 2;
 					for(int option =0; option < options; ++option)
 					{
-						QString datasetNameToFind = h5groupName.c_str();
+						QString datasetNameToFind = h5GroupName.c_str();
 						datasetNameToFind.resize(posFound);
 						if(option ==0)
 							datasetNameToFind += "_label";
@@ -599,7 +605,7 @@ namespace H5AD
 										colors[it->first] = QColor(it->first);
 
 
-									H5Utils::addClusterMetaData(_core, codedCategories, h5groupName.c_str(), pointsDataset, colors);
+									H5Utils::addClusterMetaData(_core, codedCategories, h5GroupName.c_str(), pointsDataset, colors);
 									option = options;
 								}
 							}
@@ -611,7 +617,7 @@ namespace H5AD
 				}
 				else
 				{
-					H5Utils::addClusterMetaData(_core, codedCategories, h5groupName.c_str(), pointsDataset);
+					H5Utils::addClusterMetaData(_core, codedCategories, h5GroupName.c_str(), pointsDataset);
 				}
 			}
 		}
@@ -686,7 +692,7 @@ namespace H5AD
 												}
 												if (itemsAreColors)
 												{
-													QString datasetNameToFind = h5groupName.c_str();
+													QString datasetNameToFind = h5GroupName.c_str();
 													datasetNameToFind += "/";
 													
 
@@ -932,7 +938,7 @@ namespace H5AD
 			if (numericalMetaDataDimensionNames.size() == 1)
 				numericalMetaDataString = numericalMetaDataDimensionNames[0];
 			else 
-				numericalMetaDataString = QString("Numerical Data (") + QString(h5groupName.c_str()) + QString(")");
+				numericalMetaDataString = QString("Numerical Data (") + QString(h5GroupName.c_str()) + QString(")");
 			H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset, numericalMetaDataString);
 		}
 	}
