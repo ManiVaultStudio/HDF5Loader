@@ -61,7 +61,11 @@ function(find_artifactory_package)
     endforeach()
 
     if (res_length LESS 1)
+        message(STATUS "QUERY ERROR RESULT:")
+        list(APPEND ERROR_CAT ${CMAKE_COMMAND} -E cat ${PROJECT_BINARY_DIR}/aql.json)
+        execute_process(COMMAND ${CMAKE_COMMAND})
         message(FATAL_ERROR "No matching artifactory packages found. Please check the query.")
+        set(ERROR_CAT)
     endif()
 
     if (res_length GREATER 1)
