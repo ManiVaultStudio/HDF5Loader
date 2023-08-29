@@ -175,5 +175,6 @@ function(install_artifactory_package)
     # set <PackageName>_ROOT for find_package
 
     set(${package_name}_ROOT "${LIBRARY_INSTALL_DIR}/${package_name}" PARENT_SCOPE)
+    message(STATUS "${package_name} root: ${LIBRARY_INSTALL_DIR}/${package_name}")
 
 endfunction()

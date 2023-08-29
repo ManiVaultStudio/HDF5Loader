@@ -20,7 +20,7 @@ add_compile_definitions(MANIVAULT_API_${MANIVAULT_API_VERSION})
 	
 
 #set(hdf5_VERSION 1.12.1)
-SET(hdf5_VERSION "1.12.1" CACHE STRING "Version of HDF5 Library")
+SET(hdf5_VERSION "1.14.1" CACHE STRING "Version of HDF5 Library")
 SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.1)
 
 if(MSVC)
@@ -97,12 +97,10 @@ if (USE_HDF5_ARTIFACTORY_LIBS)
 		# lz4 is also available in the lkb-artifactory in separate Debug and |Release packages
 		install_artifactory_package(PACKAGE_NAME hdf5 PACKAGE_VERSION ${hdf5_VERSION} PACKAGE_BUILDER lkeb COMBINED_PACKAGE TRUE) 
 
-		message(STATUS "module path ${CMAKE_MODULE_PATH}")
-		message(STATUS "Call find_package hdf5 search ${LIBRARY_INSTALL_DIR}/hdf5/share/cmake/hdf5")
-		find_package(HDF5 COMPONENTS CXX static PATHS "${LIBRARY_INSTALL_DIR}/hdf5/share/cmake/hdf5" CONFIG REQUIRED)
-		message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
 		set(ARTIFACTORY_LIBS_INSTALLED TRUE CACHE BOOL "Use the prebuilt libraries from artifactory" FORCE)
 	endif()
+	message(status "hdf5 include ${HDF5_INCLUDE_DIRS}")
+
 else()
 	# Het HDF5 with ZLIB
 	message(STATUS "hdf5 as external project")
@@ -153,33 +151,28 @@ else()
 
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
 	SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
-	
-
-
-	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIRS})
-	target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
 endif()
+
+target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIRS})
+target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
 
 find_package(OpenMP REQUIRED)
-if(OPENMP_FOUND)
-	message (STATUS "OpenMP found ${OpenMP_CXX_LIB_NAMES}")
-	target_include_directories(${PROJECT} PRIVATE ${OpenMP_CXX_INCLUDE_DIRS})
-	set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-	set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}") 
-	if (APPLE)
-		target_link_libraries (${PROJECT} ${OpenMP_CXX_LIBRARIES})
-	endif()
+if(OpenMP_FOUND)
+    message(STATUS "OpenMP found")
+    target_link_libraries(${PROJECT} OpenMP::OpenMP_CXX)
+    target_compile_options(${PROJECT} PRIVATE ${OpenMP_CXX_FLAGS})
 else()
-    message(WARNING, "OpenMP not found!")    
+    message(WARNING "OpenMP not found!")
 endif()
+
 message(STATUS ${SOURCE_DIR})
 message(STATUS ${BINARY_DIR})
-target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIGURATION>/include/")
+target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
 
 target_compile_features(${PROJECT} PRIVATE cxx_std_17)
 
-set(HDPS_LINK_PATH "${INSTALL_DIR}/$<CONFIGURATION>/lib")
-set(PLUGIN_LINK_PATH "${INSTALL_DIR}/$<CONFIGURATION>/$<IF:$<CXX_COMPILER_ID:MSVC>,lib,Plugins>")
+set(HDPS_LINK_PATH "${INSTALL_DIR}/$<CONFIG>/lib")
+set(PLUGIN_LINK_PATH "${INSTALL_DIR}/$<CONFIG>/$<IF:$<CXX_COMPILER_ID:MSVC>,lib,Plugins>")
 set(HDPS_LINK_SUFFIX $<IF:$<CXX_COMPILER_ID:MSVC>,${CMAKE_LINK_LIBRARY_SUFFIX},${CMAKE_SHARED_LIBRARY_SUFFIX}>)
 
 set(HDPS_LINK_LIBRARY "${HDPS_LINK_PATH}/${CMAKE_SHARED_LIBRARY_PREFIX}HDPS_Public${HDPS_LINK_SUFFIX}")
@@ -212,7 +205,9 @@ if (NOT USE_HDF5_ARTIFACTORY_LIBS)
 		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5${CMAKE_STATIC_LIBRARY_SUFFIX})
 	endif()
 else()
-	find_package (HDF5 NAMES hdf5 REQUIRED COMPONENTS CXX static PATH "${CMAKE_CURRENT_SOURCE_DIR}/hdf5" REQUIRED)
+	message(STATUS "Call find_package hdf5 search ${hdf5_ROOT}")
+	find_package(hdf5 COMPONENTS CXX static CONFIG REQUIRED)
+	message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
 	set(ZLIB_ROOT ${HDF5_ZLIB_ROOT})
 	find_package (ZLIB REQUIRED)
 	target_link_libraries (${PROJECT}  ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
@@ -226,8 +221,8 @@ install(TARGETS ${PROJECT}
 add_custom_command(TARGET ${PROJECT} POST_BUILD
 	COMMAND "${CMAKE_COMMAND}"
 	--install ${CMAKE_CURRENT_BINARY_DIR}
-	--config $<CONFIGURATION>
-	--prefix ${INSTALL_DIR}/$<CONFIGURATION>
+	--config $<CONFIG>
+	--prefix ${INSTALL_DIR}/$<CONFIG>
 )
 
 # Automatically set the debug environment (command + working directory) for MSVC
