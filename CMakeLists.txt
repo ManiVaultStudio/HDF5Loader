@@ -151,9 +151,9 @@ else()
 
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
 	SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
+	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIRS})
 endif()
 
-target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIRS})
 target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
 
 find_package(OpenMP REQUIRED)
@@ -208,6 +208,7 @@ else()
 	message(STATUS "Call find_package hdf5 search ${hdf5_ROOT}")
 	find_package(hdf5 COMPONENTS CXX static CONFIG REQUIRED)
 	message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
+	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIR})
 	set(ZLIB_ROOT ${HDF5_ZLIB_ROOT})
 	find_package (ZLIB REQUIRED)
 	target_link_libraries (${PROJECT}  ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
