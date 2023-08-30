@@ -20,7 +20,7 @@ add_compile_definitions(MANIVAULT_API_${MANIVAULT_API_VERSION})
 	
 
 #set(hdf5_VERSION 1.12.1)
-SET(hdf5_VERSION "1.14.1" CACHE STRING "Version of HDF5 Library")
+SET(hdf5_VERSION "1.12.1" CACHE STRING "Version of HDF5 Library")
 SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.1)
 
 if(MSVC)
@@ -97,9 +97,14 @@ if (USE_HDF5_ARTIFACTORY_LIBS)
 		# lz4 is also available in the lkb-artifactory in separate Debug and |Release packages
 		install_artifactory_package(PACKAGE_NAME hdf5 PACKAGE_VERSION ${hdf5_VERSION} PACKAGE_BUILDER lkeb COMBINED_PACKAGE TRUE) 
 
+		message(STATUS "module path ${CMAKE_MODULE_PATH}")
+		message(STATUS "Call find_package hdf5 search ${LIBRARY_INSTALL_DIR}/hdf5/share/cmake/hdf5")
+		find_package(HDF5 COMPONENTS CXX static PATHS "${LIBRARY_INSTALL_DIR}/hdf5/share/cmake/hdf5" CONFIG REQUIRED)
+		message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
 		set(ARTIFACTORY_LIBS_INSTALLED TRUE CACHE BOOL "Use the prebuilt libraries from artifactory" FORCE)
 	endif()
-	message(status "hdf5 include ${HDF5_INCLUDE_DIRS}")
+	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIR})
+	message(status "hdf5 include ${HDF5_INCLUDE_DIR}")
 
 else()
 	# Het HDF5 with ZLIB
@@ -150,12 +155,11 @@ else()
 	)
 
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
-	SET(HDF5_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
-	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIRS})
+	SET(ALL_INCLUDE_DIRS ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
+	target_include_directories(${PROJECT} PRIVATE ${ALL_INCLUDE_DIRS})
 endif()
 
 target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
-set_property(TARGET ${PROJECT} PROPERTY CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenMP REQUIRED)
 if(OpenMP_FOUND)
@@ -206,10 +210,7 @@ if (NOT USE_HDF5_ARTIFACTORY_LIBS)
 		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5${CMAKE_STATIC_LIBRARY_SUFFIX})
 	endif()
 else()
-	message(STATUS "Call find_package hdf5 search ${hdf5_ROOT}")
-	find_package(hdf5 COMPONENTS CXX static CONFIG REQUIRED)
-	message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
-	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIR})
+	find_package (HDF5 NAMES hdf5 REQUIRED COMPONENTS CXX static PATH "${CMAKE_CURRENT_SOURCE_DIR}/hdf5" REQUIRED)
 	set(ZLIB_ROOT ${HDF5_ZLIB_ROOT})
 	find_package (ZLIB REQUIRED)
 	target_link_libraries (${PROJECT}  ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
