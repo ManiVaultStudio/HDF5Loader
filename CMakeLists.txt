@@ -155,6 +155,7 @@ else()
 endif()
 
 target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
+set_property(TARGET ${PROJECT} PROPERTY CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenMP REQUIRED)
 if(OpenMP_FOUND)
