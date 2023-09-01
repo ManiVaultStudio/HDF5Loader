@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.18.0)
+message(STATUS "Building with cmake version ${CMAKE_VERSION}")
 
 set(PROJECT "HDF5Loader")
 
@@ -20,8 +21,8 @@ add_compile_definitions(MANIVAULT_API_${MANIVAULT_API_VERSION})
 	
 
 #set(hdf5_VERSION 1.12.1)
-SET(hdf5_VERSION "1.12.1" CACHE STRING "Version of HDF5 Library")
-SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.1)
+SET(hdf5_VERSION "1.14.2" CACHE STRING "Version of HDF5 Library")
+SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.2)
 
 if(MSVC)
 	set(CMAKE_GENERATOR_TOOLSET "host=x64" CACHE STRING "Platform Toolset" FORCE)
@@ -97,12 +98,18 @@ if (USE_HDF5_ARTIFACTORY_LIBS)
 		# lz4 is also available in the lkb-artifactory in separate Debug and |Release packages
 		install_artifactory_package(PACKAGE_NAME hdf5 PACKAGE_VERSION ${hdf5_VERSION} PACKAGE_BUILDER lkeb COMBINED_PACKAGE TRUE) 
 
-		message(STATUS "module path ${CMAKE_MODULE_PATH}")
-		message(STATUS "Call find_package hdf5 search ${LIBRARY_INSTALL_DIR}/hdf5/share/cmake/hdf5")
-		find_package(HDF5 COMPONENTS CXX static PATHS "${LIBRARY_INSTALL_DIR}/hdf5/share/cmake/hdf5" CONFIG REQUIRED)
-		message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
-		set(ARTIFACTORY_LIBS_INSTALLED TRUE CACHE BOOL "Use the prebuilt libraries from artifactory" FORCE)
+		message(STATUS "HDF5 root path ${hdf5_ROOT}")
 	endif()
+	set(HDF5_ROOT ${LIBRARY_INSTALL_DIR}/${package_name})
+	set(HDF5_USE_STATIC_LIBRARIES TRUE)
+	find_package(HDF5 COMPONENTS CXX C static REQUIRED NO_MODULE)
+	#get_cmake_property(_variableNames VARIABLES)
+	#list (SORT _variableNames)
+	#foreach (_variableName ${_variableNames})
+	#		message(STATUS "${_variableName}=${${_variableName}}")
+	#endforeach()
+	message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
+	set(ARTIFACTORY_LIBS_INSTALLED TRUE CACHE BOOL "Use the prebuilt libraries from artifactory" FORCE)
 	target_include_directories(${PROJECT} PRIVATE ${HDF5_INCLUDE_DIR})
 	message(status "hdf5 include ${HDF5_INCLUDE_DIR}")
 
@@ -210,10 +217,11 @@ if (NOT USE_HDF5_ARTIFACTORY_LIBS)
 		target_link_libraries(${PROJECT} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5${CMAKE_STATIC_LIBRARY_SUFFIX})
 	endif()
 else()
-	find_package (HDF5 NAMES hdf5 REQUIRED COMPONENTS CXX static PATH "${CMAKE_CURRENT_SOURCE_DIR}/hdf5" REQUIRED)
+	message(status "find_package searching zlib at ${HDF5_ZLIB_ROOT}")
 	set(ZLIB_ROOT ${HDF5_ZLIB_ROOT})
 	find_package (ZLIB REQUIRED)
-	target_link_libraries (${PROJECT}  ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
+	message(STATUS "Linking with ${HDF5_CXX_LIBRARIES} ${HDF5_LIBRARIES} and ${ZLIB_LIBRARIES}")
+	target_link_libraries (${PROJECT} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
 endif()
 
 install(TARGETS ${PROJECT}
