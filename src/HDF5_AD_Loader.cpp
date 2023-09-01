@@ -6,6 +6,7 @@
 #include <QFileDialog>
 #include <QListView>
 #include <QDialogButtonBox>
+#include <QtGlobal>
 #include "H5Utils.h"
 #include "DataContainerInterface.h"
 #include <iostream>
@@ -249,7 +250,7 @@ bool HDF5_AD_Loader::load(int storageType)
 								}
 								else if ((datasetClass == H5T_INTEGER) || (datasetClass == H5T_ENUM))
 								{
-									std::vector<int64_t> values;
+									std::vector<qlonglong> values;
 									if (H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_INT64))
 									{
 										if (values.size() == _dimensionNames.size())
