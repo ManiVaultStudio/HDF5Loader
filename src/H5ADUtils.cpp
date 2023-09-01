@@ -393,7 +393,7 @@ namespace H5AD
 
 		std::string h5datasetName = dataset.getObjName();
 		if (h5datasetName[0] == '/')
-			h5datasetName.erase(h5datasetName.cbegin());
+			h5datasetName.erase(h5datasetName.cbegin() + 0);
 		std::map<std::string, std::vector<QVariant> > compoundMap;
 
 		if (H5Utils::read_compound(dataset, compoundMap))
