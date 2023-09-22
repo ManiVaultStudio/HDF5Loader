@@ -86,8 +86,16 @@ set(SOURCES
 	src/H5ADUtils.cpp
 )
 
+set(PLUGIN_MOC_HEADERS
+	src/DataTransform.h
+    src/HDF5LoaderFactory.h
+)
+
 source_group( Plugin FILES ${SOURCES})
 add_library(${PROJECT} SHARED ${SOURCES})
+
+qt_wrap_cpp(HDF5LOADER_MOC ${PLUGIN_MOC_HEADERS} TARGET ${PROJECT})
+target_sources(${PROJECT} PRIVATE ${HDF5LOADER_MOC})
 
 include(InstallArtifactoryPackage)
 set(LIBRARY_INSTALL_DIR ${PROJECT_BINARY_DIR})
