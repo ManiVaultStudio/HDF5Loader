@@ -1,5 +1,6 @@
 #include "H5ADUtils.h"
 #include "DataContainerInterface.h"
+#include <filesystem>
 
 namespace H5AD
 {
