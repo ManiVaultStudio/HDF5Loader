@@ -18,8 +18,6 @@ SET(MANIVAULT_API_VERSION "New" CACHE STRING "ManiVault API Version")
 SET_PROPERTY(CACHE MANIVAULT_API_VERSION PROPERTY STRINGS Old New)
 add_compile_definitions(MANIVAULT_API_${MANIVAULT_API_VERSION})
 
-	
-
 #set(hdf5_VERSION 1.12.1)
 SET(hdf5_VERSION "1.14.2" CACHE STRING "Version of HDF5 Library")
 SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.2)
@@ -50,8 +48,13 @@ if (APPLE)
 	set(OpenMP_ROOT "/usr/local/homebrew/opt/libomp")
 endif ()
 
-# Normalize the incoming install path
-file(TO_CMAKE_PATH $ENV{HDPS_INSTALL_DIR} INSTALL_DIR)
+# Check if the directory to the ManiVault installation has been provided
+if(NOT DEFINED MV_INSTALL_DIR)
+    set(MV_INSTALL_DIR "" CACHE PATH "Directory where ManiVault is installed")
+    message(FATAL_ERROR "Please set MV_INSTALL_DIR to the directory where ManiVault is installed")
+endif()
+file(TO_CMAKE_PATH ${MV_INSTALL_DIR} MV_INSTALL_DIR)
+
 find_package(Qt6 COMPONENTS Widgets WebEngineWidgets REQUIRED)
 
 set(USE_HDF5_ARTIFACTORY_LIBS FALSE CACHE BOOL "Use the prebuilt libraries from artifactory")
@@ -174,7 +177,7 @@ else()
 	target_include_directories(${PROJECT} PRIVATE ${ALL_INCLUDE_DIRS})
 endif()
 
-target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
+target_include_directories(${PROJECT} PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/include/")
 
 find_package(OpenMP REQUIRED)
 if(OpenMP_FOUND)
@@ -187,13 +190,13 @@ endif()
 
 message(STATUS ${SOURCE_DIR})
 message(STATUS ${BINARY_DIR})
-target_include_directories(${PROJECT} PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
+target_include_directories(${PROJECT} PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/include/")
 
 target_compile_features(${PROJECT} PRIVATE cxx_std_17)
 set_target_properties(${PROJECT} PROPERTIES CXX_STANDARD 17)
 
-set(HDPS_LINK_PATH "${INSTALL_DIR}/$<CONFIG>/lib")
-set(PLUGIN_LINK_PATH "${INSTALL_DIR}/$<CONFIG>/$<IF:$<CXX_COMPILER_ID:MSVC>,lib,Plugins>")
+set(HDPS_LINK_PATH "${MV_INSTALL_DIR}/$<CONFIG>/lib")
+set(PLUGIN_LINK_PATH "${MV_INSTALL_DIR}/$<CONFIG>/$<IF:$<CXX_COMPILER_ID:MSVC>,lib,Plugins>")
 set(HDPS_LINK_SUFFIX $<IF:$<CXX_COMPILER_ID:MSVC>,${CMAKE_LINK_LIBRARY_SUFFIX},${CMAKE_SHARED_LIBRARY_SUFFIX}>)
 
 set(HDPS_LINK_LIBRARY "${HDPS_LINK_PATH}/${CMAKE_SHARED_LIBRARY_PREFIX}HDPS_Public${HDPS_LINK_SUFFIX}")
@@ -205,7 +208,7 @@ if (NOT USE_HDF5_ARTIFACTORY_LIBS)
 else()
 	target_include_directories("${PROJECT}" PRIVATE "${HDF5_INCLUDE_DIR}")
 	target_include_directories("${PROJECT}" PRIVATE "${LIBRARY_INSTALL_DIR}/zlib/$<CONFIG>/include")
-	target_include_directories("${PROJECT}" PRIVATE "${INSTALL_DIR}/$<CONFIG>/include/")
+	target_include_directories("${PROJECT}" PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/include/")
 endif()
 
 target_compile_definitions(${PROJECT} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
@@ -242,11 +245,11 @@ add_custom_command(TARGET ${PROJECT} POST_BUILD
 	COMMAND "${CMAKE_COMMAND}"
 	--install ${CMAKE_CURRENT_BINARY_DIR}
 	--config $<CONFIG>
-	--prefix ${INSTALL_DIR}/$<CONFIG>
+	--prefix ${MV_INSTALL_DIR}/$<CONFIG>
 )
 
 # Automatically set the debug environment (command + working directory) for MSVC
 if(MSVC)
-    set_property(TARGET ${PROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${INSTALL_DIR}/debug,${INSTALL_DIR}/release>)
-    set_property(TARGET ${PROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,${INSTALL_DIR}/debug/HDPS.exe,${INSTALL_DIR}/release/HDPS.exe>)
+    set_property(TARGET ${PROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${MV_INSTALL_DIR}/debug,${MV_INSTALL_DIR}/release>)
+    set_property(TARGET ${PROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,${MV_INSTALL_DIR}/debug/HDPS.exe,${MV_INSTALL_DIR}/release/HDPS.exe>)
 endif()
