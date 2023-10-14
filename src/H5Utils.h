@@ -17,7 +17,7 @@
 
 
 
-namespace hdps
+namespace mv
 {
 	class CoreInterface;
 }
@@ -385,7 +385,7 @@ namespace H5Utils
 	inline const std::string QColor_to_stdString(const QColor& color);
 
 	template<class RandomIterator>
-	void transpose(RandomIterator first, RandomIterator last, int m, hdps::DataHierarchyItem &progressItem)
+	void transpose(RandomIterator first, RandomIterator last, int m, mv::DataHierarchyItem &progressItem)
 	{
 		//https://stackoverflow.com/questions/9227747/in-place-transposition-of-a-matrix
 		const std::ptrdiff_t mn1 = (last - first - 1);
@@ -471,10 +471,10 @@ namespace H5Utils
 	std::size_t get_vector_size(const H5::DataSet &dataset);
 
 	
-	hdps::Dataset<Points> createPointsDataset(::hdps::CoreInterface* core,bool ask=true, QString=QString());
+	mv::Dataset<Points> createPointsDataset(::mv::CoreInterface* core,bool ask=true, QString=QString());
 
 	template<typename numericalMetaDataType>
-	void addNumericalMetaData(hdps::CoreInterface* core, std::vector<numericalMetaDataType>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, hdps::Dataset<Points> parent, QString name = QString())
+	void addNumericalMetaData(mv::CoreInterface* core, std::vector<numericalMetaDataType>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, mv::Dataset<Points> parent, QString name = QString())
 	{
 		const std::size_t numberOfDimensions = numericalDimensionNames.size();
 		if (numberOfDimensions)
@@ -509,10 +509,10 @@ namespace H5Utils
 			}
 
 
-			hdps::Dataset<Points> numericalMetadataDataset = core->createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
+			mv::Dataset<Points> numericalMetadataDataset = core->createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
 			numericalMetadataDataset->setDataElementType<numericalMetaDataType>();
 
-			hdps::events().notifyDatasetAdded(numericalMetadataDataset);
+			mv::events().notifyDatasetAdded(numericalMetadataDataset);
 
 			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
 			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
@@ -529,16 +529,16 @@ namespace H5Utils
 			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
 
 #if defined(MANIVAULT_API_Old)
-			hdps::events().notifyDatasetChanged(numericalMetadataDataset);
+			mv::events().notifyDatasetChanged(numericalMetadataDataset);
 #elif defined(MANIVAULT_API_New)
-			hdps::events().notifyDatasetDataChanged(numericalMetadataDataset);
+			mv::events().notifyDatasetDataChanged(numericalMetadataDataset);
 #endif
 			
 		}
 	}
 
 	
-	void addClusterMetaData(hdps::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>(), QString prefix = QString());
+	void addClusterMetaData(mv::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>(), QString prefix = QString());
 
 
 	

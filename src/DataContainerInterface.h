@@ -19,7 +19,7 @@ public:
 
 private:
 	
-	hdps::Dataset<Points>		m_data;
+	mv::Dataset<Points>		m_data;
 	
 public:
 	void applyTransform(TRANSFORM::Type transformType, bool normalized_and_cpm);
@@ -27,10 +27,10 @@ public:
 	void addDataValue(RowID row, ColumnID column, float value, TRANSFORM::Type transformType);
 	void increaseDataValue(RowID row, ColumnID column, float value, TRANSFORM::Type transformType);
 	
-	explicit DataContainerInterface(hdps::Dataset<Points> points);
+	explicit DataContainerInterface(mv::Dataset<Points> points);
 	~DataContainerInterface() = default;
 
-	hdps::Dataset<Points> points();
+	mv::Dataset<Points> points();
 
 // 	const DataValue get(RowID row, ColumnID column) const;
  	void set(RowID row, ColumnID column, const ValueType & value);

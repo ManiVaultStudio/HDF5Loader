@@ -389,7 +389,7 @@ namespace H5AD
 
 
 	template<typename numericMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, Dataset<Points> pointsDataset, hdps::CoreInterface* _core)
+	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, Dataset<Points> pointsDataset, mv::CoreInterface* _core)
 	{
 
 		std::string h5datasetName = dataset.getObjName();
@@ -465,7 +465,7 @@ namespace H5AD
 
 	
 	template<typename numericalMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::Group& group, Dataset<Points>  pointsDataset, hdps::CoreInterface* _core)
+	void LoadSampleNamesAndMetaData(H5::Group& group, Dataset<Points>  pointsDataset, mv::CoreInterface* _core)
 	{
 
 		auto nrOfObjects = group.getNumObjs();
@@ -944,21 +944,21 @@ namespace H5AD
 		}
 	}
 
-	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, Dataset<Points> pointsDataset, hdps::CoreInterface* _core)
+	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, Dataset<Points> pointsDataset, mv::CoreInterface* _core)
 	{
 		H5AD::LoadSampleNamesAndMetaData<float>(dataset, pointsDataset, _core);
 	}
-	void LoadSampleNamesAndMetaDataBFloat16(H5::DataSet& dataset, Dataset<Points> pointsDataset, hdps::CoreInterface* _core)
+	void LoadSampleNamesAndMetaDataBFloat16(H5::DataSet& dataset, Dataset<Points> pointsDataset, mv::CoreInterface* _core)
 	{
 		LoadSampleNamesAndMetaData<biovault::bfloat16_t>(dataset, pointsDataset, _core);
 	}
 
 
-	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, Dataset<Points>  pointsDataset, hdps::CoreInterface* _core)
+	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, Dataset<Points>  pointsDataset, mv::CoreInterface* _core)
 	{
 		LoadSampleNamesAndMetaData<float>(group, pointsDataset, _core);
 	}
-	void LoadSampleNamesAndMetaDataBFloat16(H5::Group& group, Dataset<Points>  pointsDataset, hdps::CoreInterface* _core)
+	void LoadSampleNamesAndMetaDataBFloat16(H5::Group& group, Dataset<Points>  pointsDataset, mv::CoreInterface* _core)
 	{
 		LoadSampleNamesAndMetaData<biovault::bfloat16_t>(group, pointsDataset, _core);
 	}

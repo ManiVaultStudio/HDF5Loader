@@ -28,12 +28,12 @@ namespace H5AD
 	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, Dataset<Points> pointsDataset);
 
 	
-	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, Dataset<Points> pointsDataset, hdps::CoreInterface* _core);
-	void LoadSampleNamesAndMetaDataBFloat16(H5::DataSet& dataset, Dataset<Points> pointsDataset, hdps::CoreInterface* _core);
+	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, Dataset<Points> pointsDataset, mv::CoreInterface* _core);
+	void LoadSampleNamesAndMetaDataBFloat16(H5::DataSet& dataset, Dataset<Points> pointsDataset, mv::CoreInterface* _core);
 	
 	
-	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, Dataset<Points>  pointsDataset, hdps::CoreInterface* _core);
-	void LoadSampleNamesAndMetaDataBFloat16(H5::Group& group, Dataset<Points>  pointsDataset, hdps::CoreInterface* _core);
+	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, Dataset<Points>  pointsDataset, mv::CoreInterface* _core);
+	void LoadSampleNamesAndMetaDataBFloat16(H5::Group& group, Dataset<Points>  pointsDataset, mv::CoreInterface* _core);
 
 } // namespace H5AD
 

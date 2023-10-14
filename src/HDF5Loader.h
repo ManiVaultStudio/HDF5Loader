@@ -4,7 +4,7 @@
 
 #include <QObject>
 #include <QFileDialog>
-using namespace hdps::plugin;
+using namespace mv::plugin;
 
 // =============================================================================
 // View
