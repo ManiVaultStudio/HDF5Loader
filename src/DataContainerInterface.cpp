@@ -29,26 +29,28 @@ namespace local
 		hdps::DataHierarchyItem& dataHierarcyItem;
 
 	public:
-		Progress(hdps::DataHierarchyItem& item, const QString& taskName, std::size_t nrOfSteps)
-			:dataHierarcyItem(item)
+		Progress(hdps::DataHierarchyItem& item, const QString& taskName, std::size_t nrOfSteps) :
+			dataHierarcyItem(item)
 		{
-			dataHierarcyItem.setTaskName(taskName);
-			dataHierarcyItem.setTaskDescription(taskName);
-			dataHierarcyItem.setTaskRunning();
-			dataHierarcyItem.setNumberOfSubTasks(nrOfSteps);
+			auto& task = dataHierarcyItem.getDataset()->getTask();
+			
+			task.setName(taskName);
+			task.setProgressDescription(taskName);
+			task.setRunning();
+			task.setSubtasks(nrOfSteps);
 		}
 
 		void setStep(std::size_t step)
 		{
 #if defined(_OPENMP)
 			if(omp_get_thread_num() == 0)
-				dataHierarcyItem.setSubTaskFinished(step);
+				dataHierarcyItem.getDataset()->getTask().setSubtaskFinished(step);
 #endif
 		}
 
 		~Progress()
 		{
-			dataHierarcyItem.setTaskFinished();
+			dataHierarcyItem.getDataset()->getTask().setFinished();
 		}
 	};
 

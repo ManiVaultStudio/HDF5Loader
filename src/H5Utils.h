@@ -408,14 +408,14 @@ namespace H5Utils
 				if((updateCounter % updateFrequency) == 0)
 				{
 					float progress = (1.0 * updateCounter) / (last - first);
-					progressItem.setTaskProgress(progress);
+					progressItem.getDataset()->getTask().setProgress(progress);
 					QGuiApplication::instance()->processEvents();
 				}
 				
 				
 			} while ((first + a) != cycle);
 		}
-		progressItem.setTaskProgress(100);
+		progressItem.getDataset()->getTask().setProgress(100);
 		
 	}
 
@@ -514,9 +514,11 @@ namespace H5Utils
 
 			hdps::events().notifyDatasetAdded(numericalMetadataDataset);
 
-			numericalMetadataDataset->getDataHierarchyItem().setTaskName("Loading points");
-			numericalMetadataDataset->getDataHierarchyItem().setTaskDescription("Transposing");
-			numericalMetadataDataset->getDataHierarchyItem().setTaskRunning();
+			auto& task = numericalMetadataDataset->getDataHierarchyItem().getDataset()->getTask();
+
+			task.setName("Loading points");
+			task.setProgressDescription("Transposing");
+			task.setRunning();
 
 			if (transpose)
 			{
@@ -526,7 +528,8 @@ namespace H5Utils
 			numericalMetadataDataset->setDataElementType<numericalMetaDataType>();
 			numericalMetadataDataset->setData(std::move(numericalData), numberOfDimensions);
 			numericalMetadataDataset->setDimensionNames(numericalDimensionNames);
-			numericalMetadataDataset->getDataHierarchyItem().setTaskFinished();
+			
+			task.setFinished();
 
 #if defined(MANIVAULT_API_Old)
 			hdps::events().notifyDatasetChanged(numericalMetadataDataset);

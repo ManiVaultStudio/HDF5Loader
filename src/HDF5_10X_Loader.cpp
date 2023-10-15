@@ -116,11 +116,11 @@ shape	uint64	Tuple of (n_rows, n_columns)
 						result = false;
 					else
 					{
-						auto& dataHierarchyItem = rawData->points()->getDataHierarchyItem();
+						auto& task = rawData->points()->getDataHierarchyItem().getDataset()->getTask();
 
-						dataHierarchyItem.setTaskName("Loading points");
-						dataHierarchyItem.setTaskDescription(QString("Loading %1 points").arg(util::getIntegerCountHumanReadable(data16.size())));
-						dataHierarchyItem.setTaskRunning();
+						task.setName("Loading points");
+						task.setProgressDescription(QString("Loading %1 points").arg(util::getIntegerCountHumanReadable(data16.size())));
+						task.setRunning();
 
 						data.resize(data16.size());
 						#pragma omp parallel for
@@ -129,12 +129,12 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							data[i] = biovault::bfloat16_t(data16[i], true);
 
 							if (i % 100000 == 0) {
-								dataHierarchyItem.setTaskProgress(static_cast<float>(i) / static_cast<float>(data16.size()));
+								task.setProgress(static_cast<float>(i) / static_cast<float>(data16.size()));
 							}
 								
 						}
 
-						dataHierarchyItem.setTaskFinished();
+						task.setFinished();
 					}
 				}
 				else
@@ -182,7 +182,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				}
 				pointsDataset.setProperty("Sample Names", sample_names);
 
-				pointsDataset->getDataHierarchyItem().setTaskDescription("");
+				pointsDataset->getDataHierarchyItem().getDataset()->getTask().setProgressDescription("");
 
 				
 				if (result & group.exists("meta"))
@@ -496,9 +496,12 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					std::vector<float> numericalMetaData;
 					numericalMetaData.reserve(nrOfMetaData * rows);
 					std::vector<QString> numericalMetaDataDimensionNames;
-					auto& dataHierarchyItem = pointsDataset->getDataHierarchyItem();
-					dataHierarchyItem.setTaskDescription(QString("Loading %1 metadata items").arg(util::getIntegerCountHumanReadable(nrOfMetaData)));
-					dataHierarchyItem.setTaskRunning();
+					
+					auto& task = pointsDataset->getDataHierarchyItem().getDataset()->getTask();
+
+					task.setProgressDescription(QString("Loading %1 metadata items").arg(util::getIntegerCountHumanReadable(nrOfMetaData)));
+					task.setRunning();
+					
 					for (hsize_t m = 0; m < nrOfMetaData; ++m)
 					{
 						std::string metaDataLabel = metaDataSuperGroup.getObjnameByIdx(m).c_str();
@@ -590,10 +593,10 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							}
 
 						} // if(ok)
-						dataHierarchyItem.setTaskProgress(static_cast<float>(m) / static_cast<float>(nrOfMetaData));
+						task.setProgress(static_cast<float>(m) / static_cast<float>(nrOfMetaData));
 
 					} // for nrOfMetaData
-					dataHierarchyItem.setTaskFinished();
+					task.setFinished();
 					H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
 					
 				}
