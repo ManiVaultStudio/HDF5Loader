@@ -23,7 +23,7 @@ Q_PLUGIN_METADATA(IID "nl.lumc.HDF5Loader")
 // =============================================================================
 // Loader
 
-using namespace hdps;
+using namespace mv;
 
 namespace
 {

@@ -21,7 +21,7 @@
 #include <omp.h>
 #endif
 
-using namespace hdps;
+using namespace mv;
 
 namespace TOME
 {
@@ -182,7 +182,7 @@ namespace TOME
 		
 	}
 
-	bool LoadSampleMeta(H5::Group &group, Dataset<Points> points, hdps::CoreInterface* _core)
+	bool LoadSampleMeta(H5::Group &group, Dataset<Points> points, mv::CoreInterface* _core)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading MetaData" << std::endl;
@@ -345,7 +345,7 @@ namespace TOME
 
 }// namespace
 
-HDF5_TOME_Loader::HDF5_TOME_Loader(hdps::CoreInterface *core)
+HDF5_TOME_Loader::HDF5_TOME_Loader(mv::CoreInterface *core)
 {
 	_core = core;
 }

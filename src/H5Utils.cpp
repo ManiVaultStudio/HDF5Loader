@@ -1069,7 +1069,7 @@ namespace H5Utils
 		return nullptr;
 	}
 
-	Dataset<Points> createPointsDataset(hdps::CoreInterface* core, bool ask, QString suggestion)
+	Dataset<Points> createPointsDataset(mv::CoreInterface* core, bool ask, QString suggestion)
 	{
 		QString dataSetName = suggestion;
 		
@@ -1088,7 +1088,7 @@ namespace H5Utils
 		}
 
 		
-		hdps::Dataset<Points> newDataset = core->addDataset("Points", dataSetName);
+		mv::Dataset<Points> newDataset = core->addDataset("Points", dataSetName);
 		events().notifyDatasetAdded(newDataset);
 		
 		return newDataset;
@@ -1113,7 +1113,7 @@ namespace H5Utils
 		return true;
 	}
 
-	void addClusterMetaData(hdps::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, hdps::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix)
+	void addClusterMetaData(mv::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix)
 	{
 		if (indices.size() <= 1)
 			return; // no point in adding only a single cluster

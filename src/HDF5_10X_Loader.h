@@ -6,7 +6,7 @@
 #include "DataTransform.h"
 #include <memory>
 #include "H5Utils.h"
- namespace hdps
+ namespace mv
 {
 	class CoreInterface;
 }
@@ -15,14 +15,14 @@ class Points;
 
 class HDF5_10X_Loader 
 {
-	hdps::CoreInterface *_core;
+	mv::CoreInterface *_core;
 	std::unique_ptr<H5::H5File> _file;
 	std::vector<QString> _dimensionNames;
 	std::vector<QString> _sampleNames;
 	QString _fileName;
 
 public:
-	HDF5_10X_Loader(hdps::CoreInterface *core);
+	HDF5_10X_Loader(mv::CoreInterface *core);
 
 	bool open(const QString& fileName);
 	const std::vector<QString>& getDimensionNames() const;

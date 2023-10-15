@@ -1,0 +1,20 @@
+
+{
+"results" : [ {
+  "repo" : "conan-local",
+  "path" : "lkeb/hdf5/1.14.2/stable/0/package/78527b144704f90a27b0898b46b259c84a09c3e8/0",
+  "name" : "conaninfo.txt",
+  "type" : "file",
+  "size" : 669,
+  "created" : "2023-08-30T11:00:21.677Z",
+  "created_by" : "admin",
+  "modified" : "2023-09-01T13:43:11.414Z",
+  "modified_by" : "admin",
+  "updated" : "2023-09-01T13:43:11.417Z"
+} ],
+"range" : {
+  "start_pos" : 0,
+  "end_pos" : 1,
+  "total" : 1
+}
+}

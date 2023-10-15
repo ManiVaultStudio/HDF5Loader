@@ -19,12 +19,12 @@
 #include "DataContainerInterface.h"
 #include <omp.h>
 
-using namespace hdps;
+using namespace mv;
 
 
 
 
-HDF5_AD_Loader::HDF5_AD_Loader(hdps::CoreInterface *core)
+HDF5_AD_Loader::HDF5_AD_Loader(mv::CoreInterface *core)
 {
 	_core = core;
 }

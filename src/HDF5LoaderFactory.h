@@ -2,7 +2,7 @@
 
 #include <LoaderPlugin.h>
 
-using namespace hdps::plugin;
+using namespace mv::plugin;
 
 // =============================================================================
 // Factory
@@ -10,7 +10,7 @@ using namespace hdps::plugin;
 
 class HDF5LoaderFactory : public LoaderPluginFactory
 {
-	Q_INTERFACES(hdps::plugin::LoaderPluginFactory hdps::plugin::PluginFactory)
+	Q_INTERFACES(mv::plugin::LoaderPluginFactory mv::plugin::PluginFactory)
 	Q_OBJECT
 	Q_PLUGIN_METADATA(	IID   "nl.lumc.HDF5Loader"
 						FILE  "HDF5Loader.json")
@@ -21,5 +21,5 @@ public:
 
 	LoaderPlugin* produce() override;
 
-	hdps::DataTypes supportedDataTypes() const override;
+	mv::DataTypes supportedDataTypes() const override;
 };

@@ -10,8 +10,8 @@ LoaderPlugin* HDF5LoaderFactory::produce()
 	return new HDF5Loader(this);
 }
 
-hdps::DataTypes HDF5LoaderFactory::supportedDataTypes() const
+mv::DataTypes HDF5LoaderFactory::supportedDataTypes() const
 {
-	hdps::DataTypes supportedTypes;
+	mv::DataTypes supportedTypes;
 	return supportedTypes;
 }

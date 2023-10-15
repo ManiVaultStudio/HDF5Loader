@@ -20,17 +20,17 @@
 #include <omp.h>
 #endif
 
-using namespace hdps;
+using namespace mv;
 
 namespace local
 {
 	class Progress
 	{
-		hdps::DataHierarchyItem& dataHierarcyItem;
+		mv::DataHierarchyItem& dataHierarcyItem;
 
 	public:
-		Progress(hdps::DataHierarchyItem& item, const QString& taskName, std::size_t nrOfSteps) :
-			dataHierarcyItem(item)
+		Progress(mv::DataHierarchyItem& item, const QString& taskName, std::size_t nrOfSteps)
+			:dataHierarcyItem(item)
 		{
 			auto& task = dataHierarcyItem.getDataset()->getTask();
 			
@@ -92,7 +92,7 @@ namespace local
 	}
 
 	template<typename T1, typename T2>
-	void set_sparse_row_data_T2(hdps::Dataset<Points> dataset, std::vector<T1>& column_index, std::vector<T2>& row_offset, H5Utils::VectorHolder& data, TRANSFORM::Type transformType)
+	void set_sparse_row_data_T2(mv::Dataset<Points> dataset, std::vector<T1>& column_index, std::vector<T2>& row_offset, H5Utils::VectorHolder& data, TRANSFORM::Type transformType)
 	{
 		
 		data.visit([&dataset, &column_index, &row_offset, transformType](auto& vec)
@@ -102,7 +102,7 @@ namespace local
 	}
 
 	template<typename T1>
-	void set_sparse_row_data_T1(hdps::Dataset<Points> dataset, std::vector<T1>& column_index, H5Utils::VectorHolder& row_offset, H5Utils::VectorHolder& data, TRANSFORM::Type transformType)
+	void set_sparse_row_data_T1(mv::Dataset<Points> dataset, std::vector<T1>& column_index, H5Utils::VectorHolder& row_offset, H5Utils::VectorHolder& data, TRANSFORM::Type transformType)
 	{
 		row_offset.visit([dataset, &column_index, &data, transformType](auto& vec)
 		{
@@ -152,7 +152,7 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_i
 
 void DataContainerInterface::set_sparse_row_data(H5Utils::VectorHolder& column_index, H5Utils::VectorHolder& row_offset, H5Utils::VectorHolder& data, TRANSFORM::Type transformType)
 {
-	hdps::Dataset<Points> dataset = m_data;
+	mv::Dataset<Points> dataset = m_data;
 	column_index.visit([dataset, &row_offset, &data, transformType](auto& vec)
 	{
 		return local::set_sparse_row_data_T1(dataset, vec, row_offset, data, transformType);
@@ -297,7 +297,7 @@ void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool 
 		});
 }
 
-hdps::Dataset<Points> DataContainerInterface::points()
+mv::Dataset<Points> DataContainerInterface::points()
 {
 	return m_data;
 }

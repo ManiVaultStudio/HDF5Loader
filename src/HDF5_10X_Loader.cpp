@@ -24,7 +24,7 @@
 #if defined(_OPENMP)
 #include <omp.h>
 #endif
-using namespace hdps;
+using namespace mv;
 
 namespace HDF5_10X
 {
@@ -47,7 +47,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 		uint16_t iraw[2];
 	};
 	*/
-	int loadFromFile(std::string _fileName, std::shared_ptr<DataContainerInterface> &rawData, int optimization, TRANSFORM::Type transform_settings, hdps::CoreInterface* _core)
+	int loadFromFile(std::string _fileName, std::shared_ptr<DataContainerInterface> &rawData, int optimization, TRANSFORM::Type transform_settings, mv::CoreInterface* _core)
 	{
 	
 		try
@@ -344,7 +344,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 
 
-HDF5_10X_Loader::HDF5_10X_Loader(hdps::CoreInterface *core)
+HDF5_10X_Loader::HDF5_10X_Loader(mv::CoreInterface *core)
 {
 	_core = core;
 }
