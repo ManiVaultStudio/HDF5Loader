@@ -235,6 +235,9 @@ else()
 	message(STATUS "Linking with ${HDF5_CXX_LIBRARIES} ${HDF5_LIBRARIES} and ${ZLIB_LIBRARIES}")
 	target_link_libraries (${PROJECT} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
 endif()
+if(MSVC)
+	target_link_libraries(${PROJECT} shlwapi.lib)
+endif(MSVC)
 
 install(TARGETS ${PROJECT}
     RUNTIME DESTINATION Plugins COMPONENT PLUGINS # Windows .dll
