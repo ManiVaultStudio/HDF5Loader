@@ -1088,8 +1088,7 @@ namespace H5Utils
 		}
 
 		
-		mv::Dataset<Points> newDataset = core->addDataset("Points", dataSetName);
-		events().notifyDatasetAdded(newDataset);
+		mv::Dataset<Points> newDataset = mv::data().createDataset("Points", dataSetName);
 		
 		return newDataset;
 	}
@@ -1144,9 +1143,7 @@ namespace H5Utils
 		}
 
 		QString datasetName = prefix.isEmpty() ? name : prefix + name;
-		Dataset<Clusters> clusterDataset = core->addDataset("Cluster", datasetName, parent);
-
-		events().notifyDatasetAdded(clusterDataset);
+		Dataset<Clusters> clusterDataset = mv::data().createDataset("Cluster", datasetName, parent);
 
 		clusterDataset->getClusters().reserve(indices.size());
 

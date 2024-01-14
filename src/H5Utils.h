@@ -509,7 +509,7 @@ namespace H5Utils
 			}
 
 
-			mv::Dataset<Points> numericalMetadataDataset = core->createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
+			mv::Dataset<Points> numericalMetadataDataset = mv::data().createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
 			numericalMetadataDataset->setDataElementType<numericalMetaDataType>();
 
 			mv::events().notifyDatasetAdded(numericalMetadataDataset);

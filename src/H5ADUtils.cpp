@@ -195,7 +195,7 @@ namespace H5AD
 						numericalDatasetName.remove(0, 1);
 					while (numericalDatasetName[0] == '\\')
 						numericalDatasetName.remove(0, 1);
-					Dataset<Points> numericalDataset = _core->createDerivedDataset(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
+					Dataset<Points> numericalDataset = mv::data().createDerivedDataset(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
 
 					data.visit([&numericalDataset](auto& vec) {
 						typedef typename std::decay_t<decltype(vec)> v;

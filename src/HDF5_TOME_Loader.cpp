@@ -363,7 +363,7 @@ bool HDF5_TOME_Loader::open(const QString &fileName, TRANSFORM::Type conversionI
 			return false;
 		}
 
-		auto points = _core->addDataset<Points>("Points", dataSetName);
+		auto points = mv::data().createDataset<Points>("Points", dataSetName);
 
 		if (!points.isValid())
 			return false;
