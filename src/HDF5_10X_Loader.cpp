@@ -280,10 +280,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							}
 							else // it was categorical data
 							{
-								auto clusterDataset = _core->addDataset<Clusters>("Cluster", metaDataLabel.c_str(), pointsDataset);
-
-								// Notify others that the dataset was added
-								events().notifyDatasetAdded(clusterDataset);
+								auto clusterDataset = mv::data().createDataset<Clusters>("Cluster", metaDataLabel.c_str(), pointsDataset);
 
 								clusterDataset->getClusters().reserve(indices.size());
 
