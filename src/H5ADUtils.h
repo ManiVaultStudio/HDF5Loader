@@ -12,9 +12,9 @@ namespace H5AD
 
 	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset);
 
-	void LoadIndexStrings(H5::DataSet& dataset, std::vector<QString>& result);
+	std::string LoadIndexStrings(H5::DataSet& dataset, std::vector<QString>& result);
 
-	void LoadIndexStrings(H5::Group& group, std::vector<QString>& result);
+	std::string LoadIndexStrings(H5::Group& group, std::vector<QString>& result);
 
 
 	bool LoadSparseMatrix(H5::Group& group, Dataset<Points>& pointsDataset, CoreInterface* _core);

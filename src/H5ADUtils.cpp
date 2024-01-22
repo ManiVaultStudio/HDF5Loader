@@ -91,7 +91,7 @@ namespace H5AD
 		}
 	}
 
-	void LoadIndexStrings(H5::DataSet& dataset, std::vector<QString>& result)
+	std::string LoadIndexStrings(H5::DataSet& dataset, std::vector<QString>& result)
 	{
 		result.clear();
 		std::map<std::string, std::vector<QVariant> > compoundMap;
@@ -111,15 +111,15 @@ namespace H5AD
 						result.resize(nrOfItems);
 						for (std::size_t i = 0; i < nrOfItems; ++i)
 							result[i] = component->second[i].toString();
-						return;
+						return currentIndexName;
 					}
 				}
 			}
 		}
-
+		return std::string();
 	}
 
-	void LoadIndexStrings(H5::Group& group, std::vector<QString>& result)
+	std::string LoadIndexStrings(H5::Group& group, std::vector<QString>& result)
 	{
 		/* order to look for is
 		   -  value of _index attribute
@@ -141,23 +141,23 @@ namespace H5AD
 		auto nrOfObjects = group.getNumObjs();
 		for (std::size_t i = 0; i < indexObjectNames.size(); ++i)
 		{
-			std::string currentIndexObjectName = indexObjectNames[i];
+			std::string currentIndexName = indexObjectNames[i];
 			for (auto go = 0; go < nrOfObjects; ++go)
 			{
 				std::string objectName = group.getObjnameByIdx(go);
 				H5G_obj_t objectType = group.getObjTypeByIdx(go);
 
-				if ((objectType == H5G_DATASET) && (objectName == currentIndexObjectName))
+				if ((objectType == H5G_DATASET) && (objectName == currentIndexName))
 				{
 					H5::DataSet dataSet = group.openDataSet(objectName);
 
 					H5Utils::read_vector_string(dataSet, result);
-					return;
+					return currentIndexName;
 				}
 			}
 		}
 
-
+		return std::string();
 	}
 
 
