@@ -28,6 +28,7 @@ namespace TRANSFORM
 		Control(QGridLayout* layout);
 		Type get() const;
 		void set(Type&);
+		void setVisible(bool);
 	};
 }
 

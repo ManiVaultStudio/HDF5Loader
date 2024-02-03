@@ -2,6 +2,7 @@
 #include "DataContainerInterface.h"
 #include <filesystem>
 
+
 namespace H5AD
 {
 	using namespace  mv;
@@ -49,33 +50,374 @@ namespace H5AD
 			colors.clear();
 	}
 
-
-
-
-
-	void LoadData(const H5::DataSet& dataset, Dataset<Points> pointsDataset)
+	
+	template<typename T>
+	void LoadDataAs(const H5::DataSet& dataset, Dataset<Points> pointsDataset, bool optimize_storage_size = false, bool allow_lossy_storage = false)
 	{
-
-		H5Utils::MultiDimensionalData<float> mdd;
-		if (H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT))
+		static_assert(sizeof(T) <= 4);
+		H5Utils::MultiDimensionalData<T> mdd;
+		
+		if(!std::numeric_limits<T>::is_specialized)
 		{
-
-			if (mdd.size.size() == 2)
+			// bfloat16
+			H5Utils::MultiDimensionalData<float> mdd_float;
+			
+			H5Utils::read_multi_dimensional_data(dataset, mdd_float, H5::PredType::NATIVE_FLOAT);
 			{
-				pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
+				if (mdd_float.size.size() == 2)
+				{
+					mdd.size = mdd_float.size;
+					mdd.data.resize(mdd.data.size());
+					#pragma omp parallel for
+					for (std::ptrdiff_t i = 0; i < mdd.data.size(); ++i)
+						mdd.data[i] = mdd_float.data[i];
+				}
+			}
+		}
+		else if(std::numeric_limits<T>::is_integer)
+		{
+			
+			if(std::numeric_limits<T>::is_signed)
+			{
+				switch(sizeof(T))
+				{
+					case 1: H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_INT8); break;;
+					case 2: H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_INT16); break;;
+					case 4: assert(false); H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_INT32); break;;
+					case 8: assert(false); H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_INT64); break;;
+				}
+			}
+			else // unsigned
+			{
+				switch (sizeof(T))
+				{
+					case 1: H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_UINT8); break;;
+					case 2: H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_UINT16); break;;
+					case 4: assert(false); H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_UINT32); break;;
+					case 8: assert(false);  H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_UINT64); break;;
+				}
+			}
+		}
+		else if(std::is_floating_point<T>())// floating point
+		{
+			switch(sizeof(T))
+			{
+				case 4:H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT); break;
+				case 8:  assert(false); H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_DOUBLE); break;
+			} 
+		}
+
+		if (mdd.size.size() == 2)
+			pointsDataset->setDataElementType<T>();
+
+		if(optimize_storage_size)
+		{
+			auto sizeOfT = sizeof(T);
+			auto minmax_pair = std::minmax_element(mdd.data.cbegin(), mdd.data.cend());
+			T minVal = *(minmax_pair.first);
+			T maxVal = *(minmax_pair.second);
+			if (*(minmax_pair.first) < 0)
+			{
+				//signed
+				if (cpp20std::in_range<std::int8_t>(minVal, maxVal))
+				{
+					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
+					{
+						pointsDataset->setDataElementType<std::int8_t>();
+					}
+					else
+					{
+						if (allow_lossy_storage)
+							pointsDataset->setDataElementType<biovault::bfloat16_t>();
+					}
+				}
+				else if ((sizeOfT > 2) && cpp20std::in_range<std::int16_t>(minVal, maxVal))
+				{
+					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
+					{
+						pointsDataset->setDataElementType<std::int16_t>();
+					}
+					else
+					{
+						if (allow_lossy_storage)
+							pointsDataset->setDataElementType<biovault::bfloat16_t>();
+					}
+				}
+			}
+			else
+			{
+				//unsigned
+				if (cpp20std::in_range<std::uint8_t>(minVal, maxVal))
+				{
+					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
+					{
+						pointsDataset->setDataElementType<std::uint8_t>();
+					}
+					else
+					{
+						if (allow_lossy_storage)
+							pointsDataset->setDataElementType<biovault::bfloat16_t>();
+					}
+				}
+				else if ((sizeOfT > 2) && (cpp20std::in_range<std::uint16_t>(minVal, maxVal)))
+				{
+					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
+					{
+						pointsDataset->setDataElementType<std::uint16_t>();
+					}
+					else
+					{
+						if (allow_lossy_storage)
+							pointsDataset->setDataElementType<biovault::bfloat16_t>();
+					}
+				}
+			}
+		}
+		
+		if (mdd.size.size() == 2)
+		{
+			
+			pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
+		}
+	}
+	void LoadData(const H5::DataSet& dataset, Dataset<Points> pointsDataset, int storageType)
+	{
+		if(storageType < 0) // use native format
+		{
+			H5::DataType datatype = dataset.getDataType();
+			H5T_class_t class_type = datatype.getClass();
+			 if (class_type == H5T_FLOAT)
+			{
+				LoadDataAs<float>(dataset, pointsDataset);
+			}
+			else if ((class_type == H5T_INTEGER) || (class_type == H5T_ENUM))
+			{
+				if(H5Tget_sign(class_type))
+				{
+					// signed
+					switch(datatype.getSize())
+					{
+						case 1: LoadDataAs<std::int8_t>(dataset, pointsDataset); break;
+						case 2: LoadDataAs<std::int16_t>(dataset, pointsDataset); break;
+						//case 4: LoadDataAs<std::int32_t>(dataset, pointsDataset); break;
+						default: LoadDataAs<float>(dataset, pointsDataset); break;
+					}
+				}
+				else
+				{
+					// unsigned
+					switch (datatype.getSize())
+					{
+						case 1: LoadDataAs<std::uint8_t>(dataset, pointsDataset); break;
+						case 2: LoadDataAs<std::uint16_t>(dataset, pointsDataset); break;
+						//case 4: LoadDataAs<std::uint32_t>(dataset, pointsDataset); break;
+						default: LoadDataAs<float>(dataset, pointsDataset); break;
+					}
+				}
+			}
+		}
+		else
+		{
+			PointData::ElementTypeSpecifier newTargetType = (PointData::ElementTypeSpecifier)storageType;
+			switch (newTargetType)
+			{
+			case PointData::ElementTypeSpecifier::float32: LoadDataAs<float>(dataset, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::bfloat16: LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::int16: LoadDataAs<std::int16_t>(dataset, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::uint16: LoadDataAs<std::uint16_t>(dataset, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::int8: LoadDataAs<std::int8_t>(dataset, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::uint8: LoadDataAs<std::uint8_t>(dataset, pointsDataset); break;
 			}
 		}
 	}
 
-	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset)
+	namespace cpp20std
 	{
+		template<class T, class U>
+		constexpr bool cmp_less(T t, U u) noexcept
+		{
+			//if(std::is_floating_point<T>() || std::is_floating_point<U>())
+			{
+				double td = t;
+				double ud = u;
+				return t < u;
+			}
+			/*
+			if constexpr (std::is_signed_v<T> == std::is_signed_v<U>)
+				return t < u;
+			else if constexpr (std::is_signed_v<T>)
+				return t < 0 || std::make_unsigned_t<T>(t) < u;
+			else
+				return u >= 0 && t < std::make_unsigned_t<U>(u);
+				*/
+		}
+
+		template<class T, class U>
+		constexpr bool cmp_less_equal(T t, U u) noexcept
+		{
+			return !cmp_less(u, t);
+		}
+
+		template<class T, class U>
+		constexpr bool cmp_greater_equal(T t, U u) noexcept
+		{
+			return !cmp_less(t, u);
+		}
+
+		template<class R, class T>
+		constexpr bool in_range(T minVal, T maxVal) noexcept
+		{
+			static_assert(!std::is_floating_point<R>());
+			return cmp_greater_equal(minVal, std::numeric_limits<R>::min()) &&
+				cmp_less_equal(maxVal, std::numeric_limits<R>::max());
+		}
+
+		template<typename T>
+		bool is_integer(T value)
+		{
+			return ((value - static_cast<std::ptrdiff_t>(value)) < 1e-03);
+		}
+		template<typename T>
+		bool contains_only_integers(const std::vector<T> &data)
+		{
+			for (auto i = 0; i < data.size(); ++i)
+			{
+				if (!is_integer(data[i]))
+					return false;
+			}
+			
+		}
+	}
+	
+
+	template<typename T>
+	void LoadDataAs(H5::Group& group, Dataset<Points>& pointsDataset, bool optimize_storage_size = false, bool allow_lossy_storage = false)
+	{
+		static_assert(sizeof(T) <= 4);
 		bool result = true;
-		std::vector<float> data;
+		std::vector<T> data;
 		std::vector<std::uint64_t> indices;
 		std::vector<std::uint32_t> indptr;
+		std::vector<biovault::bfloat16_t> bf16data;
+		
 
+		if(!std::numeric_limits<T>::is_specialized)
+		{
+			// bfloat16
+			std::vector<float> float_data;
+			result &= H5Utils::read_vector(group, "data", &float_data, H5::PredType::NATIVE_FLOAT);
+			data.resize(float_data.size());
+			#pragma omp parallel for
+			for (std::ptrdiff_t i = 0; i < data.size(); ++i)
+				data[i] = float_data[i];
+		}
+		else if(std::numeric_limits<T>::is_integer)
+		{
+			if(std::numeric_limits<T>::is_signed)
+			{
+				switch (sizeof(T))
+				{
+				case 1: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_INT8); break;;
+				case 2: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_INT16); break;;
+				case 4: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_INT32); break;;
+				case 8: assert(false);  result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_INT64); break;;
+				default: assert(false);
+				}
+			}
+			else
+			{
+				switch (sizeof(T))
+				{
+				case 1: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_UINT8); break;;
+				case 2: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_UINT16); break;;
+				case 4: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_UINT32); break;;
+				case 8: assert(false);  result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_UINT64); break;;
+				default: assert(false);
+				}
+			}
+		}
+		else if(std::is_floating_point<T>())
+		{
+			switch(sizeof(T))
+			{
+				case 4: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT); break;
+				case 8: assert(false); result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_DOUBLE); break;
+				default: assert(false);
+			}
+		}
+		int sizeOfT = sizeof(T);
+		if(result && optimize_storage_size && (sizeOfT > 1))
+		{
+			auto minmax_pair = std::minmax_element(data.cbegin(), data.cend());
+			T minVal = *(minmax_pair.first);
+			T maxVal = *(minmax_pair.second);
+			if( *(minmax_pair.first) < 0)
+			{
+				//signed
+				if(cpp20std::in_range<std::int8_t>(minVal,maxVal))
+				{
+					if(cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
+					{
+						data.clear();
+						LoadDataAs<std::int8_t>(group, pointsDataset);
+						return;
+					}
+					
+					
+				}
+				else if(sizeOfT > 2)
+				{
+					if (cpp20std::in_range<std::int16_t>(minVal,maxVal))
+					{
+						if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
+						{
+							data.clear();
+							LoadDataAs<std::int16_t>(group, pointsDataset);
+							return;
+						}
+							
+					}
 
-		result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT);
+					
+				}
+			}
+			else
+			{
+				//unsigned
+				if (cpp20std::in_range<std::uint8_t>(minVal,maxVal))
+				{
+					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
+					{
+						data.clear();
+						LoadDataAs<std::uint8_t>(group, pointsDataset);
+						return;
+					}
+					
+				}
+				else if (sizeOfT > 2)
+				{
+					if (cpp20std::in_range<std::uint16_t>(minVal,maxVal))
+					{
+						if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
+						{
+							data.clear();
+							LoadDataAs<std::uint16_t>(group, pointsDataset);
+							return;
+						}
+						
+					}
+				}
+			}
+			if (allow_lossy_storage)
+			{
+				bf16data.resize(data.size());
+#pragma omp parallel for
+				for (std::ptrdiff_t i = 0; i < data.size(); ++i)
+					bf16data[i] = data[i];
+				data.clear();
+			}
+		}
+
 		if (result)
 			result &= H5Utils::read_vector(group, "indices", &indices, H5::PredType::NATIVE_UINT64);
 		if (result)
@@ -83,11 +425,72 @@ namespace H5AD
 
 		if (result)
 		{
+			if(data.empty() && bf16data.size())
+				pointsDataset->setDataElementType<biovault::bfloat16_t>();
+			else
+				pointsDataset->setDataElementType<T>();
 			DataContainerInterface dci(pointsDataset);
 			std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
 			std::uint64_t ysize = *std::max_element(indices.cbegin(), indices.cend()) + 1;
 			dci.resize(xsize, ysize);
-			dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+			if (data.empty() && bf16data.size())
+				dci.set_sparse_row_data(indices, indptr, bf16data, TRANSFORM::None());
+			else
+				dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+		}
+	}
+	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset, int storageType)
+	{
+		if (storageType < 0) // use native or optimized storage type		
+		{
+
+			H5::DataSet dataset = group.openDataSet("data");
+			H5::DataType datatype = dataset.getDataType();
+			H5T_class_t class_type = datatype.getClass();
+			dataset.close();
+
+			if (class_type == H5T_FLOAT)
+			{
+				LoadDataAs<float>(group, pointsDataset, storageType <= -2, storageType == -2);
+			}
+			else if ((class_type == H5T_INTEGER) || (class_type == H5T_ENUM))
+			{
+				if (H5Tget_sign(class_type))
+				{
+					// signed
+					switch (datatype.getSize())
+					{
+					case 1: LoadDataAs<std::int8_t>(group, pointsDataset, storageType <= -2, storageType == -2); break;
+					case 2: LoadDataAs<std::int16_t>(group, pointsDataset, storageType <= -2, storageType <= -2); break;
+					case 4: LoadDataAs<std::int32_t>(group, pointsDataset, storageType <= -2, storageType <= -2); break;
+					default: LoadDataAs<float>(group, pointsDataset, storageType <= -2, storageType <= -2); break;
+					}
+				}
+				else
+				{
+					// unsigned
+					switch (datatype.getSize())
+					{
+					case 1: LoadDataAs<std::uint8_t>(group, pointsDataset, storageType <= -2, storageType == -2); break;
+					case 2: LoadDataAs<std::uint16_t>(group, pointsDataset, storageType <= -2, storageType == -2); break;
+					case 4: LoadDataAs<std::uint32_t>(group, pointsDataset, storageType <= -2, storageType == -2); break;
+					default: LoadDataAs<float>(group, pointsDataset, storageType <= -2, storageType == -2); break;
+					}
+				}
+			}
+		}
+		else
+		{
+			PointData::ElementTypeSpecifier newTargetType = (PointData::ElementTypeSpecifier)storageType;
+			switch (newTargetType)
+			{
+			case PointData::ElementTypeSpecifier::float32: LoadDataAs<float>(group, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::bfloat16: LoadDataAs<biovault::bfloat16_t>(group, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::int16: LoadDataAs<std::int16_t>(group, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::uint16: LoadDataAs<std::uint16_t>(group, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::int8: LoadDataAs<std::int8_t>(group, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::uint8: LoadDataAs<std::uint8_t>(group, pointsDataset); break;
+			}
 		}
 	}
 
@@ -162,7 +565,7 @@ namespace H5AD
 
 
 
-	bool LoadSparseMatrix(H5::Group& group, Dataset<Points>& pointsDataset, CoreInterface* _core)
+	bool LoadSparseMatrix(H5::Group& group, Dataset<Points>& pointsDataset)
 	{
 		auto nrOfObjects = group.getNumObjs();
 		auto h5groupName = group.getObjName();
@@ -339,7 +742,7 @@ namespace H5AD
 
 
 
-	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, Dataset<Points> pointsDataset)
+	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, Dataset<Points> pointsDataset, int storageType)
 	{
 		try
 		{
@@ -357,7 +760,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::DataSet dataset = h5fILE->openDataSet(objectName1);
-						H5AD::LoadData(dataset, pointsDataset);
+						H5AD::LoadData(dataset, pointsDataset, storageType);
 						break;
 
 					}
@@ -367,7 +770,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						H5AD::LoadData(group, pointsDataset);
+						H5AD::LoadData(group, pointsDataset, storageType);
 						break;
 					}
 				}
@@ -389,7 +792,7 @@ namespace H5AD
 
 
 	template<typename numericMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, Dataset<Points> pointsDataset, mv::CoreInterface* _core)
+	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, Dataset<Points> pointsDataset, int storage_type)
 	{
 
 		std::string h5datasetName = dataset.getObjName();
@@ -450,7 +853,7 @@ namespace H5AD
 						else
 						{
 							QString prefix = h5datasetName.c_str() + QString("\\");
-							H5Utils::addClusterMetaData(_core, indices, component->first.c_str(), pointsDataset, std::map<QString, QColor>(), prefix);
+							H5Utils::addClusterMetaData(indices, component->first.c_str(), pointsDataset, std::map<QString, QColor>(), prefix);
 						}
 
 					}
@@ -458,21 +861,21 @@ namespace H5AD
 
 			}
 
-			H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset, h5datasetName.c_str());
+			H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset, h5datasetName.c_str());
 		}
 	}
 
 
 	
 	template<typename numericalMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::Group& group, Dataset<Points>  pointsDataset, mv::CoreInterface* _core)
+	void LoadSampleNamesAndMetaData(H5::Group& group, Dataset<Points>  pointsDataset, int storage_type)
 	{
 
 		auto nrOfObjects = group.getNumObjs();
 
 		std::filesystem::path path(group.getObjName());
 		std::string h5GroupName = path.filename().string();
-		if (LoadSparseMatrix(group, pointsDataset, _core))
+		if (LoadSparseMatrix(group, pointsDataset))
 			return;
 
 
@@ -498,7 +901,7 @@ namespace H5AD
 			{
 				if (count == pointsDataset->getNumPoints())
 				{
-					H5Utils::addClusterMetaData(_core, codedCategories, h5GroupName.c_str(), pointsDataset);
+					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), pointsDataset);
 				}
 			}
 			else
@@ -606,7 +1009,7 @@ namespace H5AD
 										colors[it->first] = QColor(it->first);
 
 
-									H5Utils::addClusterMetaData(_core, codedCategories, h5GroupName.c_str(), pointsDataset, colors);
+									H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), pointsDataset, colors);
 									option = options;
 								}
 							}
@@ -618,7 +1021,7 @@ namespace H5AD
 				}
 				else
 				{
-					H5Utils::addClusterMetaData(_core, codedCategories, h5GroupName.c_str(), pointsDataset);
+					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), pointsDataset);
 				}
 			}
 		}
@@ -674,7 +1077,7 @@ namespace H5AD
 												assert(indices_iterator->second.size() > 0);
 											}
 											if (load_colors == 0)
-												H5Utils::addClusterMetaData(_core, indices, dataSet.getObjName().c_str(), pointsDataset);
+												H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), pointsDataset);
 											else
 											{
 												const std::vector<QString>& items = categories[objectName1];
@@ -785,7 +1188,7 @@ namespace H5AD
 																	for (auto it = indices.cbegin(); it != indices.cend(); ++it)
 																		colors[it->first] = QColor(it->first);
 
-																	H5Utils::addClusterMetaData(_core, indices, dataSet.getObjName().c_str(), pointsDataset, colors);
+																	H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), pointsDataset, colors);
 
 																}
 															}
@@ -835,7 +1238,7 @@ namespace H5AD
 													{
 														dimensionNames[l] = QString::number(l + 1);
 													}
-													H5Utils::addNumericalMetaData(_core, mdd.data, dimensionNames, false, pointsDataset, baseString);
+													H5Utils::addNumericalMetaData(mdd.data, dimensionNames, false, pointsDataset, baseString);
 												}
 											}
 										}
@@ -864,7 +1267,7 @@ namespace H5AD
 										{
 											indices[items[i]].push_back(i);
 										}
-										H5Utils::addClusterMetaData(_core, indices, dataSet.getObjName().c_str(), pointsDataset);
+										H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), pointsDataset);
 									}
 									else
 									{
@@ -923,7 +1326,7 @@ namespace H5AD
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group group2 = group.openGroup(objectName1);
-						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, pointsDataset, _core);
+						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, pointsDataset, storage_type);
 					}
 				}
 
@@ -940,27 +1343,21 @@ namespace H5AD
 				numericalMetaDataString = numericalMetaDataDimensionNames[0];
 			else 
 				numericalMetaDataString = QString("Numerical Data (") + QString(h5GroupName.c_str()) + QString(")");
-			H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset, numericalMetaDataString);
+			H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset, numericalMetaDataString);
 		}
 	}
 
-	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, Dataset<Points> pointsDataset, mv::CoreInterface* _core)
+	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, Dataset<Points> pointsDataset, int storage_type)
 	{
-		H5AD::LoadSampleNamesAndMetaData<float>(dataset, pointsDataset, _core);
+		H5AD::LoadSampleNamesAndMetaData<float>(dataset, pointsDataset, storage_type);
 	}
-	void LoadSampleNamesAndMetaDataBFloat16(H5::DataSet& dataset, Dataset<Points> pointsDataset, mv::CoreInterface* _core)
-	{
-		LoadSampleNamesAndMetaData<biovault::bfloat16_t>(dataset, pointsDataset, _core);
-	}
+	
 
 
-	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, Dataset<Points>  pointsDataset, mv::CoreInterface* _core)
+	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, Dataset<Points>  pointsDataset, int storage_type)
 	{
-		LoadSampleNamesAndMetaData<float>(group, pointsDataset, _core);
+		H5AD::LoadSampleNamesAndMetaData<float>(group, pointsDataset, storage_type);
 	}
-	void LoadSampleNamesAndMetaDataBFloat16(H5::Group& group, Dataset<Points>  pointsDataset, mv::CoreInterface* _core)
-	{
-		LoadSampleNamesAndMetaData<biovault::bfloat16_t>(group, pointsDataset, _core);
-	}
+	
 
 }// namespace

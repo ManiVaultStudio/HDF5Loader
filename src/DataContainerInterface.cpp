@@ -140,6 +140,32 @@ void DataContainerInterface::resize(RowID rows, ColumnID columns, std::size_t re
 }
 
 
+void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::int8_t>& data, TRANSFORM::Type transformType)
+{
+	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::int8_t>(this->m_data, column_index, row_offset, data, transformType);
+}
+void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::int16_t>& data, TRANSFORM::Type transformType)
+{
+	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::int16_t>(this->m_data, column_index, row_offset, data, transformType);
+}
+
+void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::int32_t>& data, TRANSFORM::Type transformType)
+{
+	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::int32_t>(this->m_data, column_index, row_offset, data, transformType);
+}
+void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::uint8_t>& data, TRANSFORM::Type transformType)
+{
+	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::uint8_t>(this->m_data, column_index, row_offset, data, transformType);
+}
+void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::uint16_t>& data, TRANSFORM::Type transformType)
+{
+	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::uint16_t>(this->m_data, column_index, row_offset, data, transformType);
+}
+void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::uint32_t>& data, TRANSFORM::Type transformType)
+{
+	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::uint32_t>(this->m_data, column_index, row_offset, data, transformType);
+}
+
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
 	local::set_sparse_row_data_impl<uint64_t, uint32_t, float>(this->m_data, column_index, row_offset, data, transformType);
@@ -375,3 +401,4 @@ void DataContainerInterface::add(std::vector<uint32_t> *rows, std::vector<uint32
 			});
 	}
 }
+

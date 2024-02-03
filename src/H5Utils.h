@@ -22,6 +22,63 @@ namespace mv
 	class CoreInterface;
 }
 
+namespace cpp20std
+{
+	template<class T, class U>
+	constexpr bool cmp_less(T t, U u) noexcept
+	{
+		//if(std::is_floating_point<T>() || std::is_floating_point<U>())
+		{
+			double td = t;
+			double ud = u;
+			return t < u;
+		}
+		/*
+		if constexpr (std::is_signed_v<T> == std::is_signed_v<U>)
+			return t < u;
+		else if constexpr (std::is_signed_v<T>)
+			return t < 0 || std::make_unsigned_t<T>(t) < u;
+		else
+			return u >= 0 && t < std::make_unsigned_t<U>(u);
+			*/
+	}
+
+	template<class T, class U>
+	constexpr bool cmp_less_equal(T t, U u) noexcept
+	{
+		return !cmp_less(u, t);
+	}
+
+	template<class T, class U>
+	constexpr bool cmp_greater_equal(T t, U u) noexcept
+	{
+		return !cmp_less(t, u);
+	}
+
+	template<class R, class T>
+	constexpr bool in_range(T minVal, T maxVal) noexcept
+	{
+		static_assert(!std::is_floating_point<R>());
+		return cmp_greater_equal(minVal, std::numeric_limits<R>::min()) &&
+			cmp_less_equal(maxVal, std::numeric_limits<R>::max());
+	}
+
+	template<typename T>
+	bool is_integer(T value)
+	{
+		return ((value - static_cast<std::ptrdiff_t>(value)) < 1e-03);
+	}
+	template<typename T>
+	bool contains_only_integers(const std::vector<T>& data)
+	{
+		for (auto i = 0; i < data.size(); ++i)
+		{
+			if (!is_integer(data[i]))
+				return false;
+		}
+
+	}
+}
 namespace H5Utils
 {
 
@@ -474,8 +531,10 @@ namespace H5Utils
 	mv::Dataset<Points> createPointsDataset(::mv::CoreInterface* core,bool ask=true, QString=QString());
 
 	template<typename numericalMetaDataType>
-	void addNumericalMetaData(mv::CoreInterface* core, std::vector<numericalMetaDataType>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, mv::Dataset<Points> parent, QString name = QString())
+	void addNumericalMetaData(std::vector<numericalMetaDataType>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, mv::Dataset<Points> parent, QString name = QString(), int storageType = (int)PointData::ElementTypeSpecifier::float32)
 	{
+
+		
 		const std::size_t numberOfDimensions = numericalDimensionNames.size();
 		if (numberOfDimensions)
 		{
@@ -510,7 +569,88 @@ namespace H5Utils
 
 
 			mv::Dataset<Points> numericalMetadataDataset = mv::data().createDerivedDataset(numericalDatasetName, parent); // core->addDataset("Points", numericalDatasetName, parent);
-			numericalMetadataDataset->setDataElementType<numericalMetaDataType>();
+			if(storageType >=0)
+			{
+				PointData::ElementTypeSpecifier newTargetType = (PointData::ElementTypeSpecifier)storageType;
+				switch (newTargetType)
+				{
+				case PointData::ElementTypeSpecifier::float32: numericalMetadataDataset->setDataElementType<float>(); break;
+				case PointData::ElementTypeSpecifier::bfloat16: numericalMetadataDataset->setDataElementType<biovault::bfloat16_t>(); break;
+				case PointData::ElementTypeSpecifier::int16: numericalMetadataDataset->setDataElementType<std::int16_t>(); break;
+				case PointData::ElementTypeSpecifier::uint16: numericalMetadataDataset->setDataElementType<std::uint16_t>(); break;
+				case PointData::ElementTypeSpecifier::int8: numericalMetadataDataset->setDataElementType<std::int8_t>(); break;
+				case PointData::ElementTypeSpecifier::uint8: numericalMetadataDataset->setDataElementType<std::uint8_t>(); break;
+				}
+			}
+			else
+			{
+				numericalMetadataDataset->setDataElementType<numericalMetaDataType>();
+				if(storageType <= -2)
+				{
+					const bool allow_lossy_storage = (storageType == -2);
+					auto sizeOfT = sizeof(numericalMetaDataType);
+					auto minmax_pair = std::minmax_element(numericalData.cbegin(), numericalData.cend());
+					numericalMetaDataType minVal = *(minmax_pair.first);
+					numericalMetaDataType maxVal = *(minmax_pair.second);
+					if (*(minmax_pair.first) < 0)
+					{
+						//signed
+						if (cpp20std::in_range<std::int8_t>(minVal, maxVal))
+						{
+							if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(numericalData))
+							{
+								numericalMetadataDataset->setDataElementType<std::int8_t>();
+							}
+							else
+							{
+								if (allow_lossy_storage)
+									numericalMetadataDataset->setDataElementType<biovault::bfloat16_t>();
+							}
+						}
+						else if ((sizeOfT > 2) && cpp20std::in_range<std::int16_t>(minVal, maxVal))
+						{
+							if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(numericalData))
+							{
+								numericalMetadataDataset->setDataElementType<std::int16_t>();
+							}
+							else
+							{
+								if (allow_lossy_storage)
+									numericalMetadataDataset->setDataElementType<biovault::bfloat16_t>();
+							}
+						}
+					}
+					else
+					{
+						//unsigned
+						if (cpp20std::in_range<std::uint8_t>(minVal, maxVal))
+						{
+							if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(numericalData))
+							{
+								numericalMetadataDataset->setDataElementType<std::uint8_t>();
+							}
+							else
+							{
+								if (allow_lossy_storage)
+									numericalMetadataDataset->setDataElementType<biovault::bfloat16_t>();
+							}
+						}
+						else if ((sizeOfT > 2) && (cpp20std::in_range<std::uint16_t>(minVal, maxVal)))
+						{
+							if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(numericalData))
+							{
+								numericalMetadataDataset->setDataElementType<std::uint16_t>();
+							}
+							else
+							{
+								if (allow_lossy_storage)
+									numericalMetadataDataset->setDataElementType<biovault::bfloat16_t>();
+							}
+						}
+					}
+				}
+			}
+			
 
 			mv::events().notifyDatasetAdded(numericalMetadataDataset);
 
@@ -541,7 +681,7 @@ namespace H5Utils
 	}
 
 	
-	void addClusterMetaData(mv::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>(), QString prefix = QString());
+	void addClusterMetaData(std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>(), QString prefix = QString());
 
 
 	

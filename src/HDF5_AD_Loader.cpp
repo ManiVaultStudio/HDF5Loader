@@ -325,10 +325,7 @@ bool HDF5_AD_Loader::load(int storageType)
 			return false;
 		// create and setup the pointsDataset here since we have access to _core, _filename and storageType here.
 		Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, false, lineEdit->displayText());
-		if (storageType == 2)
-			pointsDataset->setDataElementType<biovault::bfloat16_t>();
-		else
-			pointsDataset->setDataElementType<float>();
+
 
 		std::set<std::string> objectsToProcess;
 		if(result)
@@ -341,7 +338,7 @@ bool HDF5_AD_Loader::load(int storageType)
 			}
 		}
 		// first load the main data matrix
-		if (!H5AD::load_X(_file,pointsDataset))
+		if (!H5AD::load_X(_file,pointsDataset, storageType))
 			return false;
 		assert(pointsDataset->getNumDimensions() == _dimensionNames.size());
 		pointsDataset->setDimensionNames(_dimensionNames);
@@ -367,18 +364,13 @@ bool HDF5_AD_Loader::load(int storageType)
 					if (objectType1 == H5G_DATASET)
 					{
 						H5::DataSet h5Dataset = _file->openDataSet(objectName1);
-						if(storageType == 2)
-							H5AD::LoadSampleNamesAndMetaDataBFloat16(h5Dataset, pointsDataset, _core);
-						else
-							H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, pointsDataset, _core);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, pointsDataset, storageType);
+							
 					}
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group h5Group = _file->openGroup(objectName1);
-						if (storageType == 2)
-							H5AD::LoadSampleNamesAndMetaDataBFloat16(h5Group, pointsDataset, _core);
-						else
-							H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, pointsDataset, _core);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, pointsDataset, storageType);
 					}
 				}
 			}

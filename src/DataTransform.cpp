@@ -104,4 +104,11 @@ namespace TRANSFORM
 		default: return std::make_pair(TRANSFORM::NONE, 0.0f);
 		}
 	}
+
+	void Control::setVisible(bool value)
+	{
+		if (m_option) m_option->setVisible(value);
+		if (m_value) m_value->setVisible(value);
+		if (m_postLabel) m_postLabel->setVisible(value);
+	};
 }

@@ -113,16 +113,25 @@ void HDF5Loader::loadData()
 		return;
 	};
 	LockGuard lockGuard(Hdf5Lock());
+	
 	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/HDF5Loader"));
 	QGridLayout* fileDialogLayout = dynamic_cast<QGridLayout*>(_fileDialog.layout());
 
 	int rowCount = fileDialogLayout->rowCount();
 
 	QComboBox *storageTypeComboBox = new QComboBox;
-	QLabel* storageTypeLabel = new QLabel("Storage Type");
-	storageTypeComboBox->addItem("Native", 0);
-	storageTypeComboBox->addItem("Float (32-bits)", 1);
-	storageTypeComboBox->addItem("BFloat16 (16-bits)", 2);
+	QLabel* storageTypeLabel = new QLabel("Data Type");
+
+	storageTypeComboBox->addItem("Optimized (lossless)", -3);
+	storageTypeComboBox->addItem("Optimized (incl bfloat16)", -2);
+	storageTypeComboBox->addItem("Original", -1);
+	auto elementTypeNames = PointData::getElementTypeNames();
+	QStringList dataTypeList(elementTypeNames.cbegin(), elementTypeNames.cend());
+	for (int i = 0; i < dataTypeList.size(); ++i)
+	{
+		storageTypeComboBox->addItem(dataTypeList[i], i);
+	}
+	
 	storageTypeComboBox->setCurrentIndex([&settings]
 	{
 		const auto value = settings.value(Keys::storageValueKey);
@@ -181,16 +190,22 @@ void HDF5Loader::loadData()
 			fileDialogRef.selectFile(value.toString());
 	});
 
-	const auto onFilterSelected = [&normalizeCheck, &normalizeLabel, &storageTypeComboBox, &storageTypeLabel](const QString& nameFilter)
+	const auto onFilterSelected = [&normalizeCheck, &normalizeLabel, &storageTypeComboBox, &storageTypeLabel, &transform](const QString& nameFilter)
 	{
 		const bool isTomeSelected{ nameFilter == "TOME (*.tome)" };
+		const bool isH5ADSelected{ nameFilter == "H5AD (*.h5ad)" };
 
 		normalizeCheck.setVisible(isTomeSelected);
 		normalizeLabel.setVisible(isTomeSelected);
+		
 
-		const bool isH5ADSelected{ nameFilter == "H5AD (*.h5ad)" };
+		
 		storageTypeComboBox->setVisible(isH5ADSelected);
 		storageTypeLabel->setVisible(isH5ADSelected);
+		
+		transform.setVisible(!isH5ADSelected);
+
+		
 	};
 
 	QObject::connect(&_fileDialog, &QFileDialog::filterSelected, onFilterSelected);
@@ -249,7 +264,7 @@ void HDF5Loader::loadData()
 			for (const auto fileName : fileNames)
 			{
 				if (loader.open(fileName))
-					loader.load(storageTypeComboBox->currentIndex());
+					loader.load(storageTypeComboBox->currentData().toInt());
 				else
 				{
 					QString mesg = "Could not open " + fileName + ". Make sure the file has the correct file extension and is not corrupted.";

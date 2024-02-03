@@ -1112,7 +1112,7 @@ namespace H5Utils
 		return true;
 	}
 
-	void addClusterMetaData(mv::CoreInterface* core, std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix)
+	void addClusterMetaData(std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix)
 	{
 		if (indices.size() <= 1)
 			return; // no point in adding only a single cluster

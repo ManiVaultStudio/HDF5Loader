@@ -262,7 +262,7 @@ namespace TOME
 
 									if(all_ok)
 									{
-										H5Utils::addClusterMetaData(_core, indices, label.c_str(), points);
+										H5Utils::addClusterMetaData(indices, label.c_str(), points);
 									}
 								}
 							}
@@ -317,7 +317,7 @@ namespace TOME
 											}
 											if (precision_ok)
 											{
-												H5Utils::addClusterMetaData(_core, indicesS, label.c_str(), points, colorsS);
+												H5Utils::addClusterMetaData(indicesS, label.c_str(), points, colorsS);
 											}
 										} while (precision_ok == false);
 									}
@@ -334,7 +334,7 @@ namespace TOME
 					}
 				}
 			}
-			H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, points);
+			H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, points);
 			return true;
 		}
 		catch (std::exception &)

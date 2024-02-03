@@ -318,7 +318,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 					if (nrOfNumericalMetaData)
 					{
-						H5Utils::addNumericalMetaData<float>(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
+						H5Utils::addNumericalMetaData<float>(numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
 					}
 				}
 
@@ -586,7 +586,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 							}
 							else // it was categorical data
 							{
-								H5Utils::addClusterMetaData(_core, indices, metaDataLabel.c_str(), pointsDataset, qcolors);
+								H5Utils::addClusterMetaData(indices, metaDataLabel.c_str(), pointsDataset, qcolors);
 							}
 
 						} // if(ok)
@@ -594,7 +594,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 					} // for nrOfMetaData
 					task.setFinished();
-					H5Utils::addNumericalMetaData(_core, numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
+					H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
 					
 				}
 #if defined(MANIVAULT_API_Old)
