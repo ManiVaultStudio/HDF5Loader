@@ -108,7 +108,7 @@ namespace H5AD
 		}
 
 		if (mdd.size.size() == 2)
-			pointsDataset->setDataElementType<T>();
+			
 
 		if(optimize_storage_size)
 		{
@@ -123,24 +123,45 @@ namespace H5AD
 				{
 					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
 					{
-						pointsDataset->setDataElementType<std::int8_t>();
+						mdd.data.clear();
+						mdd.size.clear();
+						//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
+						LoadDataAs<std::int8_t>(dataset, pointsDataset);
+						return;
 					}
 					else
 					{
 						if (allow_lossy_storage)
-							pointsDataset->setDataElementType<biovault::bfloat16_t>();
+						{
+							mdd.data.clear();
+							mdd.size.clear();
+							//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
+							LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset);
+							return;
+						}
+							
 					}
 				}
 				else if ((sizeOfT > 2) && cpp20std::in_range<std::int16_t>(minVal, maxVal))
 				{
 					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
 					{
-						pointsDataset->setDataElementType<std::int16_t>();
+						mdd.data.clear();
+						mdd.size.clear();
+						//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
+						LoadDataAs<std::int16_t>(dataset, pointsDataset);
+						return;
 					}
 					else
 					{
 						if (allow_lossy_storage)
-							pointsDataset->setDataElementType<biovault::bfloat16_t>();
+						{
+							mdd.data.clear();
+							mdd.size.clear();
+							//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
+							LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset);
+							return;
+						}
 					}
 				}
 			}
@@ -151,24 +172,44 @@ namespace H5AD
 				{
 					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
 					{
-						pointsDataset->setDataElementType<std::uint8_t>();
+						mdd.data.clear();
+						mdd.size.clear();
+						//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
+						LoadDataAs<std::uint8_t>(dataset, pointsDataset);
+						return;
 					}
 					else
 					{
 						if (allow_lossy_storage)
-							pointsDataset->setDataElementType<biovault::bfloat16_t>();
+						{
+							mdd.data.clear();
+							mdd.size.clear();
+							//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
+							LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset);
+							return;
+						}
 					}
 				}
 				else if ((sizeOfT > 2) && (cpp20std::in_range<std::uint16_t>(minVal, maxVal)))
 				{
 					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
 					{
-						pointsDataset->setDataElementType<std::uint16_t>();
+						mdd.data.clear();
+						mdd.size.clear();
+						//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
+						LoadDataAs<std::uint16_t>(dataset, pointsDataset);
+						return;
 					}
 					else
 					{
 						if (allow_lossy_storage)
-							pointsDataset->setDataElementType<biovault::bfloat16_t>();
+						{
+							mdd.data.clear();
+							mdd.size.clear();
+							//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
+							LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset);
+							return;
+						}
 					}
 				}
 			}
@@ -176,7 +217,7 @@ namespace H5AD
 		
 		if (mdd.size.size() == 2)
 		{
-			
+			pointsDataset->setDataElementType<T>(); // not sure this is needed since we move data below but it shouldn't hurt either
 			pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
 		}
 	}
