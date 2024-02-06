@@ -1,11 +1,16 @@
 #include "H5ADUtils.h"
 #include "DataContainerInterface.h"
 #include <filesystem>
+#include <QDialogButtonBox>
+
+#include <PointData/DimensionsPickerAction.h>
 
 
 namespace H5AD
 {
 	using namespace  mv;
+
+	
 
 	struct compareStringsAsNumbers {
 		bool operator()(const std::string& a, const std::string& b) const
@@ -326,16 +331,17 @@ namespace H5AD
 				if (!is_integer(data[i]))
 					return false;
 			}
-			
+			return true;
 		}
 	}
 	
 
 	template<typename T>
-	void LoadDataAs(H5::Group& group, Dataset<Points>& pointsDataset, bool optimize_storage_size = false, bool allow_lossy_storage = false)
+	void LoadDataAs(H5::Group& group, DatasetInfo &datasetInfo, bool optimize_storage_size = false, bool allow_lossy_storage = false)
 	{
 		static_assert(sizeof(T) <= 4);
 		bool result = true;
+		
 		std::vector<T> data;
 		std::vector<std::uint64_t> indices;
 		std::vector<std::uint32_t> indptr;
@@ -400,8 +406,8 @@ namespace H5AD
 					if(cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
 					{
 						data.clear();
-						LoadDataAs<std::int8_t>(group, pointsDataset);
-						return;
+						return LoadDataAs<std::int8_t>(group, datasetInfo);
+						
 					}
 					
 					
@@ -413,8 +419,7 @@ namespace H5AD
 						if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
 						{
 							data.clear();
-							LoadDataAs<std::int16_t>(group, pointsDataset);
-							return;
+							return LoadDataAs<std::int16_t>(group, datasetInfo);
 						}
 							
 					}
@@ -430,8 +435,7 @@ namespace H5AD
 					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
 					{
 						data.clear();
-						LoadDataAs<std::uint8_t>(group, pointsDataset);
-						return;
+						return LoadDataAs<std::uint8_t>(group, datasetInfo);
 					}
 					
 				}
@@ -442,8 +446,7 @@ namespace H5AD
 						if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
 						{
 							data.clear();
-							LoadDataAs<std::uint16_t>(group, pointsDataset);
-							return;
+							return LoadDataAs<std::uint16_t>(group, datasetInfo);
 						}
 						
 					}
@@ -452,7 +455,7 @@ namespace H5AD
 			if (allow_lossy_storage)
 			{
 				bf16data.resize(data.size());
-#pragma omp parallel for
+				#pragma omp parallel for
 				for (std::ptrdiff_t i = 0; i < data.size(); ++i)
 					bf16data[i] = data[i];
 				data.clear();
@@ -464,6 +467,99 @@ namespace H5AD
 		if (result)
 			result &= H5Utils::read_vector(group, "indptr", &indptr, H5::PredType::NATIVE_UINT32);
 
+		// TODO: here we have to deal with selectedDimensions!!
+
+		
+		Dataset<Points> pointsDataset = datasetInfo._pointsDataset;
+		auto selectedDimensionNames = datasetInfo._originalDimensionNames;
+		std::vector<std::ptrdiff_t>& dimensionIndices = datasetInfo._selectedDimensionsLUT;
+		std::vector<bool>& enabledDimensions = datasetInfo._enabledDimensions;
+		{
+			
+			auto originalDimensionNames = datasetInfo._originalDimensionNames;
+			const std::size_t nrOfOriginalDimensions = originalDimensionNames.size();
+			std::size_t nrOfSelectedDimensions = 0;
+			
+			{
+				Dataset<Points> tempDataset = mv::data().createDataset("Points", "temp");
+				tempDataset->getDataHierarchyItem().setVisible(false);
+				tempDataset->setData(std::vector<int8_t>(originalDimensionNames.size()), originalDimensionNames.size());
+				tempDataset->setDimensionNames(originalDimensionNames);
+
+				QDialog dialog(nullptr);
+				QGridLayout* layout = new QGridLayout;
+
+				DimensionsPickerAction &dimensionPickerAction = tempDataset->getDimensionsPickerAction();;
+				
+				layout->addWidget(dimensionPickerAction.createWidget(nullptr));
+				auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok);
+				buttonBox->connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+				layout->addWidget(buttonBox, 3, 0, 1, 2);
+				dialog.setLayout(layout);
+				auto result = dialog.exec();
+				if (result == 0)
+				{
+					datasetInfo = {};
+					mv::data().removeDataset(tempDataset);
+					mv::data().removeDataset(pointsDataset);
+					return;
+				}
+				nrOfSelectedDimensions = dimensionPickerAction.getSelectedDimensions().size();
+				enabledDimensions = dimensionPickerAction.getEnabledDimensions();
+				mv::data().removeDataset(tempDataset);
+			}
+			
+
+			if (nrOfSelectedDimensions == 0)
+			{
+				// nothing is selected
+				datasetInfo = {};
+				mv::data().removeDataset(pointsDataset);
+				return;;
+			} 
+			
+			
+			if(nrOfSelectedDimensions < nrOfOriginalDimensions)
+			{
+				dimensionIndices.assign(nrOfOriginalDimensions, -1);
+				std::vector<std::uint64_t> newDimensionIndex(nrOfOriginalDimensions,  std::numeric_limits<std::uint64_t>::max());
+				selectedDimensionNames.resize(nrOfSelectedDimensions);
+				std::ptrdiff_t newIndex = 0;
+				for (std::ptrdiff_t i = 0; i < nrOfOriginalDimensions; ++i)
+				{
+					if (enabledDimensions[i])
+					{
+						selectedDimensionNames[newIndex] = originalDimensionNames[i];
+						newDimensionIndex[i] = newIndex;
+						dimensionIndices[i] = newIndex;
+						++newIndex;
+					}
+				}
+
+				// update data & indices so data can be ignored later on
+				assert(data.size() == indices.size());
+				#pragma omp parallel for
+				for (std::ptrdiff_t i = 0; i < indices.size(); ++i)
+				{
+					auto oldColumnIndex = indices[i];
+					auto newColumnIndex = dimensionIndices[oldColumnIndex];
+					if(newColumnIndex < 0)
+					{
+						indices[i] = std::numeric_limits<std::uint64_t>::max();
+						data[i] = 0;
+					}
+					else
+					{
+						indices[i] = static_cast<std::uint64_t>(newColumnIndex);
+					}
+					
+				}
+			} 	
+		}
+
+
+
+
 		if (result)
 		{
 			if(data.empty() && bf16data.size())
@@ -472,16 +568,21 @@ namespace H5AD
 				pointsDataset->setDataElementType<T>();
 			DataContainerInterface dci(pointsDataset);
 			std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
-			std::uint64_t ysize = *std::max_element(indices.cbegin(), indices.cend()) + 1;
+			std::uint64_t ysize = selectedDimensionNames.size();
 			dci.resize(xsize, ysize);
 			if (data.empty() && bf16data.size())
 				dci.set_sparse_row_data(indices, indptr, bf16data, TRANSFORM::None());
 			else
 				dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+			pointsDataset->setDimensionNames(selectedDimensionNames);
 		}
+
+		
 	}
-	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset, int storageType)
+
+	void LoadData(H5::Group& group, DatasetInfo &datasetInfo, int storageType)
 	{
+		
 		if (storageType < 0) // use native or optimized storage type		
 		{
 
@@ -492,7 +593,7 @@ namespace H5AD
 
 			if (class_type == H5T_FLOAT)
 			{
-				LoadDataAs<float>(group, pointsDataset, storageType <= -2, storageType == -2);
+				LoadDataAs<float>(group, datasetInfo, storageType <= -2, storageType == -2);
 			}
 			else if ((class_type == H5T_INTEGER) || (class_type == H5T_ENUM))
 			{
@@ -501,10 +602,10 @@ namespace H5AD
 					// signed
 					switch (datatype.getSize())
 					{
-					case 1: LoadDataAs<std::int8_t>(group, pointsDataset, storageType <= -2, storageType == -2); break;
-					case 2: LoadDataAs<std::int16_t>(group, pointsDataset, storageType <= -2, storageType <= -2); break;
-					case 4: LoadDataAs<std::int32_t>(group, pointsDataset, storageType <= -2, storageType <= -2); break;
-					default: LoadDataAs<float>(group, pointsDataset, storageType <= -2, storageType <= -2); break;
+					case 1: return LoadDataAs<std::int8_t>(group, datasetInfo, storageType <= -2, storageType == -2);
+					case 2:return LoadDataAs<std::int16_t>(group, datasetInfo,  storageType <= -2, storageType <= -2);
+					case 4: return LoadDataAs<std::int32_t>(group, datasetInfo, storageType <= -2, storageType <= -2);
+					default: return LoadDataAs<float>(group, datasetInfo, storageType <= -2, storageType <= -2);
 					}
 				}
 				else
@@ -512,10 +613,10 @@ namespace H5AD
 					// unsigned
 					switch (datatype.getSize())
 					{
-					case 1: LoadDataAs<std::uint8_t>(group, pointsDataset, storageType <= -2, storageType == -2); break;
-					case 2: LoadDataAs<std::uint16_t>(group, pointsDataset, storageType <= -2, storageType == -2); break;
-					case 4: LoadDataAs<std::uint32_t>(group, pointsDataset, storageType <= -2, storageType == -2); break;
-					default: LoadDataAs<float>(group, pointsDataset, storageType <= -2, storageType == -2); break;
+					case 1: return LoadDataAs<std::uint8_t>(group, datasetInfo, storageType <= -2, storageType == -2);
+					case 2: return LoadDataAs<std::uint16_t>(group, datasetInfo, storageType <= -2, storageType == -2);
+					case 4: return LoadDataAs<std::uint32_t>(group, datasetInfo, storageType <= -2, storageType == -2);
+					default: return LoadDataAs<float>(group, datasetInfo, storageType <= -2, storageType == -2);
 					}
 				}
 			}
@@ -525,14 +626,15 @@ namespace H5AD
 			PointData::ElementTypeSpecifier newTargetType = (PointData::ElementTypeSpecifier)storageType;
 			switch (newTargetType)
 			{
-			case PointData::ElementTypeSpecifier::float32: LoadDataAs<float>(group, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::bfloat16: LoadDataAs<biovault::bfloat16_t>(group, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::int16: LoadDataAs<std::int16_t>(group, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::uint16: LoadDataAs<std::uint16_t>(group, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::int8: LoadDataAs<std::int8_t>(group, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::uint8: LoadDataAs<std::uint8_t>(group, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::float32: return LoadDataAs<float>(group, datasetInfo);
+			case PointData::ElementTypeSpecifier::bfloat16: return LoadDataAs<biovault::bfloat16_t>(group, datasetInfo);
+			case PointData::ElementTypeSpecifier::int16: return LoadDataAs<std::int16_t>(group, datasetInfo);
+			case PointData::ElementTypeSpecifier::uint16: return LoadDataAs<std::uint16_t>(group, datasetInfo);
+			case PointData::ElementTypeSpecifier::int8: return LoadDataAs<std::int8_t>(group, datasetInfo);
+			case PointData::ElementTypeSpecifier::uint8: return LoadDataAs<std::uint8_t>(group, datasetInfo);
 			}
 		}
+		
 	}
 
 	std::string LoadIndexStrings(H5::DataSet& dataset, std::vector<QString>& result)
@@ -783,10 +885,12 @@ namespace H5AD
 
 
 
-	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, Dataset<Points> pointsDataset, int storageType)
+	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, DatasetInfo &datasetInfo, int storageType)
 	{
 		try
 		{
+			
+
 			auto nrOfObjects = h5fILE->getNumObjs();
 
 			std::size_t rows = 0;
@@ -801,7 +905,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::DataSet dataset = h5fILE->openDataSet(objectName1);
-						H5AD::LoadData(dataset, pointsDataset, storageType);
+						H5AD::LoadData(dataset, datasetInfo._pointsDataset, storageType);
 						break;
 
 					}
@@ -811,12 +915,12 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						H5AD::LoadData(group, pointsDataset, storageType);
+						H5AD::LoadData(group, datasetInfo, storageType);
 						break;
 					}
 				}
 			}
-			if (!pointsDataset.isValid())
+			if (!datasetInfo._pointsDataset.isValid())
 			{
 				return false;
 			}

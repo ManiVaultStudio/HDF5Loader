@@ -6,11 +6,19 @@
 #include <set>
 namespace H5AD
 {
+	struct DatasetInfo
+	{
+		Dataset<Points> _pointsDataset;
+		std::vector<QString> _originalDimensionNames;
+		std::vector<bool> _enabledDimensions;
+		std::vector<std::ptrdiff_t> _selectedDimensionsLUT;
+	};
+
 	void CreateColorVector(std::size_t nrOfColors, std::vector<QColor>& colors);
 
 	void LoadData(const H5::DataSet& dataset, Dataset<Points> pointsDataset, int storageType);
 
-	void LoadData(H5::Group& group, Dataset<Points>& pointsDataset, int StorageType);
+	std::vector<std::ptrdiff_t> LoadData(H5::Group& group, Dataset<Points>& pointsDataset, int storageType);
 
 	std::string LoadIndexStrings(H5::DataSet& dataset, std::vector<QString>& result);
 
@@ -25,7 +33,7 @@ namespace H5AD
 
 	bool LoadCodedCategories(H5::Group& group, std::map<QString, std::vector<unsigned>>& result);
 
-	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, Dataset<Points> pointsDataset, int storage_type);
+	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, DatasetInfo &datasetInfo, int storage_type);
 
 	
 	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, Dataset<Points> pointsDataset, int storage_type);

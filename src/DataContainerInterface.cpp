@@ -72,16 +72,20 @@ namespace local
 
 					for (uint64_t i = start; i < end; ++i)
 					{
-						double value = data[i];
+						
 						uint64_t column = column_index[i];
-						if (value != 0)
+						if (column < columns)
 						{
-							switch (transformType.first)
+							double value = data[i];
+							if (value != 0)
 							{
-							case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
-							case TRANSFORM::LOG:  beginOfData[points_offset + column] = log2(1 + value); break;
-							case TRANSFORM::ARCSIN5: beginOfData[points_offset + column] = asinh(value / 5.0); break;
-							case TRANSFORM::SQRT: beginOfData[points_offset + column] = sqrt(value); break;
+								switch (transformType.first)
+								{
+								case TRANSFORM::NONE: beginOfData[points_offset + column] = value; break;
+								case TRANSFORM::LOG:  beginOfData[points_offset + column] = log2(1 + value); break;
+								case TRANSFORM::ARCSIN5: beginOfData[points_offset + column] = asinh(value / 5.0); break;
+								case TRANSFORM::SQRT: beginOfData[points_offset + column] = sqrt(value); break;
+								}
 							}
 						}
 					}
