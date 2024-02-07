@@ -129,7 +129,7 @@ bool HDF5_AD_Loader::open(const QString& fileName)
  }
 
  
- void LoadProperties(H5::DataSet dataset, H5AD::DatasetInfo &datasetInfo)
+ void LoadProperties(H5::DataSet dataset, H5AD::LoaderInfo &datasetInfo)
  {
 	 auto datasetClass = dataset.getDataType().getClass();
 	 QVariantMap propertyMap;
@@ -159,9 +159,13 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 
 
 
- void LoadProperties(H5::Group &group, H5AD::DatasetInfo &datasetInfo)
+ void LoadProperties(H5::Group &group, H5AD::LoaderInfo &datasetInfo)
  {
-	 std::string name = group.getObjName();
+	 QString name = group.getObjName().c_str();
+	 if (name.isEmpty())
+		 return;
+	 if (name[0] == '/')
+		 name.remove(0, 1);
 	 QVariantMap propertyMap;
 
 	 std::map<std::string, std::vector<QString>> categories;
@@ -314,7 +318,7 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 		 }
 	 }
 	 
-	 datasetInfo._pointsDataset->setProperty(name.c_str(), propertyMap);
+	 datasetInfo._pointsDataset->setProperty(name, propertyMap);
 	
  }
 
@@ -386,21 +390,23 @@ bool HDF5_AD_Loader::load(int storageType)
 
 	
 		
-		pointsDataset->setProperty("Sample Names", QList<QVariant>(_sampleNames.cbegin(), _sampleNames.cend()));
+		
 		
 		// first load the main data matrix
-		H5AD::DatasetInfo datasetInfo;
+		H5AD::LoaderInfo loaderInfo;
 		
-		datasetInfo._pointsDataset = pointsDataset;
-		datasetInfo._originalDimensionNames = _dimensionNames;
+		loaderInfo._pointsDataset = pointsDataset;
+		loaderInfo._originalDimensionNames = _dimensionNames;
+		loaderInfo._sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 
-		if (!H5AD::load_X(_file, datasetInfo, storageType))
+		if (!H5AD::load_X(_file, loaderInfo, storageType))
 		{
 			mv::data().removeDataset(pointsDataset);
 			_dimensionNames.clear();
 			_sampleNames.clear();
 			return false;
 		}
+		
 		
 		
 		//_dimensionNames = pointsDataset->getDimensionNames();
@@ -421,13 +427,13 @@ bool HDF5_AD_Loader::load(int storageType)
 					if (objectType1 == H5G_DATASET)
 					{
 						H5::DataSet h5Dataset = _file->openDataSet(objectName1);
-						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, pointsDataset, storageType);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo, storageType);
 							
 					}
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group h5Group = _file->openGroup(objectName1);
-						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, pointsDataset, storageType);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo, storageType);
 					}
 				}
 			}
@@ -440,13 +446,13 @@ bool HDF5_AD_Loader::load(int storageType)
 				if (objectType1 == H5G_DATASET)
 				{
 					H5::DataSet h5Dataset = _file->openDataSet("var");
-					LoadProperties(h5Dataset, datasetInfo);
+					LoadProperties(h5Dataset, loaderInfo);
 
 				}
 				else if (objectType1 == H5G_GROUP)
 				{
 					H5::Group h5Group = _file->openGroup("var");
-					LoadProperties(h5Group, datasetInfo);
+					LoadProperties(h5Group, loaderInfo);
 				}
 			}
 			

@@ -57,7 +57,7 @@ namespace H5AD
 
 	
 	template<typename T>
-	void LoadDataAs(const H5::DataSet& dataset, Dataset<Points> pointsDataset, bool optimize_storage_size = false, bool allow_lossy_storage = false)
+	void LoadDataAs(const H5::DataSet& dataset, LoaderInfo &loaderInfo, bool optimize_storage_size = false, bool allow_lossy_storage = false)
 	{
 		static_assert(sizeof(T) <= 4);
 		H5Utils::MultiDimensionalData<T> mdd;
@@ -131,7 +131,7 @@ namespace H5AD
 						mdd.data.clear();
 						mdd.size.clear();
 						//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
-						LoadDataAs<std::int8_t>(dataset, pointsDataset);
+						LoadDataAs<std::int8_t>(dataset, loaderInfo);
 						return;
 					}
 					else
@@ -141,7 +141,7 @@ namespace H5AD
 							mdd.data.clear();
 							mdd.size.clear();
 							//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
-							LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset);
+							LoadDataAs<biovault::bfloat16_t>(dataset, loaderInfo);
 							return;
 						}
 							
@@ -154,7 +154,7 @@ namespace H5AD
 						mdd.data.clear();
 						mdd.size.clear();
 						//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
-						LoadDataAs<std::int16_t>(dataset, pointsDataset);
+						LoadDataAs<std::int16_t>(dataset, loaderInfo);
 						return;
 					}
 					else
@@ -164,7 +164,7 @@ namespace H5AD
 							mdd.data.clear();
 							mdd.size.clear();
 							//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
-							LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset);
+							LoadDataAs<biovault::bfloat16_t>(dataset, loaderInfo);
 							return;
 						}
 					}
@@ -180,7 +180,7 @@ namespace H5AD
 						mdd.data.clear();
 						mdd.size.clear();
 						//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
-						LoadDataAs<std::uint8_t>(dataset, pointsDataset);
+						LoadDataAs<std::uint8_t>(dataset, loaderInfo);
 						return;
 					}
 					else
@@ -190,7 +190,7 @@ namespace H5AD
 							mdd.data.clear();
 							mdd.size.clear();
 							//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
-							LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset);
+							LoadDataAs<biovault::bfloat16_t>(dataset, loaderInfo);
 							return;
 						}
 					}
@@ -202,7 +202,7 @@ namespace H5AD
 						mdd.data.clear();
 						mdd.size.clear();
 						//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
-						LoadDataAs<std::uint16_t>(dataset, pointsDataset);
+						LoadDataAs<std::uint16_t>(dataset, loaderInfo);
 						return;
 					}
 					else
@@ -212,7 +212,7 @@ namespace H5AD
 							mdd.data.clear();
 							mdd.size.clear();
 							//reload the data since it will be moved later and even if it was copied later it would consume less memory (but more time)
-							LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset);
+							LoadDataAs<biovault::bfloat16_t>(dataset, loaderInfo);
 							return;
 						}
 					}
@@ -222,11 +222,14 @@ namespace H5AD
 		
 		if (mdd.size.size() == 2)
 		{
-			pointsDataset->setDataElementType<T>(); // not sure this is needed since we move data below but it shouldn't hurt either
-			pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
+			
+			loaderInfo._pointsDataset->setDataElementType<T>(); // not sure this is needed since we move data below but it shouldn't hurt either
+			loaderInfo._pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
+			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		}
 	}
-	void LoadData(const H5::DataSet& dataset, Dataset<Points> pointsDataset, int storageType)
+	void LoadData(const H5::DataSet& dataset, LoaderInfo &loaderInfo, int storageType)
 	{
 		if(storageType < 0) // use native format
 		{
@@ -234,7 +237,7 @@ namespace H5AD
 			H5T_class_t class_type = datatype.getClass();
 			 if (class_type == H5T_FLOAT)
 			{
-				LoadDataAs<float>(dataset, pointsDataset);
+				LoadDataAs<float>(dataset, loaderInfo);
 			}
 			else if ((class_type == H5T_INTEGER) || (class_type == H5T_ENUM))
 			{
@@ -243,10 +246,10 @@ namespace H5AD
 					// signed
 					switch(datatype.getSize())
 					{
-						case 1: LoadDataAs<std::int8_t>(dataset, pointsDataset); break;
-						case 2: LoadDataAs<std::int16_t>(dataset, pointsDataset); break;
+						case 1: LoadDataAs<std::int8_t>(dataset, loaderInfo); break;
+						case 2: LoadDataAs<std::int16_t>(dataset, loaderInfo); break;
 						//case 4: LoadDataAs<std::int32_t>(dataset, pointsDataset); break;
-						default: LoadDataAs<float>(dataset, pointsDataset); break;
+						default: LoadDataAs<float>(dataset, loaderInfo); break;
 					}
 				}
 				else
@@ -254,10 +257,10 @@ namespace H5AD
 					// unsigned
 					switch (datatype.getSize())
 					{
-						case 1: LoadDataAs<std::uint8_t>(dataset, pointsDataset); break;
-						case 2: LoadDataAs<std::uint16_t>(dataset, pointsDataset); break;
+						case 1: LoadDataAs<std::uint8_t>(dataset, loaderInfo); break;
+						case 2: LoadDataAs<std::uint16_t>(dataset, loaderInfo); break;
 						//case 4: LoadDataAs<std::uint32_t>(dataset, pointsDataset); break;
-						default: LoadDataAs<float>(dataset, pointsDataset); break;
+						default: LoadDataAs<float>(dataset, loaderInfo); break;
 					}
 				}
 			}
@@ -267,12 +270,12 @@ namespace H5AD
 			PointData::ElementTypeSpecifier newTargetType = (PointData::ElementTypeSpecifier)storageType;
 			switch (newTargetType)
 			{
-			case PointData::ElementTypeSpecifier::float32: LoadDataAs<float>(dataset, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::bfloat16: LoadDataAs<biovault::bfloat16_t>(dataset, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::int16: LoadDataAs<std::int16_t>(dataset, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::uint16: LoadDataAs<std::uint16_t>(dataset, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::int8: LoadDataAs<std::int8_t>(dataset, pointsDataset); break;
-			case PointData::ElementTypeSpecifier::uint8: LoadDataAs<std::uint8_t>(dataset, pointsDataset); break;
+			case PointData::ElementTypeSpecifier::float32: LoadDataAs<float>(dataset, loaderInfo); break;
+			case PointData::ElementTypeSpecifier::bfloat16: LoadDataAs<biovault::bfloat16_t>(dataset, loaderInfo); break;
+			case PointData::ElementTypeSpecifier::int16: LoadDataAs<std::int16_t>(dataset, loaderInfo); break;
+			case PointData::ElementTypeSpecifier::uint16: LoadDataAs<std::uint16_t>(dataset, loaderInfo); break;
+			case PointData::ElementTypeSpecifier::int8: LoadDataAs<std::int8_t>(dataset, loaderInfo); break;
+			case PointData::ElementTypeSpecifier::uint8: LoadDataAs<std::uint8_t>(dataset, loaderInfo); break;
 			}
 		}
 	}
@@ -337,7 +340,7 @@ namespace H5AD
 	
 
 	template<typename T>
-	void LoadDataAs(H5::Group& group, DatasetInfo &datasetInfo, bool optimize_storage_size = false, bool allow_lossy_storage = false)
+	void LoadDataAs(H5::Group& group, LoaderInfo &datasetInfo, bool optimize_storage_size = false, bool allow_lossy_storage = false)
 	{
 		static_assert(sizeof(T) <= 4);
 		bool result = true;
@@ -467,9 +470,7 @@ namespace H5AD
 		if (result)
 			result &= H5Utils::read_vector(group, "indptr", &indptr, H5::PredType::NATIVE_UINT32);
 
-		// TODO: here we have to deal with selectedDimensions!!
 
-		
 		Dataset<Points> pointsDataset = datasetInfo._pointsDataset;
 		auto selectedDimensionNames = datasetInfo._originalDimensionNames;
 		std::vector<std::ptrdiff_t>& dimensionIndices = datasetInfo._selectedDimensionsLUT;
@@ -580,7 +581,7 @@ namespace H5AD
 		
 	}
 
-	void LoadData(H5::Group& group, DatasetInfo &datasetInfo, int storageType)
+	void LoadData(H5::Group& group, LoaderInfo &datasetInfo, int storageType)
 	{
 		
 		if (storageType < 0) // use native or optimized storage type		
@@ -708,7 +709,7 @@ namespace H5AD
 
 
 
-	bool LoadSparseMatrix(H5::Group& group, Dataset<Points>& pointsDataset)
+	bool LoadSparseMatrix(H5::Group& group, LoaderInfo &loaderInfo)
 	{
 		auto nrOfObjects = group.getNumObjs();
 		auto h5groupName = group.getObjName();
@@ -729,7 +730,7 @@ namespace H5AD
 			if (containsSparseMatrix)
 			{
 				std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
-				if (xsize == pointsDataset->getNumPoints())
+				if (xsize == loaderInfo._pointsDataset->getNumPoints())
 				{
 					std::uint64_t ysize = indices.visit<std::uint64_t>([](auto& vec) { return *std::max_element(vec.cbegin(), vec.cend()); }) + 1;
 
@@ -741,8 +742,8 @@ namespace H5AD
 						numericalDatasetName.remove(0, 1);
 					while (numericalDatasetName[0] == '\\')
 						numericalDatasetName.remove(0, 1);
-					Dataset<Points> numericalDataset = mv::data().createDerivedDataset(numericalDatasetName, pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
-
+					Dataset<Points> numericalDataset = mv::data().createDerivedDataset(numericalDatasetName, loaderInfo._pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
+					numericalDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 					data.visit([&numericalDataset](auto& vec) {
 						typedef typename std::decay_t<decltype(vec)> v;
 						numericalDataset->setDataElementType<typename v::value_type>();
@@ -885,12 +886,10 @@ namespace H5AD
 
 
 
-	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, DatasetInfo &datasetInfo, int storageType)
+	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, LoaderInfo &loaderInfo, int storageType)
 	{
 		try
 		{
-			
-
 			auto nrOfObjects = h5fILE->getNumObjs();
 
 			std::size_t rows = 0;
@@ -905,7 +904,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::DataSet dataset = h5fILE->openDataSet(objectName1);
-						H5AD::LoadData(dataset, datasetInfo._pointsDataset, storageType);
+						H5AD::LoadData(dataset, loaderInfo, storageType);
 						break;
 
 					}
@@ -915,12 +914,12 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						H5AD::LoadData(group, datasetInfo, storageType);
+						H5AD::LoadData(group, loaderInfo, storageType);
 						break;
 					}
 				}
 			}
-			if (!datasetInfo._pointsDataset.isValid())
+			if (!loaderInfo._pointsDataset.isValid())
 			{
 				return false;
 			}
@@ -932,12 +931,21 @@ namespace H5AD
 			++bp;
 			return false;
 		}
+
+		// set sample names
+		if(loaderInfo._pointsDataset->getNumPoints() == loaderInfo._sampleNames.size())
+			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+		// set dimension names if not already set
+		if(loaderInfo._pointsDataset->getDimensionNames().empty() && loaderInfo._pointsDataset->getNumDimensions() == loaderInfo._originalDimensionNames.size())
+		{
+			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+		}
 		return true;
 	}
 
 
 	template<typename numericMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, Dataset<Points> pointsDataset, int storage_type)
+	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, LoaderInfo &loaderInfo, int storage_type)
 	{
 
 		std::string h5datasetName = dataset.getObjName();
@@ -954,7 +962,7 @@ namespace H5AD
 			for (auto component = compoundMap.cbegin(); component != compoundMap.cend(); ++component)
 			{
 				const std::size_t nrOfSamples = component->second.size();
-				if (nrOfSamples == pointsDataset->getNumPoints())
+				if (nrOfSamples == loaderInfo._pointsDataset->getNumPoints())
 				{
 					if (component->first != "index")
 					{
@@ -963,7 +971,7 @@ namespace H5AD
 
 						bool currentMetaDataIsNumerical = true; // we start assuming it's a numerical value
 						std::vector<numericMetaDataType> values;
-						values.reserve(pointsDataset->getNumPoints());
+						values.reserve(loaderInfo._pointsDataset->getNumPoints());
 						for (std::size_t s = 0; s < nrOfSamples; ++s)
 						{
 							QString item = component->second[s].toString();
@@ -998,7 +1006,7 @@ namespace H5AD
 						else
 						{
 							QString prefix = h5datasetName.c_str() + QString("\\");
-							H5Utils::addClusterMetaData(indices, component->first.c_str(), pointsDataset, std::map<QString, QColor>(), prefix);
+							H5Utils::addClusterMetaData(indices, component->first.c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), prefix);
 						}
 
 					}
@@ -1006,28 +1014,32 @@ namespace H5AD
 
 			}
 
-			H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset, h5datasetName.c_str());
+			Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, loaderInfo._pointsDataset, h5datasetName.c_str());
+			numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		}
 	}
 
 
 	
 	template<typename numericalMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::Group& group, Dataset<Points>  pointsDataset, int storage_type)
+	void LoadSampleNamesAndMetaData(H5::Group& group, LoaderInfo& loaderInfo, int storage_type)
 	{
 
 		auto nrOfObjects = group.getNumObjs();
 
 		std::filesystem::path path(group.getObjName());
 		std::string h5GroupName = path.filename().string();
-		if (LoadSparseMatrix(group, pointsDataset))
+		if (LoadSparseMatrix(group, loaderInfo))
+		{
 			return;
+		}
+			
 
 
 		std::vector<numericalMetaDataType> numericalMetaData;
 		std::size_t nrOfNumericalMetaData = 0;
 		std::vector<QString> numericalMetaDataDimensionNames;
-		std::size_t nrOfRows = pointsDataset->getNumPoints();
+		std::size_t nrOfRows = loaderInfo._pointsDataset->getNumPoints();
 		std::map<std::string, std::vector<QString>> categories;
 
 		bool categoriesLoaded = LoadCategories(group, categories);
@@ -1038,15 +1050,15 @@ namespace H5AD
 			std::size_t count = 0;
 			for (auto it = codedCategories.cbegin(); it != codedCategories.cend(); ++it)
 				count += it->second.size();
-			if (count != pointsDataset->getNumPoints())
+			if (count != nrOfRows)
 				std::cout << "WARNING: " << "not all datapoints are accounted for" << std::endl;
 
 			std::size_t posFound = h5GroupName.find("_color");
 			if (posFound == std::string::npos)
 			{
-				if (count == pointsDataset->getNumPoints())
+				if (count == nrOfRows)
 				{
-					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), pointsDataset);
+					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset);
 				}
 			}
 			else
@@ -1077,7 +1089,7 @@ namespace H5AD
 							datasetNameToFind += "_label";
 						if (datasetNameToFind[0] == '/')
 							datasetNameToFind.remove(0, 1);
-						DataHierarchyItem* foundDataset = GetDerivedDataset(datasetNameToFind, pointsDataset);
+						DataHierarchyItem* foundDataset = GetDerivedDataset(datasetNameToFind, loaderInfo._pointsDataset);
 						if (foundDataset)
 						{
 							foundDataset->setLocked(true);
@@ -1154,7 +1166,7 @@ namespace H5AD
 										colors[it->first] = QColor(it->first);
 
 
-									H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), pointsDataset, colors);
+									H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset, colors);
 									option = options;
 								}
 							}
@@ -1166,7 +1178,7 @@ namespace H5AD
 				}
 				else
 				{
-					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), pointsDataset);
+					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset);
 				}
 			}
 		}
@@ -1209,7 +1221,7 @@ namespace H5AD
 									if (H5Utils::read_vector(group, objectName1, &index, H5::PredType::NATIVE_UINT64))
 									{
 										std::map<QString, std::vector<unsigned>> indices;
-										if (index.size() == pointsDataset->getNumPoints())
+										if (index.size() == loaderInfo._pointsDataset->getNumPoints())
 										{
 											for (unsigned i = 0; i < index.size(); ++i)
 											{
@@ -1222,7 +1234,7 @@ namespace H5AD
 												assert(indices_iterator->second.size() > 0);
 											}
 											if (load_colors == 0)
-												H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), pointsDataset);
+												H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset);
 											else
 											{
 												const std::vector<QString>& items = categories[objectName1];
@@ -1257,7 +1269,7 @@ namespace H5AD
 														if (datasetNameToFind[0] == '/')
 															datasetNameToFind.remove(0, 1);
 														std::cout << "matching colors for " << datasetNameToFind.toStdString() << "  " << std::endl;
-														DataHierarchyItem* foundDataset = GetDerivedDataset(datasetNameToFind, pointsDataset);
+														DataHierarchyItem* foundDataset = GetDerivedDataset(datasetNameToFind, loaderInfo._pointsDataset);
 														if (foundDataset)
 														{
 															foundDataset->setLocked(true);
@@ -1333,7 +1345,7 @@ namespace H5AD
 																	for (auto it = indices.cbegin(); it != indices.cend(); ++it)
 																		colors[it->first] = QColor(it->first);
 
-																	H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), pointsDataset, colors);
+																	H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset, colors);
 
 																}
 															}
@@ -1359,7 +1371,7 @@ namespace H5AD
 									if (H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_FLOAT))
 									{
 										// 1 dimensional
-										if (values.size() == pointsDataset->getNumPoints())
+										if (values.size() == loaderInfo._pointsDataset->getNumPoints())
 										{
 											numericalMetaData.insert(numericalMetaData.end(), values.cbegin(), values.cend());
 											numericalMetaDataDimensionNames.push_back(dataSet.getObjName().c_str());
@@ -1374,7 +1386,7 @@ namespace H5AD
 										{
 											if (mdd.size.size() == 2)
 											{
-												if (mdd.size[0] == pointsDataset->getNumPoints())
+												if (mdd.size[0] == loaderInfo._pointsDataset->getNumPoints())
 												{
 
 													QString baseString = dataSet.getObjName().c_str();
@@ -1383,7 +1395,8 @@ namespace H5AD
 													{
 														dimensionNames[l] = QString::number(l + 1);
 													}
-													H5Utils::addNumericalMetaData(mdd.data, dimensionNames, false, pointsDataset, baseString);
+													mv::Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(mdd.data, dimensionNames, false, loaderInfo._pointsDataset, baseString);
+													numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 												}
 											}
 										}
@@ -1406,13 +1419,13 @@ namespace H5AD
 									std::map<QString, std::vector<unsigned>> indices;
 									std::vector<QString> items;
 									H5Utils::read_vector_string(dataSet, items);
-									if (items.size() == pointsDataset->getNumPoints())
+									if (items.size() == loaderInfo._pointsDataset->getNumPoints())
 									{
 										for (unsigned i = 0; i < items.size(); ++i)
 										{
 											indices[items[i]].push_back(i);
 										}
-										H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), pointsDataset);
+										H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset);
 									}
 									else
 									{
@@ -1439,7 +1452,7 @@ namespace H5AD
 												temp.resize(posFound);
 												datasetNameToFind = QString("obs/") + temp;
 
-												DataHierarchyItem* foundDataset = GetDerivedDataset(datasetNameToFind, pointsDataset);
+												DataHierarchyItem* foundDataset = GetDerivedDataset(datasetNameToFind, loaderInfo._pointsDataset);
 												if (foundDataset)
 												{
 													if (foundDataset->getDataType() == DataType("Clusters"))
@@ -1471,7 +1484,7 @@ namespace H5AD
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group group2 = group.openGroup(objectName1);
-						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, pointsDataset, storage_type);
+						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, loaderInfo, storage_type);
 					}
 				}
 
@@ -1488,20 +1501,21 @@ namespace H5AD
 				numericalMetaDataString = numericalMetaDataDimensionNames[0];
 			else 
 				numericalMetaDataString = QString("Numerical Data (") + QString(h5GroupName.c_str()) + QString(")");
-			H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset, numericalMetaDataString);
+			Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, loaderInfo._pointsDataset, numericalMetaDataString);
+			numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		}
 	}
 
-	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, Dataset<Points> pointsDataset, int storage_type)
+	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo, int storage_type)
 	{
-		H5AD::LoadSampleNamesAndMetaData<float>(dataset, pointsDataset, storage_type);
+		 H5AD::LoadSampleNamesAndMetaData<float>(dataset, loaderInfo, storage_type);
 	}
 	
 
 
-	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, Dataset<Points>  pointsDataset, int storage_type)
+	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo, int storage_type)
 	{
-		H5AD::LoadSampleNamesAndMetaData<float>(group, pointsDataset, storage_type);
+		 H5AD::LoadSampleNamesAndMetaData<float>(group, loaderInfo, storage_type);
 	}
 	
 

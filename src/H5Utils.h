@@ -531,10 +531,9 @@ namespace H5Utils
 	mv::Dataset<Points> createPointsDataset(::mv::CoreInterface* core,bool ask=true, QString=QString());
 
 	template<typename numericalMetaDataType>
-	void addNumericalMetaData(std::vector<numericalMetaDataType>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, mv::Dataset<Points> parent, QString name = QString(), int storageType = (int)PointData::ElementTypeSpecifier::float32)
+	mv::Dataset<Points> addNumericalMetaData(std::vector<numericalMetaDataType>& numericalData, std::vector<QString>& numericalDimensionNames, bool transpose, mv::Dataset<Points> parent, QString name = QString(), int storageType = (int)PointData::ElementTypeSpecifier::float32)
 	{
-
-		
+	
 		const std::size_t numberOfDimensions = numericalDimensionNames.size();
 		if (numberOfDimensions)
 		{
@@ -676,8 +675,11 @@ namespace H5Utils
 #elif defined(MANIVAULT_API_New)
 			mv::events().notifyDatasetDataChanged(numericalMetadataDataset);
 #endif
-			
+
+			return numericalMetadataDataset;
 		}
+
+		
 	}
 
 	
