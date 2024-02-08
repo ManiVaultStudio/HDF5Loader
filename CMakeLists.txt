@@ -87,6 +87,8 @@ set(SOURCES
 
 	src/H5ADUtils.h
 	src/H5ADUtils.cpp
+
+	src/VectorHolder.h
 )
 
 set(PLUGIN_MOC_HEADERS

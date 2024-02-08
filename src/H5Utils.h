@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <QInputDialog>
 
-
+#include "VectorHolder.h"
 
 namespace mv
 {
@@ -76,268 +76,58 @@ namespace cpp20std
 			if (!is_integer(data[i]))
 				return false;
 		}
-
+		return true;
 	}
 }
 namespace H5Utils
 {
 
-	class VectorHolder // copied form PointData for now, and added double
+	template<typename T>
+	H5::DataType getH5DataType()
 	{
-	private:
-		using TupleOfVectors = std::tuple <
-			std::vector<float>,
-			std::vector<biovault::bfloat16_t>,
-			std::vector<std::int64_t>,
-			std::vector<std::uint64_t>,
-			std::vector<std::int32_t>,
-			std::vector<std::uint32_t>,
-			std::vector<std::int16_t>,
-			std::vector<std::uint16_t>,
-			std::vector<std::int8_t>,
-			std::vector<std::uint8_t>,
-			std::vector<double> >;
-
-		
-
-	public:
-		enum class ElementTypeSpecifier
+		if(std::numeric_limits<T>::is_specialized)
 		{
-			float32,
-			bfloat16,
-			int64,
-			uint64,
-			int32,
-			uint32,
-			int16,
-			uint16,
-			int8,
-			uint8,
-		};
-
-		static constexpr std::array<const char*, std::tuple_size<TupleOfVectors>::value> getElementTypeNames()
-		{
-			return
-			{ {
-				"float32",
-				"bfloat16",
-				"int64",
-				"uint64",
-				"int32",
-				"uint32",
-				"int16",
-				"uint16",
-				"int8",
-				"uint8",
-				"float64"
-			} };
-		}
-
-	private:
-		// Tuple of vectors. Only the vector whose value_type corresponds to _elementTypeSpecifier
-	   // is selected. (The other vector is ignored, and could be cleared.) The vector stores the
-	   // point data in dimension-major order
-	   // Note: Instead of std::tuple, std::variant (from C++17) might be more appropriate, but at
-	   // the moment of writing, C++17 may not yet be enabled system wide.
-		TupleOfVectors _tupleOfVectors;
-
-		// Specifies which vector is selected, based on its value_type.
-		ElementTypeSpecifier _elementTypeSpecifier{};
-
-		// Tries to find the element type specifier that corresponds to ElementType.
-		template <typename ElementType, typename Head, typename... Tail>
-		constexpr static ElementTypeSpecifier recursiveFindElementTypeSpecifier(
-			const std::tuple<Head, Tail...>*,
-			const int temp = 0)
-		{
-			using HeadValueType = typename Head::value_type;
-
-			if (std::is_same<ElementType, HeadValueType>::value)
+			if(std::numeric_limits<T>::is_integer)
 			{
-				return static_cast<ElementTypeSpecifier>(temp);
-			}
-			else
-			{
-				constexpr const std::tuple<Tail...>* tailNullptr{ nullptr };
-				return recursiveFindElementTypeSpecifier<ElementType>(tailNullptr, temp + 1);
-			}
-		}
-
-
-		template <typename ElementType>
-		constexpr static ElementTypeSpecifier recursiveFindElementTypeSpecifier(const std::tuple<>*, const int)
-		{
-			return ElementTypeSpecifier{}; // Should not occur!
-		}
-
-		template <typename ReturnType, typename VectorHolderType, typename FunctionObject, typename Head, typename... Tail>
-		static ReturnType recursiveVisit(VectorHolderType& vectorHolder, FunctionObject functionObject, const std::tuple<Head, Tail...>*)
-		{
-			using HeadValueType = typename Head::value_type;
-
-			if (vectorHolder.template isSameElementType<HeadValueType>())
-			{
-				return functionObject(vectorHolder.template getVector<HeadValueType>());
-			}
-			else
-			{
-				constexpr const std::tuple<Tail...>* tailNullptr{ nullptr };
-				return recursiveVisit<ReturnType>(vectorHolder, functionObject, tailNullptr);
-			}
-		}
-
-		template <typename ReturnType, typename VectorHolderType, typename FunctionObject>
-		static ReturnType recursiveVisit(VectorHolderType&, FunctionObject&, const std::tuple<>*)
-		{
-			struct VisitException : std::exception
-			{
-				const char* what() const noexcept override
+				if(std::numeric_limits<T>::is_signed)
 				{
-					return "visit error!";
-				}
-			};
-			throw VisitException{};
-		}
-
-	public:
-
-		/// Yields the n-th supported element type.
-		template <std::size_t N>
-		using ElementTypeAt = typename std::tuple_element_t<N, TupleOfVectors>::value_type;
-
-		/// Defaulted default-constructor. Ensures that the element type
-		/// specifier is default-initialized (to "float32").
-		VectorHolder() = default;
-
-		/// Explicit constructor that copies the specified vector into the
-		/// internal data structure. Ensures that the element type specifier
-		/// matches the value type of the vector.
-		template <typename T>
-		explicit VectorHolder(const std::vector<T>& vec)
-			:
-			_elementTypeSpecifier{ getElementTypeSpecifier<T>() }
-		{
-			std::get<std::vector<T>>(_tupleOfVectors) = vec;
-		}
-
-
-		/// Explicit constructor that efficiently "moves" the specified vector
-		/// into the internal data structure. Ensures that the element type
-		/// specifier matches the value type of the vector.
-		template <typename T>
-		explicit VectorHolder(std::vector<T>&& vec)
-			:
-			_elementTypeSpecifier{ getElementTypeSpecifier<T>() }
-		{
-			std::get<std::vector<T>>(_tupleOfVectors) = std::move(vec);
-		}
-
-
-		// Similar to C++17 std::visit.
-		template <typename ReturnType = void, typename FunctionObject>
-		ReturnType constVisit(FunctionObject functionObject) const
-		{
-			constexpr const TupleOfVectors* const tupleNullptr{ nullptr };
-			return recursiveVisit<ReturnType>(*this, functionObject, tupleNullptr);
-		}
-
-
-		// Similar to C++17 std::visit.
-		template <typename ReturnType = void, typename FunctionObject>
-		ReturnType visit(FunctionObject functionObject)
-		{
-			constexpr const TupleOfVectors* const tupleNullptr{ nullptr };
-			return recursiveVisit<ReturnType>(*this, functionObject, tupleNullptr);
-		}
-
-		template <typename T>
-		static constexpr ElementTypeSpecifier getElementTypeSpecifier()
-		{
-			constexpr const TupleOfVectors* const tupleNullptr{ nullptr };
-			return recursiveFindElementTypeSpecifier<T>(tupleNullptr);
-		}
-
-		template <typename T>
-		bool isSameElementType() const
-		{
-			constexpr auto elementTypeSpecifier = getElementTypeSpecifier<T>();
-			return elementTypeSpecifier == _elementTypeSpecifier;
-		}
-
-		template <typename T>
-		const std::vector<T>& getConstVector() const
-		{
-			// This function should only be used to access the currently selected vector.
-			assert(isSameElementType<T>());
-			return std::get<std::vector<T>>(_tupleOfVectors);
-		}
-
-		template <typename T>
-		const std::vector<T>& getVector() const
-		{
-			return getConstVector<T>();
-		}
-
-		template <typename T>
-		std::vector<T>& getVector()
-		{
-			return const_cast<std::vector<T>&>(getConstVector<T>());
-		}
-
-		/// Just forwarding to the corresponding member function of the currently selected std::vector.
-		std::size_t size() const
-		{
-			return constVisit<std::size_t>([](const auto& vec) { return vec.size(); });
-		}
-
-		/// Just forwarding to the corresponding member function of the currently selected std::vector.
-		void resize(const std::size_t newSize)
-		{
-			visit([newSize](auto& vec) { vec.resize(newSize); });
-		}
-
-		/// Just forwarding to the corresponding member function of the currently selected std::vector.
-		void clear()
-		{
-			visit([](auto& vec) { return vec.clear(); });
-		}
-
-		/// Just forwarding to the corresponding member function of the currently selected std::vector.
-		void shrink_to_fit()
-		{
-			visit([](auto& vec) { return vec.shrink_to_fit(); });
-		}
-
-		void setElementTypeSpecifier(const ElementTypeSpecifier elementTypeSpecifier)
-		{
-			_elementTypeSpecifier = elementTypeSpecifier;
-		}
-
-		ElementTypeSpecifier getElementTypeSpecifier() const
-		{
-			return _elementTypeSpecifier;
-		}
-
-
-		/// Resizes the currently active internal data vector to the specified
-		/// number of elements, and converts the elements of the specified data
-		/// to the internal data element type, by static_cast. 
-		template <typename T>
-		void convertData(const T* const data, const std::size_t numberOfElements)
-		{
-			resize(numberOfElements);
-
-			visit([data](auto& vec)
-				{
-					std::size_t i{};
-					for (auto& elem : vec)
+					switch(sizeof(T))
 					{
-						elem = static_cast<std::remove_reference_t<decltype(elem)>>(data[i]);
-						++i;
+						case 1: return H5::PredType::NATIVE_INT8;
+						case 2: return H5::PredType::NATIVE_INT16;
+						case 4: return H5::PredType::NATIVE_INT32;
+						case 8: return H5::PredType::NATIVE_INT64;
 					}
-				});
+				}
+				else
+				{
+					switch (sizeof(T))
+					{
+						case 1: return H5::PredType::NATIVE_UINT8;
+						case 2: return H5::PredType::NATIVE_UINT16;
+						case 4: return H5::PredType::NATIVE_UINT32;
+						case 8: return H5::PredType::NATIVE_UINT64;
+					}
+				}
+			}
+			else 
+			{
+				assert(std::is_floating_point<T>());
+				switch (sizeof(T))
+				{
+					case 4: return H5::PredType::NATIVE_FLOAT;
+					case 8: return H5::PredType::NATIVE_DOUBLE;
+				}
+			}
 		}
-	};
+		else
+		{
+			//assert(std::is_same_v<biovault::bfloat16_t, T>());
+			return H5::PredType::NATIVE_UINT16; // use in 10x Loader
+		}
+		return H5::DataType();
+	}
+	
 
 	template<typename T>
 	class MultiDimensionalData
@@ -349,7 +139,7 @@ namespace H5Utils
 	};
 
 	template<typename T>
-	bool read_multi_dimensional_data(const H5::DataSet &dataset, MultiDimensionalData<T> &mdd, const H5::DataType &mem_type)
+	bool read_multi_dimensional_data(const H5::DataSet &dataset, MultiDimensionalData<T> &mdd)
 	{
 		mdd.data.clear();
 		mdd.size.clear();
@@ -375,7 +165,7 @@ namespace H5Utils
 			return false;
 		}
 		mdd.data.resize(totalSize);
-		dataset.read(mdd.data.data(), mem_type);
+		dataset.read(mdd.data.data(), getH5DataType<T>());
 		return true;
 	}
 
@@ -384,7 +174,7 @@ namespace H5Utils
 	
 	
 	template<typename T>
-	bool read_vector(H5::Group &group, const std::string &name, std::vector<T>*vector_ptr, const H5::DataType &mem_type)
+	bool read_vector(H5::Group &group, const std::string &name, std::vector<T>*vector_ptr)
 	{
 
 		if (!group.exists(name))
@@ -415,17 +205,12 @@ namespace H5Utils
 			return false;
 		}
 		vector_ptr->resize(totalSize);
-		dataset.read(vector_ptr->data(), mem_type);
+		dataset.read(vector_ptr->data(), getH5DataType<T>());
 		dataset.close();
 		return true;
 	}
 
-	template<typename T>
-	bool read_vector(H5::Group& group, const std::string& name, VectorHolder& vectorHolder, H5::PredType predType)
-	{
-		vectorHolder.setElementTypeSpecifier(VectorHolder::getElementTypeSpecifier<T>());
-		return read_vector(group, name, &vectorHolder.getVector<T>(), predType);
-	}
+	
 
 	bool read_vector(H5::Group& group, const std::string& name, VectorHolder& vectorHolder);
 	
@@ -679,7 +464,7 @@ namespace H5Utils
 			return numericalMetadataDataset;
 		}
 
-		
+		return mv::Dataset<Points>();
 	}
 
 	

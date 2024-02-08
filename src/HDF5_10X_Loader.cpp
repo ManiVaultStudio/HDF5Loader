@@ -89,7 +89,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				
 				if (result & group.exists("indptr"))
 				{
-					if (!H5Utils::read_vector(group, "indptr", &indptr, H5::PredType::NATIVE_UINT32))
+					if (!H5Utils::read_vector(group, "indptr", &indptr))
 						result = false;
 				}
 				else
@@ -97,7 +97,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 				if (result & group.exists("indices"))
 				{
-					if (!H5Utils::read_vector(group, "indices", &indices, H5::PredType::NATIVE_UINT64))
+					if (!H5Utils::read_vector(group, "indices", &indices))
 						result = false;
 				}
 				else
@@ -107,12 +107,12 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 				if (result & group.exists("data"))
 				{
-					if (!H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT))
+					if (!H5Utils::read_vector(group, "data", &data))
 						result = false;
 				}
 				else if(result & group.exists("data16"))
 				{
-					if (!H5Utils::read_vector(group, "data16", &data16, H5::PredType::NATIVE_UINT16))
+					if (!H5Utils::read_vector(group, "data16", &data16))
 						result = false;
 					else
 					{
@@ -200,7 +200,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 						std::vector<std::string> items;
 						std::vector<std::uint8_t> colors;
 						bool ok = H5Utils::read_vector_string(metaDataGroup, "l", items);
-						ok &= H5Utils::read_vector(metaDataGroup, "c", &colors, H5::PredType::NATIVE_UINT8);
+						ok &= H5Utils::read_vector(metaDataGroup, "c", &colors);
 						ok &= ((3 * items.size()) == colors.size());
 
 						if (ok)
@@ -444,16 +444,16 @@ shape	uint64	Tuple of (n_rows, n_columns)
 			bool result = !(_dimensionNames.empty());
 			result &= !(_sampleNames.empty());
 			if (result)
-				result &= H5Utils::read_vector(group, "indptr", &indptr, H5::PredType::NATIVE_UINT32);
+				result &= H5Utils::read_vector(group, "indptr", &indptr);
 			if (result)
-				result &= H5Utils::read_vector(group, "indices", &indices, H5::PredType::NATIVE_UINT64);
+				result &= H5Utils::read_vector(group, "indices", &indices);
 			if (result & group.exists("data"))
 			{
-				result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT);
+				result &= H5Utils::read_vector(group, "data", &data);
 			}
 			else if (result & group.exists("data16"))
 			{
-				result &= H5Utils::read_vector(group, "data16", &data16, H5::PredType::NATIVE_UINT16);
+				result &= H5Utils::read_vector(group, "data16", &data16);
 			}
 
 			if (result)
@@ -506,7 +506,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 						std::vector<QString> items;
 						std::vector<std::uint8_t> colors;
 						bool ok = H5Utils::read_vector_string(metaDataGroup, "l", items);
-						ok &= H5Utils::read_vector(metaDataGroup, "c", &colors, H5::PredType::NATIVE_UINT8);
+						ok &= H5Utils::read_vector(metaDataGroup, "c", &colors);
 						ok &= ((3 * items.size()) == colors.size());
 
 						if (ok)

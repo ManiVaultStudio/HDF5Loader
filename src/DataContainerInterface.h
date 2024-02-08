@@ -49,11 +49,11 @@ public:
 
 	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<std::int8_t>& x, TRANSFORM::Type transformType);
 	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<std::int16_t>& x, TRANSFORM::Type transformType);
-	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<std::int32_t>& x, TRANSFORM::Type transformType);
+	//void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<std::int32_t>& x, TRANSFORM::Type transformType);
 
 	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<std::uint8_t>& x, TRANSFORM::Type transformType);
 	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<std::uint16_t>& x, TRANSFORM::Type transformType);
-	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<std::uint32_t>& x, TRANSFORM::Type transformType);
+	//void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<std::uint32_t>& x, TRANSFORM::Type transformType);
 
 	void set_sparse_row_data(std::vector<uint64_t> &i, std::vector<uint32_t> &p, std::vector<float> &x, TRANSFORM::Type transformType);
 	void set_sparse_row_data(std::vector<uint64_t>& i, std::vector<uint32_t>& p, std::vector<biovault::bfloat16_t>& x, TRANSFORM::Type transformType);

@@ -104,10 +104,10 @@ namespace TOME
 				std::vector<uint64_t> vector_i;
 				std::vector<uint32_t> vector_p;
 				std::vector<float> vector_x;
-				H5Utils::read_vector(exon_or_intron, "dims", &vector_dims, H5::PredType::NATIVE_INT32);
-				H5Utils::read_vector(exon_or_intron, "i", &vector_i, H5::PredType::NATIVE_UINT64);
-				H5Utils::read_vector(exon_or_intron, "p", &vector_p, H5::PredType::NATIVE_UINT32);
-				H5Utils::read_vector(exon_or_intron, "x", &vector_x, H5::PredType::NATIVE_FLOAT);
+				H5Utils::read_vector(exon_or_intron, "dims", &vector_dims);
+				H5Utils::read_vector(exon_or_intron, "i", &vector_i);
+				H5Utils::read_vector(exon_or_intron, "p", &vector_p);
+				H5Utils::read_vector(exon_or_intron, "x", &vector_x);
 
 				if (step == 0)
 				{
@@ -131,13 +131,13 @@ namespace TOME
 				std::vector<uint64_t> vector_i;
 				std::vector<uint32_t> vector_p;
 				std::vector<float> vector_x;
-				H5Utils::read_vector(exon_or_intron, "dims", &vector_dims, H5::PredType::NATIVE_INT32);
+				H5Utils::read_vector(exon_or_intron, "dims", &vector_dims);
 				
-				H5Utils::read_vector(exon_or_intron, "i", &vector_i, H5::PredType::NATIVE_UINT64);
+				H5Utils::read_vector(exon_or_intron, "i", &vector_i);
 				
-				H5Utils::read_vector(exon_or_intron, "p", &vector_p, H5::PredType::NATIVE_UINT32);
+				H5Utils::read_vector(exon_or_intron, "p", &vector_p);
 				
-				H5Utils::read_vector(exon_or_intron, "x", &vector_x, H5::PredType::NATIVE_FLOAT);
+				H5Utils::read_vector(exon_or_intron, "x", &vector_x);
 				
 				if (step == 0)
 				{
@@ -269,7 +269,7 @@ namespace TOME
 							else
 							{
 								std::vector<double> labelVector;
-								if(H5Utils::read_vector(anno, label + "_label", &labelVector, H5::PredType::NATIVE_DOUBLE))
+								if(H5Utils::read_vector(anno, label + "_label", &labelVector))
 								{
 									std::map<double, std::vector<unsigned>> indices;
 									std::map<double, QColor> colors;

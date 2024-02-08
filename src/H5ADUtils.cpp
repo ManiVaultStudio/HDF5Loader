@@ -67,7 +67,7 @@ namespace H5AD
 			// bfloat16
 			H5Utils::MultiDimensionalData<float> mdd_float;
 			
-			H5Utils::read_multi_dimensional_data(dataset, mdd_float, H5::PredType::NATIVE_FLOAT);
+			H5Utils::read_multi_dimensional_data(dataset, mdd_float);
 			{
 				if (mdd_float.size.size() == 2)
 				{
@@ -79,37 +79,9 @@ namespace H5AD
 				}
 			}
 		}
-		else if(std::numeric_limits<T>::is_integer)
+		else
 		{
-			
-			if(std::numeric_limits<T>::is_signed)
-			{
-				switch(sizeof(T))
-				{
-					case 1: H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_INT8); break;;
-					case 2: H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_INT16); break;;
-					case 4: assert(false); H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_INT32); break;;
-					case 8: assert(false); H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_INT64); break;;
-				}
-			}
-			else // unsigned
-			{
-				switch (sizeof(T))
-				{
-					case 1: H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_UINT8); break;;
-					case 2: H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_UINT16); break;;
-					case 4: assert(false); H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_UINT32); break;;
-					case 8: assert(false);  H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_UINT64); break;;
-				}
-			}
-		}
-		else if(std::is_floating_point<T>())// floating point
-		{
-			switch(sizeof(T))
-			{
-				case 4:H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_FLOAT); break;
-				case 8:  assert(false); H5Utils::read_multi_dimensional_data(dataset, mdd, H5::PredType::NATIVE_DOUBLE); break;
-			} 
+			H5Utils::read_multi_dimensional_data(dataset, mdd);
 		}
 
 		if (mdd.size.size() == 2)
@@ -355,46 +327,17 @@ namespace H5AD
 		{
 			// bfloat16
 			std::vector<float> float_data;
-			result &= H5Utils::read_vector(group, "data", &float_data, H5::PredType::NATIVE_FLOAT);
+			result &= H5Utils::read_vector(group, "data", &float_data);
 			data.resize(float_data.size());
 			#pragma omp parallel for
 			for (std::ptrdiff_t i = 0; i < data.size(); ++i)
 				data[i] = float_data[i];
 		}
-		else if(std::numeric_limits<T>::is_integer)
+		else 
 		{
-			if(std::numeric_limits<T>::is_signed)
-			{
-				switch (sizeof(T))
-				{
-				case 1: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_INT8); break;;
-				case 2: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_INT16); break;;
-				case 4: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_INT32); break;;
-				case 8: assert(false);  result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_INT64); break;;
-				default: assert(false);
-				}
-			}
-			else
-			{
-				switch (sizeof(T))
-				{
-				case 1: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_UINT8); break;;
-				case 2: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_UINT16); break;;
-				case 4: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_UINT32); break;;
-				case 8: assert(false);  result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_UINT64); break;;
-				default: assert(false);
-				}
-			}
+			H5Utils::read_vector(group, "data", &data);
 		}
-		else if(std::is_floating_point<T>())
-		{
-			switch(sizeof(T))
-			{
-				case 4: result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_FLOAT); break;
-				case 8: assert(false); result &= H5Utils::read_vector(group, "data", &data, H5::PredType::NATIVE_DOUBLE); break;
-				default: assert(false);
-			}
-		}
+		
 		int sizeOfT = sizeof(T);
 		if(result && optimize_storage_size && (sizeOfT > 1))
 		{
@@ -466,9 +409,9 @@ namespace H5AD
 		}
 
 		if (result)
-			result &= H5Utils::read_vector(group, "indices", &indices, H5::PredType::NATIVE_UINT64);
+			result &= H5Utils::read_vector(group, "indices", &indices);
 		if (result)
-			result &= H5Utils::read_vector(group, "indptr", &indptr, H5::PredType::NATIVE_UINT32);
+			result &= H5Utils::read_vector(group, "indptr", &indptr);
 
 
 		Dataset<Points> pointsDataset = datasetInfo._pointsDataset;
@@ -491,7 +434,7 @@ namespace H5AD
 				QGridLayout* layout = new QGridLayout;
 
 				DimensionsPickerAction &dimensionPickerAction = tempDataset->getDimensionsPickerAction();;
-				
+				layout->addWidget(new QLabel("Select Dimensions:"));
 				layout->addWidget(dimensionPickerAction.createWidget(nullptr));
 				auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok);
 				buttonBox->connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -605,7 +548,7 @@ namespace H5AD
 					{
 					case 1: return LoadDataAs<std::int8_t>(group, datasetInfo, storageType <= -2, storageType == -2);
 					case 2:return LoadDataAs<std::int16_t>(group, datasetInfo,  storageType <= -2, storageType <= -2);
-					case 4: return LoadDataAs<std::int32_t>(group, datasetInfo, storageType <= -2, storageType <= -2);
+				//	case 4: return LoadDataAs<std::int32_t>(group, datasetInfo, storageType <= -2, storageType <= -2);
 					default: return LoadDataAs<float>(group, datasetInfo, storageType <= -2, storageType <= -2);
 					}
 				}
@@ -616,7 +559,7 @@ namespace H5AD
 					{
 					case 1: return LoadDataAs<std::uint8_t>(group, datasetInfo, storageType <= -2, storageType == -2);
 					case 2: return LoadDataAs<std::uint16_t>(group, datasetInfo, storageType <= -2, storageType == -2);
-					case 4: return LoadDataAs<std::uint32_t>(group, datasetInfo, storageType <= -2, storageType == -2);
+				//	case 4: return LoadDataAs<std::uint32_t>(group, datasetInfo, storageType <= -2, storageType == -2);
 					default: return LoadDataAs<float>(group, datasetInfo, storageType <= -2, storageType == -2);
 					}
 				}
@@ -842,6 +785,7 @@ namespace H5AD
 
 
 
+	
 
 	bool LoadCodedCategories(H5::Group& group, std::map<QString, std::vector<unsigned>>& result)
 	{
@@ -862,7 +806,7 @@ namespace H5AD
 			{
 				std::vector<std::int64_t> values;
 
-				if (H5Utils::read_vector(group, "codes", &values, H5::PredType::NATIVE_INT64))
+				if (H5Utils::read_vector(group, "codes", &values))
 				{
 
 					for (unsigned i = 0; i < values.size(); ++i)
@@ -947,7 +891,7 @@ namespace H5AD
 	template<typename numericMetaDataType>
 	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, LoaderInfo &loaderInfo, int storage_type)
 	{
-
+		static_assert(std::is_same<numericMetaDataType, float>::value, "");
 		std::string h5datasetName = dataset.getObjName();
 		if (h5datasetName[0] == '/')
 			h5datasetName.erase(h5datasetName.begin());
@@ -1025,6 +969,7 @@ namespace H5AD
 	void LoadSampleNamesAndMetaData(H5::Group& group, LoaderInfo& loaderInfo, int storage_type)
 	{
 
+		static_assert(std::is_same<numericalMetaDataType, float>::value, "");
 		auto nrOfObjects = group.getNumObjs();
 
 		std::filesystem::path path(group.getObjName());
@@ -1218,7 +1163,7 @@ namespace H5AD
 								{
 									std::vector<uint64_t> index;
 									const std::vector<QString>& labels = categories[objectName1];
-									if (H5Utils::read_vector(group, objectName1, &index, H5::PredType::NATIVE_UINT64))
+									if (H5Utils::read_vector(group, objectName1, &index))
 									{
 										std::map<QString, std::vector<unsigned>> indices;
 										if (index.size() == loaderInfo._pointsDataset->getNumPoints())
@@ -1368,7 +1313,7 @@ namespace H5AD
 								if ((datasetClass == H5T_INTEGER) || (datasetClass == H5T_FLOAT) || (datasetClass == H5T_ENUM))
 								{
 									std::vector<float> values;
-									if (H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_FLOAT))
+									if (H5Utils::read_vector(group, objectName1, &values))
 									{
 										// 1 dimensional
 										if (values.size() == loaderInfo._pointsDataset->getNumPoints())
@@ -1382,7 +1327,7 @@ namespace H5AD
 										// multi-dimensiona,  only 2 supported for now
 										H5Utils::MultiDimensionalData<float> mdd;
 
-										if (H5Utils::read_multi_dimensional_data(dataSet, mdd, H5::PredType::NATIVE_FLOAT))
+										if (H5Utils::read_multi_dimensional_data(dataSet, mdd))
 										{
 											if (mdd.size.size() == 2)
 											{

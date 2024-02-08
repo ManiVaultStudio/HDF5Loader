@@ -186,7 +186,7 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 			 if (datasetClass == H5T_FLOAT)
 			 {
 				 std::vector<float> values;
-				 if (H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_FLOAT))
+				 if (H5Utils::read_vector(group, objectName1, &values))
 				 {
 					 if (values.size())
 					 {
@@ -198,7 +198,7 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 			 else if ((datasetClass == H5T_INTEGER) || (datasetClass == H5T_ENUM))
 			 {
 				 std::vector<qlonglong> values;
-				 if (H5Utils::read_vector(group, objectName1, &values, H5::PredType::NATIVE_INT64))
+				 if (H5Utils::read_vector(group, objectName1, &values))
 				 {
 					 if (values.size())
 					 {

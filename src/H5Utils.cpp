@@ -221,47 +221,36 @@ namespace H5Utils
 		H5::DataSet dataset = group.openDataSet(name);
 
 		H5::PredType predType = getPredTypeFromDataset(dataset);
-		if (predType == H5::PredType::NATIVE_FLOAT)
+		
+
+		H5::DataSpace dataspace = dataset.getSpace();
+
+		/*
+		* Get the number of dimensions in the dataspace.
+		*/
+		const int dimensions = dataspace.getSimpleExtentNdims();
+		std::size_t totalSize = 1;
+		if (dimensions > 0)
 		{
-			return read_vector<float>(group, name, vectorHolder, predType);
+
+			std::vector<hsize_t> dimensionSize(dimensions);
+			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
+			for (std::size_t d = 0; d < dimensions; ++d)
+			{
+
+				totalSize *= dimensionSize[d];
+			}
+
 		}
-		if (predType == H5::PredType::NATIVE_UINT8)
+		if (dimensions != 1)
 		{
-			return read_vector<std::uint8_t>(group, name, vectorHolder, predType);
+			return false;
 		}
-		if (predType == H5::PredType::NATIVE_UINT16)
-		{
-			return read_vector<std::uint16_t>(group, name, vectorHolder, predType);
-		}
-		if (predType == H5::PredType::NATIVE_UINT32)
-		{
-			return read_vector<std::uint32_t>(group, name, vectorHolder, predType);
-		}
-		if (predType == H5::PredType::NATIVE_UINT64)
-		{
-			return read_vector<std::uint64_t>(group, name, vectorHolder, predType);
-		}
-		if (predType == H5::PredType::NATIVE_INT8)
-		{
-			return read_vector<std::int8_t>(group, name, vectorHolder, predType);
-		}
-		if (predType == H5::PredType::NATIVE_INT16)
-		{
-			return read_vector<std::int16_t>(group, name, vectorHolder, predType);
-		}
-		if (predType == H5::PredType::NATIVE_INT32)
-		{
-			return read_vector<std::int32_t>(group, name, vectorHolder, predType);
-		}
-		if (predType == H5::PredType::NATIVE_INT64)
-		{
-			return read_vector<std::int64_t>(group, name, vectorHolder, predType);
-		}
-		if (predType == H5::PredType::NATIVE_DOUBLE)
-		{
-			return read_vector<double>(group, name, vectorHolder, predType);
-		}
-		return false;
+		vectorHolder.resize(totalSize);
+		vectorHolder.setPredTypeSpecifier(predType);
+		dataset.read(vectorHolder.data(), vectorHolder.H5DataType()); // since vector holder doesn't support all H5::PredType types we ask which one it is compatible with
+		dataset.close();
+		return true;
 	}
 
 	bool read_vector_string(H5::Group group, const std::string& name, std::vector<std::string>& result)

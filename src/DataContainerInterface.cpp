@@ -57,6 +57,9 @@ namespace local
 	template<typename T1, typename T2, typename T3>
 	void set_sparse_row_data_impl(Dataset<Points> m_data, std::vector<T1>& column_index, std::vector<T2>& row_offset, std::vector<T3>& data, TRANSFORM::Type transformType)
 	{
+		static_assert(!std::is_same<T3, std::int64_t>::value, "");
+		static_assert(!std::is_same<T3, std::uint64_t>::value, "");
+
 		long long lrows = ((long long)m_data->getNumPoints());
 		auto columns = m_data->getNumDimensions();
 
@@ -152,11 +155,13 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_i
 {
 	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::int16_t>(this->m_data, column_index, row_offset, data, transformType);
 }
-
+/*
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::int32_t>& data, TRANSFORM::Type transformType)
 {
+	static_assert(false);
 	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::int32_t>(this->m_data, column_index, row_offset, data, transformType);
 }
+*/
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::uint8_t>& data, TRANSFORM::Type transformType)
 {
 	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::uint8_t>(this->m_data, column_index, row_offset, data, transformType);
@@ -165,11 +170,13 @@ void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_i
 {
 	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::uint16_t>(this->m_data, column_index, row_offset, data, transformType);
 }
+/*
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t>& column_index, std::vector<uint32_t>& row_offset, std::vector<std::uint32_t>& data, TRANSFORM::Type transformType)
 {
+	static_assert(false);
 	local::set_sparse_row_data_impl<uint64_t, uint32_t, std::uint32_t>(this->m_data, column_index, row_offset, data, transformType);
 }
-
+*/
 void DataContainerInterface::set_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
 	local::set_sparse_row_data_impl<uint64_t, uint32_t, float>(this->m_data, column_index, row_offset, data, transformType);
