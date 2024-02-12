@@ -387,7 +387,7 @@ bool HDF5_AD_Loader::load(int storageType)
 		// create and setup the pointsDataset here since we have access to _core, _filename and storageType here.
 		
 		Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, false,  pointDatasetLabel);
-
+		pointsDataset->getDataHierarchyItem().setVisible(false);
 	
 		
 		
@@ -455,25 +455,21 @@ bool HDF5_AD_Loader::load(int storageType)
 					LoadProperties(h5Group, loaderInfo);
 				}
 			}
-			
+#if defined(MANIVAULT_API_Old)
+			events().notifyDatasetChanged(pointsDataset);
+#elif defined(MANIVAULT_API_New)
+			events().notifyDatasetDataChanged(pointsDataset);
+#endif
+
+
+			pointsDataset->getDataHierarchyItem().setVisible(true);
+			return true;
 
 		}
 		catch(const std::exception &e)
 		{
-			std::string mesg = e.what();
-			int bp = 0;
-			++bp;
+			mv::data().removeDataset(pointsDataset);
 		}
-		
-
-#if defined(MANIVAULT_API_Old)
-		events().notifyDatasetChanged(pointsDataset);
-#elif defined(MANIVAULT_API_New)
-		events().notifyDatasetDataChanged(pointsDataset);
-#endif
-		
-		
-		return true;
 	}
 	catch (std::exception &e)
 	{
@@ -481,6 +477,6 @@ bool HDF5_AD_Loader::load(int storageType)
 		return false;
 	}
 
-	
+	return false;
 }
 

@@ -4,7 +4,7 @@
 #include <QDialogButtonBox>
 
 #include <PointData/DimensionsPickerAction.h>
-
+#include <QMainWindow>
 
 namespace H5AD
 {
@@ -96,9 +96,9 @@ namespace H5AD
 			if (*(minmax_pair.first) < 0)
 			{
 				//signed
-				if (cpp20std::in_range<std::int8_t>(minVal, maxVal))
+				if (H5Utils::in_range<std::int8_t>(minVal, maxVal))
 				{
-					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
+					if (H5Utils::is_integer(minVal) && H5Utils::is_integer(maxVal) && H5Utils::contains_only_integers(mdd.data))
 					{
 						mdd.data.clear();
 						mdd.size.clear();
@@ -119,9 +119,9 @@ namespace H5AD
 							
 					}
 				}
-				else if ((sizeOfT > 2) && cpp20std::in_range<std::int16_t>(minVal, maxVal))
+				else if ((sizeOfT > 2) && H5Utils::in_range<std::int16_t>(minVal, maxVal))
 				{
-					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
+					if (H5Utils::is_integer(minVal) && H5Utils::is_integer(maxVal) && H5Utils::contains_only_integers(mdd.data))
 					{
 						mdd.data.clear();
 						mdd.size.clear();
@@ -145,9 +145,9 @@ namespace H5AD
 			else
 			{
 				//unsigned
-				if (cpp20std::in_range<std::uint8_t>(minVal, maxVal))
+				if (H5Utils::in_range<std::uint8_t>(minVal, maxVal))
 				{
-					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
+					if (H5Utils::is_integer(minVal) && H5Utils::is_integer(maxVal) && H5Utils::contains_only_integers(mdd.data))
 					{
 						mdd.data.clear();
 						mdd.size.clear();
@@ -167,9 +167,9 @@ namespace H5AD
 						}
 					}
 				}
-				else if ((sizeOfT > 2) && (cpp20std::in_range<std::uint16_t>(minVal, maxVal)))
+				else if ((sizeOfT > 2) && (H5Utils::in_range<std::uint16_t>(minVal, maxVal)))
 				{
-					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(mdd.data))
+					if (H5Utils::is_integer(minVal) && H5Utils::is_integer(maxVal) && H5Utils::contains_only_integers(mdd.data))
 					{
 						mdd.data.clear();
 						mdd.size.clear();
@@ -252,63 +252,7 @@ namespace H5AD
 		}
 	}
 
-	namespace cpp20std
-	{
-		template<class T, class U>
-		constexpr bool cmp_less(T t, U u) noexcept
-		{
-			//if(std::is_floating_point<T>() || std::is_floating_point<U>())
-			{
-				double td = t;
-				double ud = u;
-				return t < u;
-			}
-			/*
-			if constexpr (std::is_signed_v<T> == std::is_signed_v<U>)
-				return t < u;
-			else if constexpr (std::is_signed_v<T>)
-				return t < 0 || std::make_unsigned_t<T>(t) < u;
-			else
-				return u >= 0 && t < std::make_unsigned_t<U>(u);
-				*/
-		}
-
-		template<class T, class U>
-		constexpr bool cmp_less_equal(T t, U u) noexcept
-		{
-			return !cmp_less(u, t);
-		}
-
-		template<class T, class U>
-		constexpr bool cmp_greater_equal(T t, U u) noexcept
-		{
-			return !cmp_less(t, u);
-		}
-
-		template<class R, class T>
-		constexpr bool in_range(T minVal, T maxVal) noexcept
-		{
-			static_assert(!std::is_floating_point<R>());
-			return cmp_greater_equal(minVal, std::numeric_limits<R>::min()) &&
-				cmp_less_equal(maxVal, std::numeric_limits<R>::max());
-		}
-
-		template<typename T>
-		bool is_integer(T value)
-		{
-			return ((value - static_cast<std::ptrdiff_t>(value)) < 1e-03);
-		}
-		template<typename T>
-		bool contains_only_integers(const std::vector<T> &data)
-		{
-			for (auto i = 0; i < data.size(); ++i)
-			{
-				if (!is_integer(data[i]))
-					return false;
-			}
-			return true;
-		}
-	}
+	
 	
 
 	template<typename T>
@@ -347,9 +291,9 @@ namespace H5AD
 			if( *(minmax_pair.first) < 0)
 			{
 				//signed
-				if(cpp20std::in_range<std::int8_t>(minVal,maxVal))
+				if(H5Utils::in_range<std::int8_t>(minVal,maxVal))
 				{
-					if(cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
+					if(H5Utils::is_integer(minVal) && H5Utils::is_integer(maxVal) && H5Utils::contains_only_integers(data))
 					{
 						data.clear();
 						return LoadDataAs<std::int8_t>(group, datasetInfo);
@@ -360,9 +304,9 @@ namespace H5AD
 				}
 				else if(sizeOfT > 2)
 				{
-					if (cpp20std::in_range<std::int16_t>(minVal,maxVal))
+					if (H5Utils::in_range<std::int16_t>(minVal,maxVal))
 					{
-						if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
+						if (H5Utils::is_integer(minVal) && H5Utils::is_integer(maxVal) && H5Utils::contains_only_integers(data))
 						{
 							data.clear();
 							return LoadDataAs<std::int16_t>(group, datasetInfo);
@@ -376,9 +320,9 @@ namespace H5AD
 			else
 			{
 				//unsigned
-				if (cpp20std::in_range<std::uint8_t>(minVal,maxVal))
+				if (H5Utils::in_range<std::uint8_t>(minVal,maxVal))
 				{
-					if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
+					if (H5Utils::is_integer(minVal) && H5Utils::is_integer(maxVal) && H5Utils::contains_only_integers(data))
 					{
 						data.clear();
 						return LoadDataAs<std::uint8_t>(group, datasetInfo);
@@ -387,9 +331,9 @@ namespace H5AD
 				}
 				else if (sizeOfT > 2)
 				{
-					if (cpp20std::in_range<std::uint16_t>(minVal,maxVal))
+					if (H5Utils::in_range<std::uint16_t>(minVal,maxVal))
 					{
-						if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(data))
+						if (H5Utils::is_integer(minVal) && H5Utils::is_integer(maxVal) && H5Utils::contains_only_integers(data))
 						{
 							data.clear();
 							return LoadDataAs<std::uint16_t>(group, datasetInfo);
@@ -430,12 +374,12 @@ namespace H5AD
 				tempDataset->setData(std::vector<int8_t>(originalDimensionNames.size()), originalDimensionNames.size());
 				tempDataset->setDimensionNames(originalDimensionNames);
 
-				QDialog dialog(nullptr);
+				QDialog dialog(Application::getMainWindow());
 				QGridLayout* layout = new QGridLayout;
 
 				DimensionsPickerAction &dimensionPickerAction = tempDataset->getDimensionsPickerAction();;
 				layout->addWidget(new QLabel("Select Dimensions:"));
-				layout->addWidget(dimensionPickerAction.createWidget(nullptr));
+				layout->addWidget(dimensionPickerAction.createWidget(Application::getMainWindow()));
 				auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok);
 				buttonBox->connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
 				layout->addWidget(buttonBox, 3, 0, 1, 2);

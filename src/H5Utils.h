@@ -22,55 +22,102 @@ namespace mv
 	class CoreInterface;
 }
 
-namespace cpp20std
+
+
+namespace H5Utils
 {
-	template<class T, class U>
-	constexpr bool cmp_less(T t, U u) noexcept
+	template<typename R, typename U>
+	class IntegerCompareSpecialization
 	{
-		//if(std::is_floating_point<T>() || std::is_floating_point<U>())
+	private:
+		template<typename T>
+		static constexpr bool UnsupportedTypes()
 		{
-			double td = t;
-			double ud = u;
-			return t < u;
+			return !std::is_integral_v<T> || std::is_enum_v<T> || std::is_same_v<T, char> || std::is_same_v<T, char16_t> ||
+				std::is_same_v<T, char32_t> || std::is_same_v<T, wchar_t> || std::is_same_v<T, bool> ||
+				std::is_same_v<T, std::byte>;
 		}
-		/*
-		if constexpr (std::is_signed_v<T> == std::is_signed_v<U>)
-			return t < u;
-		else if constexpr (std::is_signed_v<T>)
-			return t < 0 || std::make_unsigned_t<T>(t) < u;
-		else
-			return u >= 0 && t < std::make_unsigned_t<U>(u);
-			*/
-	}
+	public:
+		static constexpr bool value =  !(UnsupportedTypes<R>() || UnsupportedTypes<U>());
+	};
 
-	template<class T, class U>
-	constexpr bool cmp_less_equal(T t, U u) noexcept
+	template<bool IntegerSpecialization, typename T, typename U>
+	class compare
 	{
-		return !cmp_less(u, t);
-	}
+	};
 
-	template<class T, class U>
-	constexpr bool cmp_greater_equal(T t, U u) noexcept
+	template<typename T, typename U>
+	class compare<false, T, U>
 	{
-		return !cmp_less(t, u);
-	}
+	public:
+		static constexpr bool in_range(U u_min, U u_max) noexcept
+		{
+			return ((u_min >= std::numeric_limits<T>::min()) &&(u_max <= std::numeric_limits<T>::max()));
+		}
+	};
+	template<typename T, typename U>
+	class compare<true, T, U>
+	{
+	private:
+		static constexpr  bool cmp_less(T t, U u) noexcept
+		{
+			if constexpr (std::is_signed_v<T> == std::is_signed_v<U>)
+				return t < u;
+			else if constexpr (std::is_signed_v<T>)
+				return t < 0 || std::make_unsigned_t<T>(t) < u;
+			else
+				return u >= 0 && t < std::make_unsigned_t<U>(u);
+		}
 
-	template<class R, class T>
-	constexpr bool in_range(T minVal, T maxVal) noexcept
+		static constexpr  bool cmp_greater(T t, U u) noexcept
+		{
+			return cmp_less(u, t);
+		}
+
+		static constexpr  bool cmp_less_equal(T t, U u) noexcept
+		{
+			return !cmp_less(u, t);
+		}
+
+		template<class T, class U>
+		static constexpr bool cmp_greater_equal(T t, U u) noexcept
+		{
+			return !cmp_less(t, u);
+		}
+
+	public:		
+		static constexpr bool in_range(U u) noexcept
+		{
+			return cmp_greater_equal(u, std::numeric_limits<T>::min()) &&
+				cmp_less_equal(u, std::numeric_limits<T>::max());
+		}
+
+		static constexpr bool in_range(U u_min, U u_max) noexcept
+		{
+			return cmp_greater_equal(u_min, std::numeric_limits<T>::min()) &&
+				cmp_less_equal(u_max, std::numeric_limits<T>::max());
+		}
+	};
+
+
+
+	template<typename R, typename T>
+	constexpr bool in_range(T u_min, T u_max) noexcept
 	{
-		static_assert(!std::is_floating_point<R>());
-		return cmp_greater_equal(minVal, std::numeric_limits<R>::min()) &&
-			cmp_less_equal(maxVal, std::numeric_limits<R>::max());
+		return compare<IntegerCompareSpecialization<R,T>::value, R, T>::in_range(u_min, u_max);
 	}
 
 	template<typename T>
 	bool is_integer(T value)
 	{
-		return ((value - static_cast<std::ptrdiff_t>(value)) < 1e-03);
+		return std::is_integral_v<T> || (value == std::round(value));
 	}
 	template<typename T>
 	bool contains_only_integers(const std::vector<T>& data)
 	{
+		if (std::is_integral_v<T>)
+			return true;
+
 		for (auto i = 0; i < data.size(); ++i)
 		{
 			if (!is_integer(data[i]))
@@ -78,9 +125,6 @@ namespace cpp20std
 		}
 		return true;
 	}
-}
-namespace H5Utils
-{
 
 	template<typename T>
 	H5::DataType getH5DataType()
@@ -122,8 +166,8 @@ namespace H5Utils
 		}
 		else
 		{
-			//assert(std::is_same_v<biovault::bfloat16_t, T>());
-			return H5::PredType::NATIVE_UINT16; // use in 10x Loader
+			if(std::is_same_v<biovault::bfloat16_t,T>)
+				return H5::PredType::NATIVE_UINT16; // use in 10x Loader
 		}
 		return H5::DataType();
 	}
@@ -379,9 +423,9 @@ namespace H5Utils
 					if (*(minmax_pair.first) < 0)
 					{
 						//signed
-						if (cpp20std::in_range<std::int8_t>(minVal, maxVal))
+						if (in_range<std::int8_t>(minVal, maxVal))
 						{
-							if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(numericalData))
+							if (is_integer(minVal) && is_integer(maxVal) && contains_only_integers(numericalData))
 							{
 								numericalMetadataDataset->setDataElementType<std::int8_t>();
 							}
@@ -391,9 +435,9 @@ namespace H5Utils
 									numericalMetadataDataset->setDataElementType<biovault::bfloat16_t>();
 							}
 						}
-						else if ((sizeOfT > 2) && cpp20std::in_range<std::int16_t>(minVal, maxVal))
+						else if ((sizeOfT > 2) && in_range<std::int16_t>(minVal, maxVal))
 						{
-							if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(numericalData))
+							if (is_integer(minVal) && is_integer(maxVal) && contains_only_integers(numericalData))
 							{
 								numericalMetadataDataset->setDataElementType<std::int16_t>();
 							}
@@ -407,9 +451,9 @@ namespace H5Utils
 					else
 					{
 						//unsigned
-						if (cpp20std::in_range<std::uint8_t>(minVal, maxVal))
+						if (in_range<std::uint8_t>(minVal, maxVal))
 						{
-							if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(numericalData))
+							if (is_integer(minVal) && is_integer(maxVal) && contains_only_integers(numericalData))
 							{
 								numericalMetadataDataset->setDataElementType<std::uint8_t>();
 							}
@@ -419,9 +463,9 @@ namespace H5Utils
 									numericalMetadataDataset->setDataElementType<biovault::bfloat16_t>();
 							}
 						}
-						else if ((sizeOfT > 2) && (cpp20std::in_range<std::uint16_t>(minVal, maxVal)))
+						else if ((sizeOfT > 2) && (in_range<std::uint16_t>(minVal, maxVal)))
 						{
-							if (cpp20std::is_integer(minVal) && cpp20std::is_integer(maxVal) && cpp20std::contains_only_integers(numericalData))
+							if (is_integer(minVal) && is_integer(maxVal) && contains_only_integers(numericalData))
 							{
 								numericalMetadataDataset->setDataElementType<std::uint16_t>();
 							}
