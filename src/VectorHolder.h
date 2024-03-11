@@ -14,7 +14,7 @@ namespace H5Utils
 			std::vector<std::int8_t>,
 			std::vector<std::uint8_t> >;
 
-		typedef std::vector<float> fallback_type;
+		typedef std::variant_alternative_t<0, VariantOfVectors> fallback_type;
 		VariantOfVectors _variantOfVectors;
 	public:
 		enum class ElementTypeSpecifier
