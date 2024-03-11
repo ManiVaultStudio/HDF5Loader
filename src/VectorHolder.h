@@ -116,7 +116,7 @@ namespace H5Utils
 			}
 			else
 			{
-				auto* fallback_vector = std::get_if<fallback_type>(_variantOfVectors);
+				fallback_type* fallback_vector = std::get_if<fallback_type>(_variantOfVectors);
 				if (fallback_vector)
 				{
 					//copy the values
