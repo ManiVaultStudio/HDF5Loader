@@ -198,7 +198,7 @@ namespace H5AD
 			loaderInfo._pointsDataset->setDataElementType<T>(); // not sure this is needed since we move data below but it shouldn't hurt either
 			loaderInfo._pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
 			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
-			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			//loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		}
 	}
 	void LoadData(const H5::DataSet& dataset, LoaderInfo &loaderInfo, int storageType)
@@ -630,7 +630,7 @@ namespace H5AD
 					while (numericalDatasetName[0] == '\\')
 						numericalDatasetName.remove(0, 1);
 					Dataset<Points> numericalDataset = mv::data().createDerivedDataset(numericalDatasetName, loaderInfo._pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
-					numericalDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+					//numericalDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 					data.visit([&numericalDataset](auto& vec) {
 						typedef typename std::decay_t<decltype(vec)> v;
 						numericalDataset->setDataElementType<typename v::value_type>();
@@ -821,8 +821,8 @@ namespace H5AD
 		}
 
 		// set sample names
-		if(loaderInfo._pointsDataset->getNumPoints() == loaderInfo._sampleNames.size())
-			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+		//if(loaderInfo._pointsDataset->getNumPoints() == loaderInfo._sampleNames.size())
+		//	loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		// set dimension names if not already set
 		if(loaderInfo._pointsDataset->getDimensionNames().empty() && loaderInfo._pointsDataset->getNumDimensions() == loaderInfo._originalDimensionNames.size())
 		{
@@ -903,7 +903,7 @@ namespace H5AD
 			}
 
 			Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, loaderInfo._pointsDataset, h5datasetName.c_str());
-			numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			//numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		}
 	}
 
@@ -1285,7 +1285,7 @@ namespace H5AD
 														dimensionNames[l] = QString::number(l + 1);
 													}
 													mv::Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(mdd.data, dimensionNames, false, loaderInfo._pointsDataset, baseString);
-													numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+													//numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 												}
 											}
 										}
@@ -1391,7 +1391,7 @@ namespace H5AD
 			else 
 				numericalMetaDataString = QString("Numerical Data (") + QString(h5GroupName.c_str()) + QString(")");
 			Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, loaderInfo._pointsDataset, numericalMetaDataString);
-			numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			//numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		}
 	}
 
