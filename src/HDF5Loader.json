@@ -1,6 +1,0 @@
-{
-    "name" : "HDF5 Loader",
-    "menuName" : "HDF5 (.h5, .tome, .h5ad)",
-    "version" : "1.0",
-    "dependencies" : ["Points"]
-}
