@@ -8,16 +8,16 @@ using namespace mv::plugin;
 // Factory
 // =============================================================================
 
-class H5ADLoaderFactory : public LoaderPluginFactory
+class H510XLoaderFactory : public LoaderPluginFactory
 {
 	Q_INTERFACES(mv::plugin::LoaderPluginFactory mv::plugin::PluginFactory)
 	Q_OBJECT
-	Q_PLUGIN_METADATA(	IID   "nl.lumc.HDF5Loader"
-						FILE  "HDF5Loader.json")
+	Q_PLUGIN_METADATA(	IID   "nl.lumc.H510XLoaderFactory"
+						FILE  "H510XLoader.json")
 
 public:
-	H5ADLoaderFactory(void) {}
-	~H5ADLoaderFactory(void) override {}
+	H510XLoaderFactory(void) {}
+	~H510XLoaderFactory(void) override {}
 
 	LoaderPlugin* produce() override;
 

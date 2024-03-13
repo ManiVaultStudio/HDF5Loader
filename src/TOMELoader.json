@@ -1,0 +1,6 @@
+{
+    "name" : "TOME Loader",
+    "menuName" : "HDF5 (.tome)",
+    "version" : "1.0",
+    "dependencies" : ["Points"]
+}

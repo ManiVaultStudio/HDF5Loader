@@ -1,16 +1,16 @@
-#include "H5ADLoaderFactory.h"
-#include "HDF5Loader.h"
+#include "TOMELoaderFactory.h"
+#include "TOMELoader.h"
 #include "DataType.h"
 // =============================================================================
 // Factory
 // =============================================================================
 
-LoaderPlugin* H5ADLoaderFactory::produce()
+LoaderPlugin* TOMELoaderFactory::produce()
 {
-	return new HDF5Loader(this);
+	return new TOMELoader(this);
 }
 
-mv::DataTypes H5ADLoaderFactory::supportedDataTypes() const
+mv::DataTypes TOMELoaderFactory::supportedDataTypes() const
 {
 	mv::DataTypes supportedTypes;
 	return supportedTypes;

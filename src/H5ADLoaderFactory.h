@@ -12,8 +12,8 @@ class H5ADLoaderFactory : public LoaderPluginFactory
 {
 	Q_INTERFACES(mv::plugin::LoaderPluginFactory mv::plugin::PluginFactory)
 	Q_OBJECT
-	Q_PLUGIN_METADATA(	IID   "nl.lumc.HDF5Loader"
-						FILE  "HDF5Loader.json")
+	Q_PLUGIN_METADATA(	IID   "nl.lumc.H5ADLoaderFactory"
+						FILE  "H5ADLoader.json")
 
 public:
 	H5ADLoaderFactory(void) {}
