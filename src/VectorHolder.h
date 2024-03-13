@@ -1,5 +1,11 @@
-#include <vector>
+#include <array>
+#include <cstdint>
+#include <cassert>
 #include <variant>
+#include <vector>
+
+#include <H5DataType.h>
+#include <H5PredType.h>
 
 namespace H5Utils
 {
@@ -14,7 +20,7 @@ namespace H5Utils
 			std::vector<std::int8_t>,
 			std::vector<std::uint8_t> >;
 
-		typedef std::vector<float> fallback_type;
+		typedef std::variant_alternative_t<0, VariantOfVectors> fallback_type;
 		VariantOfVectors _variantOfVectors;
 	public:
 		enum class ElementTypeSpecifier
@@ -116,13 +122,11 @@ namespace H5Utils
 			}
 			else
 			{
-				auto* fallback_vector = std::get_if<fallback_type>(_variantOfVectors);
-				if (fallback_vector)
-				{
+                if (std::holds_alternative<fallback_type>(_variantOfVectors)) {
+                    auto* fallback_vector = std::get<fallback_type>(_variantOfVectors); 
 					//copy the values
 					fallback_vector->assign(vec.cbegin(), vec.cend());
-				}
-				else
+                }
 				{
 					//throw bad_variant_access
 					std::get<std::vector<T>>(_variantOfVectors); 

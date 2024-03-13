@@ -22,8 +22,6 @@ namespace mv
 	class CoreInterface;
 }
 
-
-
 namespace H5Utils
 {
 	template<typename R, typename U>
@@ -79,7 +77,6 @@ namespace H5Utils
 			return !cmp_less(u, t);
 		}
 
-		template<class T, class U>
 		static constexpr bool cmp_greater_equal(T t, U u) noexcept
 		{
 			return !cmp_less(t, u);
@@ -99,8 +96,6 @@ namespace H5Utils
 		}
 	};
 
-
-
 	template<typename R, typename T>
 	constexpr bool in_range(T u_min, T u_max) noexcept
 	{
@@ -112,6 +107,7 @@ namespace H5Utils
 	{
 		return std::is_integral_v<T> || (value == std::round(value));
 	}
+
 	template<typename T>
 	bool contains_only_integers(const std::vector<T>& data)
 	{
@@ -172,7 +168,6 @@ namespace H5Utils
 		return H5::DataType();
 	}
 	
-
 	template<typename T>
 	class MultiDimensionalData
 	{
@@ -213,10 +208,6 @@ namespace H5Utils
 		return true;
 	}
 
-	
-
-	
-	
 	template<typename T>
 	bool read_vector(H5::Group &group, const std::string &name, std::vector<T>*vector_ptr)
 	{
@@ -307,12 +298,8 @@ namespace H5Utils
 
 	bool is_number(const std::string& s);
 	bool is_number(const QString& s);
-	
-
 
 	bool read_vector_string(H5::Group group, const std::string& name, std::vector<std::string>& result);
-	
-
 
 	class CompoundExtractor
 	{
@@ -511,10 +498,7 @@ namespace H5Utils
 		return mv::Dataset<Points>();
 	}
 
-	
 	void addClusterMetaData(std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>(), QString prefix = QString());
 
-
-	
 }
 
