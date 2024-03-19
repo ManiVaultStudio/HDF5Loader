@@ -120,7 +120,7 @@ void TOMELoader::loadData()
 
 	TRANSFORM::Control transform(fileDialogLayout);
 
-	
+#ifdef USE_HDF5_TRANSFORM
 	QCheckBox normalizeCheck("yes");
 	QLabel normalizeLabel(QString("Normalize to CPM: "));
 	fileDialogLayout->addWidget(&normalizeLabel, rowCount, 0);
@@ -130,7 +130,7 @@ void TOMELoader::loadData()
 		const auto value = settings.value(Keys::normalizeKey);
 		return value.isValid() && value.toBool();
 	}());
-	
+#endif	
 
 	IfValid(settings.value(Keys::conversionIndexKey), [&transform, &settings](const QVariant& value)
 	{
@@ -165,25 +165,9 @@ void TOMELoader::loadData()
 			fileDialogRef.selectFile(value.toString());
 	});
 
-	const auto onFilterSelected = [&normalizeCheck, &normalizeLabel, &transform](const QString& nameFilter)
-	{
-		const bool isTomeSelected{ true };
-		
+	transform.setVisible(true);
 
-		normalizeCheck.setVisible(isTomeSelected);
-		normalizeLabel.setVisible(isTomeSelected);
-		
-
-		
-		
-		
-		transform.setVisible(true);
-
-		
-	};
-
-	QObject::connect(&_fileDialog, &QFileDialog::filterSelected, onFilterSelected);
-	onFilterSelected(_fileDialog.selectedNameFilter());
+	
 
 	if (_fileDialog.exec())
 	{
@@ -198,7 +182,11 @@ void TOMELoader::loadData()
 		bool result = true;
 		QString selectedNameFilter = _fileDialog.selectedNameFilter();
 		const TRANSFORM::Type transform_setting = transform.get();
+#ifdef USE_HDF5_TRANSFORM
 		const bool normalize = normalizeCheck.isChecked();
+#else
+		const bool normalize = false;
+#endif
 
 		settings.setValue(Keys::conversionIndexKey, transform_setting.first);
 		settings.setValue(Keys::transformValueKey, transform_setting.second);

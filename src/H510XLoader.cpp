@@ -179,23 +179,14 @@ void H510XLoader::loadData()
 			fileDialogRef.selectFile(value.toString());
 		});
 
-	const auto onFilterSelected = [ &storageTypeComboBox, &storageTypeLabel, &transform](const QString& nameFilter)
-	{
-		const bool isTomeSelected{ false};
-		const bool isH5ADSelected{ false };
-
-		storageTypeComboBox->setVisible(isH5ADSelected);
-		storageTypeLabel->setVisible(isH5ADSelected);
-
-		
-		transform.setVisible(!isH5ADSelected);
+	// keeping storageTypeComboBox for now since we probably should implement this functionality
+	storageTypeComboBox->setVisible(false);
+	storageTypeLabel->setVisible(false);
 
 
-	};
-
-	QObject::connect(&_fileDialog, &QFileDialog::filterSelected, onFilterSelected);
-	onFilterSelected(_fileDialog.selectedNameFilter());
+	transform.setVisible(true);
 	transform.setTransform(0);
+
 	if (_fileDialog.exec())
 	{
 		QStringList fileNames = _fileDialog.selectedFiles();

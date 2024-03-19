@@ -148,20 +148,8 @@ void H5ADLoader::loadData()
 			fileDialogRef.selectFile(value.toString());
 	});
 
-	const auto onFilterSelected = [ &storageTypeComboBox, &storageTypeLabel](const QString& nameFilter)
-	{
-		
-
-		
-		
-
-		
-		storageTypeComboBox->setVisible(true);
-		storageTypeLabel->setVisible(true);
-	};
-
-	QObject::connect(&_fileDialog, &QFileDialog::filterSelected, onFilterSelected);
-	onFilterSelected(_fileDialog.selectedNameFilter());
+	storageTypeComboBox->setVisible(true);
+	storageTypeLabel->setVisible(true);
 
 	if (_fileDialog.exec())
 	{

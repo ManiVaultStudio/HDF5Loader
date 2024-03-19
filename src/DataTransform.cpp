@@ -6,7 +6,7 @@
 #include <QLineEdit>
 #include <QLabel>
 
-//#define USE_HDF5_TRANSFORM
+
 
 namespace TRANSFORM
 {
