@@ -12,7 +12,7 @@ using namespace mv::plugin;
 
 
 
-class HDF5Loader :  public LoaderPlugin
+class H510XLoader :  public LoaderPlugin
 {
 	QFileDialog _fileDialog;
 
@@ -23,8 +23,8 @@ protected:
 public:
 	
 	
-    HDF5Loader(PluginFactory* factory);
-    ~HDF5Loader() Q_DECL_OVERRIDE;
+	H510XLoader(PluginFactory* factory);
+    ~H510XLoader() Q_DECL_OVERRIDE;
 
     void init() Q_DECL_OVERRIDE;
 

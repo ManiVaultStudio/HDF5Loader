@@ -1,0 +1,6 @@
+{
+    "name" : "TOME Loader",
+    "menuName" : "TOME (.tome)",
+    "version" : "1.0",
+    "dependencies" : ["Points"]
+}

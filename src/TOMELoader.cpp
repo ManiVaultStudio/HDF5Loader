@@ -1,9 +1,7 @@
-#include "HDF5Loader.h"
+#include "TOMELoader.h"
 
 #include "DataTransform.h"
 #include "HDF5_TOME_Loader.h"
-#include "HDF5_10X_Loader.h"
-#include "HDF5_AD_Loader.h"
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QGridLayout>
@@ -18,7 +16,7 @@
 #include "QMessageBox"
 
 
-Q_PLUGIN_METADATA(IID "nl.lumc.HDF5Loader")
+Q_PLUGIN_METADATA(IID "nl.lumc.TOMELoader")
 
 // =============================================================================
 // Loader
@@ -75,26 +73,24 @@ namespace
 
 
 
-HDF5Loader::HDF5Loader(PluginFactory* factory)
+TOMELoader::TOMELoader(PluginFactory* factory)
     : LoaderPlugin(factory)
 	
 {
 	
 }
 
-HDF5Loader::~HDF5Loader(void)
+TOMELoader::~TOMELoader(void)
 {
 	
 }
 
 
-void HDF5Loader::init()
+void TOMELoader::init()
 {
 	
 	QStringList fileTypeOptions;
 	fileTypeOptions.append("TOME (*.tome)");
-	fileTypeOptions.append("10X (*.h5)");
-	fileTypeOptions.append("H5AD (*.h5ad)");
 	_fileDialog.setOption(QFileDialog::DontUseNativeDialog);
 	_fileDialog.setFileMode(QFileDialog::ExistingFiles);
 	_fileDialog.setNameFilters(fileTypeOptions);
@@ -105,47 +101,26 @@ void HDF5Loader::init()
 }
 
 
-void HDF5Loader::loadData()
+void TOMELoader::loadData()
 {
 	if (Hdf5Lock())
 	{
-		QMessageBox::information(nullptr, "HDF5 Loader is busy", "The HDF5 Loader is already loading a file. You cannot load another file until loading has completed.");
+		QMessageBox::information(nullptr, "TOME Loader is busy", "The TOME Loader is already loading a file. You cannot load another file until loading has completed.");
 		return;
 	};
 	LockGuard lockGuard(Hdf5Lock());
 	
-	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/HDF5Loader"));
+	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/TOMELoader"));
 	QGridLayout* fileDialogLayout = dynamic_cast<QGridLayout*>(_fileDialog.layout());
 
 	int rowCount = fileDialogLayout->rowCount();
 
-	QComboBox *storageTypeComboBox = new QComboBox;
-	QLabel* storageTypeLabel = new QLabel("Data Type");
-
-	storageTypeComboBox->addItem("Optimized (lossless)", -3);
-	storageTypeComboBox->addItem("Optimized (incl bfloat16)", -2);
-	storageTypeComboBox->addItem("Original", -1);
-	auto elementTypeNames = PointData::getElementTypeNames();
-	QStringList dataTypeList(elementTypeNames.cbegin(), elementTypeNames.cend());
-	for (int i = 0; i < dataTypeList.size(); ++i)
-	{
-		storageTypeComboBox->addItem(dataTypeList[i], i);
-	}
 	
-	storageTypeComboBox->setCurrentIndex([&settings]
-	{
-		const auto value = settings.value(Keys::storageValueKey);
-		if (value.isValid())return value.toInt();
-		return 0;
-	}());
-		
-	fileDialogLayout->addWidget(storageTypeLabel, rowCount, 0);
-	fileDialogLayout->addWidget(storageTypeComboBox, rowCount, 1);
-
+	
 
 	TRANSFORM::Control transform(fileDialogLayout);
 
-	
+#ifdef USE_HDF5_TRANSFORM
 	QCheckBox normalizeCheck("yes");
 	QLabel normalizeLabel(QString("Normalize to CPM: "));
 	fileDialogLayout->addWidget(&normalizeLabel, rowCount, 0);
@@ -155,7 +130,7 @@ void HDF5Loader::loadData()
 		const auto value = settings.value(Keys::normalizeKey);
 		return value.isValid() && value.toBool();
 	}());
-	
+#endif	
 
 	IfValid(settings.value(Keys::conversionIndexKey), [&transform, &settings](const QVariant& value)
 	{
@@ -190,26 +165,9 @@ void HDF5Loader::loadData()
 			fileDialogRef.selectFile(value.toString());
 	});
 
-	const auto onFilterSelected = [&normalizeCheck, &normalizeLabel, &storageTypeComboBox, &storageTypeLabel, &transform](const QString& nameFilter)
-	{
-		const bool isTomeSelected{ nameFilter == "TOME (*.tome)" };
-		const bool isH5ADSelected{ nameFilter == "H5AD (*.h5ad)" };
+	transform.setVisible(true);
 
-		normalizeCheck.setVisible(isTomeSelected);
-		normalizeLabel.setVisible(isTomeSelected);
-		
-
-		
-		storageTypeComboBox->setVisible(isH5ADSelected);
-		storageTypeLabel->setVisible(isH5ADSelected);
-		
-		transform.setVisible(!isH5ADSelected);
-
-		
-	};
-
-	QObject::connect(&_fileDialog, &QFileDialog::filterSelected, onFilterSelected);
-	onFilterSelected(_fileDialog.selectedNameFilter());
+	
 
 	if (_fileDialog.exec())
 	{
@@ -224,10 +182,13 @@ void HDF5Loader::loadData()
 		bool result = true;
 		QString selectedNameFilter = _fileDialog.selectedNameFilter();
 		const TRANSFORM::Type transform_setting = transform.get();
+#ifdef USE_HDF5_TRANSFORM
 		const bool normalize = normalizeCheck.isChecked();
+#else
+		const bool normalize = false;
+#endif
 
 		settings.setValue(Keys::conversionIndexKey, transform_setting.first);
-		settings.setValue(Keys::storageValueKey,  storageTypeComboBox->currentIndex());
 		settings.setValue(Keys::transformValueKey, transform_setting.second);
 		settings.setValue(Keys::fileNameKey, firstFileName);
 		settings.setValue(Keys::normalizeKey, normalize);
@@ -242,37 +203,7 @@ void HDF5Loader::loadData()
 				loader.open(firstFileName, transform_setting, normalize);
 			}
 		}
-		else if (selectedNameFilter == "10X (*.h5)")
-		{
-			for (const auto fileName : fileNames)
-			{
-				HDF5_10X_Loader loader(_core);
-				if (loader.open(fileName))
-				{
-					loader.load(transform_setting, 0);
-				}
-				else
-				{
-					QString mesg = "Could not open " + fileName + ". Make sure the file has the correct file extension and is not corrupted.";
-					QMessageBox::critical(nullptr, "Error loading file(s)", mesg);
-				}
-			}
-		}
-		else if (selectedNameFilter == "H5AD (*.h5ad)")
-		{
-			HDF5_AD_Loader loader(_core);
-			for (const auto fileName : fileNames)
-			{
-				if (loader.open(fileName))
-					loader.load(storageTypeComboBox->currentData().toInt());
-				else
-				{
-					QString mesg = "Could not open " + fileName + ". Make sure the file has the correct file extension and is not corrupted.";
-					QMessageBox::critical(nullptr, "Error loading file(s)", mesg);
-				}
-			}
 		
-		}
 	}
 }
 

@@ -101,20 +101,23 @@ class HDF5LoaderConan(ConanFile):
             generator = "Xcode"
         if self.settings.os == "Linux":
             generator = "Ninja Multi-Config"
-        # Use the Qt provided .cmake files
-        qtpath = pathlib.Path(self.deps_cpp_info["qt"].rootpath)
-        qt_root = str(list(qtpath.glob("**/Qt6Config.cmake"))[0].parents[3].as_posix())
 
         tc = CMakeToolchain(self, generator=generator)
         if self.settings.os == "Windows" and self.options.shared:
             tc.variables["CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS"] = True
         if self.settings.os == "Linux" or self.settings.os == "Macos":
             tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = "ON"
-        prefix_path = qt_root
+            
+        # Use the Qt provided .cmake files    
+        qtpath = pathlib.Path(self.deps_cpp_info["qt"].rootpath)
+        qt_root = str(list(qtpath.glob("**/Qt6Config.cmake"))[0].parents[3].as_posix())
+        tc.variables["Qt6_ROOT"] = f"{qt_root}"
+
         if os_info.is_macos:
             proc = subprocess.run("brew --prefix libomp",  shell=True, capture_output=True)
             prefix_path = prefix_path + f";{proc.stdout.decode('UTF-8').strip()}"
-        tc.variables["CMAKE_PREFIX_PATH"] = prefix_path
+            tc.variables["CMAKE_PREFIX_PATH"] = prefix_path
+            
         tc.variables["USE_HDF5_ARTIFACTORY_LIBS"] = "ON"
         tc.variables[
             "CMAKE_BUILD_PARALLEL_LEVEL"

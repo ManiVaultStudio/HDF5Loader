@@ -5,18 +5,24 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QLabel>
+
+
+
 namespace TRANSFORM
 {
 
 	void Control::currentOptionChanged(int option)
 	{
+#ifdef USE_HDF5_TRANSFORM
 		m_value->setText(m_option->currentData().toString());
 		m_value->setHidden(option != TRANSFORM::ARCSIN5);
 		m_postLabel->setHidden(option != TRANSFORM::ARCSIN5);
+#endif
 	}
 
 	void Control::valueChanged()
 	{
+#ifdef USE_HDF5_TRANSFORM
 		if (m_value->hasAcceptableInput())
 		{
 			bool ok = false;
@@ -37,10 +43,12 @@ namespace TRANSFORM
 		}
 		QMessageBox::warning(nullptr, "Invalid Value", m_value->toolTip());
 		m_value->setText(m_option->currentData().toString());
+#endif
 	}
 
 	Control::Control(QGridLayout* layout)
 	{
+#ifdef USE_HDF5_TRANSFORM
 		assert(layout);
 		const int row = layout->rowCount();
 
@@ -55,7 +63,7 @@ namespace TRANSFORM
 		m_option->addItem("Arcsinh(Value/", 5.0f);
 		m_option->setItemData(TRANSFORM::ARCSIN5, QVariant(), Qt::SizeHintRole);
 		
-		m_option->setCurrentIndex(0);
+		
 		
 		connect(m_option, SIGNAL(currentIndexChanged(int)), this, SLOT(currentOptionChanged(int)));
 		optionLayout->addWidget(m_option, 0, 0);
@@ -68,32 +76,38 @@ namespace TRANSFORM
 		m_value->setText("0.0");
 		m_value->setValidator(doubleValidator);
 		connect(m_value, &QLineEdit::editingFinished, this, &Control::valueChanged);
-
+		
 		optionLayout->addWidget(m_value, 0, 1);
 
 		m_postLabel = new QLabel(")");
 		optionLayout->addWidget(m_postLabel, 0, 2);
 
-		m_value->hide();
-		m_postLabel->hide();
-
+		m_value->setHidden(true);
+		m_postLabel->setHidden(true);
+		
 
 		layout->addLayout(optionLayout, row, 1);
+
+		m_option->setCurrentIndex(0);
+#endif
 	}
 
 	
 	
 	void Control::set(Type& type_pair)
 	{
+#ifdef USE_HDF5_TRANSFORM
 		m_option->setCurrentIndex(type_pair.first);
 		m_option->setItemData(type_pair.first,type_pair.second);
 		m_value->setText(QString::number(type_pair.second));
 		currentOptionChanged(type_pair.first);
 		valueChanged();
+#endif
 	}
 
 	Type Control::get() const
 	{
+#ifdef USE_HDF5_TRANSFORM
 		switch (m_option->currentIndex())
 		{
 		case TRANSFORM::NONE: return std::make_pair(TRANSFORM::NONE, m_option->currentData().toDouble());
@@ -103,12 +117,24 @@ namespace TRANSFORM
 
 		default: return std::make_pair(TRANSFORM::NONE, 0.0f);
 		}
+#else
+		return std::make_pair(TRANSFORM::NONE, 0.0f);
+#endif
 	}
 
+	void Control::setTransform(int transform)
+	{
+#ifdef USE_HDF5_TRANSFORM
+		m_option->setCurrentIndex(transform);
+		currentOptionChanged(transform);
+#endif
+	}
 	void Control::setVisible(bool value)
 	{
+#ifdef USE_HDF5_TRANSFORM
 		if (m_option) m_option->setVisible(value);
 		if (m_value) m_value->setVisible(value);
 		if (m_postLabel) m_postLabel->setVisible(value);
+#endif
 	};
 }

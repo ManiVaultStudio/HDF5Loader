@@ -1,16 +1,16 @@
-#include "HDF5LoaderFactory.h"
-#include "HDF5Loader.h"
+#include "H5ADLoaderFactory.h"
+#include "H5ADLoader.h"
 #include "DataType.h"
 // =============================================================================
 // Factory
 // =============================================================================
 
-LoaderPlugin* HDF5LoaderFactory::produce()
+LoaderPlugin* H5ADLoaderFactory::produce()
 {
-	return new HDF5Loader(this);
+	return new H5ADLoader(this);
 }
 
-mv::DataTypes HDF5LoaderFactory::supportedDataTypes() const
+mv::DataTypes H5ADLoaderFactory::supportedDataTypes() const
 {
 	mv::DataTypes supportedTypes;
 	return supportedTypes;

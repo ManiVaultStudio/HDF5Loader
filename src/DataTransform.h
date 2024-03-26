@@ -6,6 +6,8 @@ class QLineEdit;
 class QLabel;
 class QGridLayout;
 
+//#define USE_HDF5_TRANSFORM
+
 namespace TRANSFORM
 {
 	typedef enum { NONE, LOG, SQRT, ARCSIN5} Index;
@@ -28,6 +30,7 @@ namespace TRANSFORM
 		Control(QGridLayout* layout);
 		Type get() const;
 		void set(Type&);
+		void setTransform(int);
 		void setVisible(bool);
 	};
 }
