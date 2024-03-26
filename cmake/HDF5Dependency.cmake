@@ -2,6 +2,11 @@
 SET(hdf5_VERSION "1.14.2" CACHE STRING "Version of HDF5 Library")
 SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.2)
 
+set(USE_HDF5_ARTIFACTORY_LIBS FALSE CACHE BOOL "Use the prebuilt libraries from artifactory")
+if(NOT USE_HDF5_ARTIFACTORY_LIBS)
+	set(HDF5_ARTIFACTORY_LIBS_INSTALLED FALSE CACHE BOOL "The prebuild libraries from artifactory are installed")
+endif()
+
 include(InstallArtifactoryPackage)
 set(LIBRARY_INSTALL_DIR ${PROJECT_BINARY_DIR})
 if (USE_HDF5_ARTIFACTORY_LIBS)
@@ -41,16 +46,30 @@ else()
 	set(HDF5_GIT_TAG  "hdf5-${hdf5_UNDERSCORE_VERSION}")
 	set(git_stash_save_options --all --quiet)
 	
+	get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+	if(is_multi_config)	    
+	   message(STATUS "Multi-Config Generator")
+	   set(HDF5_LIB_PATH "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>")
+	else()
+	    message(STATUS "Single-Config Generator")
+	   set(HDF5_LIB_PATH "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/")
+	endif()    
 	if(MSVC)
-	set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
+		set(ZLIB_LIBRARIES "${HDF5_LIB_PATH}/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>")
+		set(HDF5_CXX_STATIC_LIBRARY "${HDF5_LIB_PATH}/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>")
+		set(HDF5_C_STATIC_LIBRARY "${HDF5_LIB_PATH}/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>")
 	endif(MSVC)
 	if(APPLE)
-	set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_debug.a>$<$<CONFIG:Release>:libhdf5.a>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_debug.a>$<$<CONFIG:Release>:libhdf5_cpp.a>" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/libz.a"  "${EXECUTABLE_OUTPUT_PATH}/$<CONFIG>")
+		set(ZLIB_LIBRARIES "${HDF5_LIB_PATH}/libz.a")
+		set(HDF5_CXX_STATIC_LIBRARY "${HDF5_LIB_PATH}/$<$<CONFIG:Debug>:libhdf5_cpp_debug.a>$<$<CONFIG:Release>:libhdf5_cpp.a>")
+		set(HDF5_C_STATIC_LIBRARY "${HDF5_LIB_PATH}/$<$<CONFIG:Debug>:libhdf5_debug.a>$<$<CONFIG:Release>:libhdf5.a>")			
 	endif(APPLE)
 	if(LINUX)
-	set(HDF5_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5_cpp.a" "${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libz.a"  "${EXECUTABLE_OUTPUT_PATH}")
+		set(ZLIB_LIBRARIES "${HDF5_LIB_PATH}/libz.a")
+		set(HDF5_CXX_STATIC_LIBRARY "${HDF5_LIB_PATH}/libhdf5_cpp.a")
+		set(HDF5_C_STATIC_LIBRARY "${HDF5_LIB_PATH}/libhdf5.a")
 	endif(LINUX)
-
+	
 	ExternalProject_Add(hdf5
 	GIT_REPOSITORY https://github.com/HDFGroup/hdf5.git
 	GIT_TAG ${HDF5_GIT_TAG}
@@ -75,8 +94,10 @@ else()
 	-DZLIB_BRANCH=master
 
 	INSTALL_COMMAND ""
+	BUILD_BYPRODUCTS  ${HDF5_C_STATIC_LIBRARY} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES}
 	)
 
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
 	SET(HDF5_INCLUDE_DIR ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
 endif()
+

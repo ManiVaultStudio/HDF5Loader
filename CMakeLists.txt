@@ -42,41 +42,41 @@ file(TO_CMAKE_PATH ${MV_INSTALL_DIR} MV_INSTALL_DIR)
 
 find_package(Qt6 COMPONENTS Widgets WebEngineWidgets REQUIRED)
 
-set(USE_HDF5_ARTIFACTORY_LIBS FALSE CACHE BOOL "Use the prebuilt libraries from artifactory")
-if(NOT USE_HDF5_ARTIFACTORY_LIBS)
-	set(HDF5_ARTIFACTORY_LIBS_INSTALLED FALSE CACHE BOOL "The prebuild libraries from artifactory are installed")
-endif()
 
+set(DATATRANSFORM_SOURCES
+	src/DataTransform.cpp	
+	src/DataTransform.h
+)
+set(DATATRANSFORM_MOC_HEADERS
+	src/DataTransform.h
+)
 
 set(SHARED_SOURCES
 	
 	src/DataContainerInterface.cpp	
 	src/H5Utils.cpp	
-	src/DataTransform.cpp	
+	
 )
 
 set(SHARED_HEADERS
 	src/DataContainerInterface.h
 	src/H5Utils.h
-	src/DataTransform.h
+	
 	src/VectorHolder.h
 )
 
-set(SHARED_MOC_HEADERS
-	src/DataTransform.h
-)
 
-source_group(${PROJECT} FILES ${SHARED_HEADERS} ${SHARED_SOURCES})
-add_library(${PROJECT} STATIC ${SHARED_SOURCES})
-qt_wrap_cpp(SHARED_MOC ${SHARED_MOC_HEADERS} TARGET ${PROJECT})
-target_sources(${PROJECT} PRIVATE ${SHARED_MOC} )
 
-SET_PROPERTY(TARGET ${PROJECT} PROPERTY FOLDER ${LOADERFOLDER})
+source_group(${PROJECT} FILES ${SHARED_HEADERS} ${SHARED_SOURCES} ${DATATRANSFORM_SOURCES})
+qt_wrap_cpp(DATATRANSFORM_MOC ${DATATRANSFORM_MOC_HEADERS})
+
+
+#SET_PROPERTY(TARGET ${PROJECT} PROPERTY FOLDER ${LOADERFOLDER})
+#set_target_properties(${PROJECT} PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${PROJECT}${CMAKE_STATIC_LIBRARY_SUFFIX})
 
 ## BEGIN H510X Loader
 
 set(H510X_SOURCES
-
 	src/HDF5_10X_Loader.h
 	src/HDF5_10X_Loader.cpp
 
@@ -93,9 +93,9 @@ set(H510X_MOC_HEADERS
 )
 
 source_group(H510XLoader FILES ${H510X_SOURCES})
-add_library(${H510XPROJECT} SHARED ${H510X_SOURCES})
+add_library(${H510XPROJECT} SHARED ${H510X_SOURCES} ${SHARED_SOURCES} ${SHARED_HEADERS} ${DATATRANSFORM_SOURCES})
 qt_wrap_cpp(H510XLOADER_MOC ${H510X_MOC_HEADERS} TARGET ${H510XPROJECT})
-target_sources(${H510XPROJECT} PRIVATE ${H510XLOADER_MOC})
+target_sources(${H510XPROJECT} PRIVATE ${H510XLOADER_MOC} ${DATATRANSFORM_MOC}) 
 
 SET_PROPERTY(TARGET ${H510XPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 ## END H510X Loader
@@ -122,8 +122,8 @@ set(H5AD_MOC_HEADERS
 )
 
 source_group( H5ADLoader FILES ${H5AD_SOURCES})
-add_library(${H5ADPROJECT} SHARED ${H5AD_SOURCES} )
-qt_wrap_cpp(H5ADLOADER_MOC ${H5AD_MOC_HEADERS}  TARGET ${H5ADPROJECT})
+add_library(${H5ADPROJECT} SHARED ${H5AD_SOURCES} ${SHARED_SOURCES} ${SHARED_HEADERS})
+qt_wrap_cpp(H5ADLOADER_MOC ${H5AD_MOC_HEADERS} TARGET ${H5ADPROJECT})
 target_sources(${H5ADPROJECT} PRIVATE ${H5ADLOADER_MOC})
 
 SET_PROPERTY(TARGET ${H5ADPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
@@ -131,7 +131,6 @@ SET_PROPERTY(TARGET ${H5ADPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 
 ## BEGIN TOME Loader
 set(TOME_SOURCES
-
 	src/HDF5_TOME_Loader.h
 	src/HDF5_TOME_Loader.cpp
 
@@ -148,9 +147,9 @@ set(TOME_MOC_HEADERS
 )
 
 source_group( TOMELoader FILES ${TOME_SOURCES})
-add_library(${TOMEPROJECT} SHARED ${TOME_SOURCES})
-qt_wrap_cpp(TOMELOADER_MOC ${TOME_MOC_HEADERS} TARGET ${TOMEPROJECT})
-target_sources(${TOMEPROJECT} PRIVATE ${TOMELOADER_MOC} ${SHARED_MOC})
+add_library(${TOMEPROJECT} SHARED ${TOME_SOURCES} ${SHARED_SOURCES} ${SHARED_HEADERS} ${DATATRANSFORM_SOURCES})
+qt_wrap_cpp(TOMELOADER_MOC ${TOME_MOC_HEADERS}   TARGET ${TOMEPROJECT})
+target_sources(${TOMEPROJECT} PRIVATE ${TOMELOADER_MOC} ${DATATRANSFORM_MOC})
 
 SET_PROPERTY(TARGET ${TOMEPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 ## END TOME Loader
@@ -177,8 +176,8 @@ message(STATUS ${BINARY_DIR})
 
 function(SetBuildSettings PROJNAME)
 
-target_include_directories(${PROJNAME} PRIVATE ${HDF5_INCLUDE_DIR})
-target_include_directories(${PROJNAME} PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/include/")
+	target_include_directories(${PROJNAME} PRIVATE ${HDF5_INCLUDE_DIR})
+	target_include_directories(${PROJNAME} PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/include/")
 
 	find_package(OpenMP REQUIRED)
 	if(OpenMP_FOUND)
@@ -207,17 +206,11 @@ target_include_directories(${PROJNAME} PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/incl
 	target_link_libraries(${PROJNAME} "${POINTDATA_LINK_LIBRARY}")
 	target_link_libraries(${PROJNAME} "${CLUSTERDATA_LINK_LIBRARY}")
 
-
+	
 	if (NOT USE_HDF5_ARTIFACTORY_LIBS)
-		if(MSVC)
-			target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:zlibstaticd.lib>$<$<CONFIG:Release>:zlibstatic.lib>)
-			target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_cpp_D.lib>$<$<CONFIG:Release>:libhdf5_cpp.lib>)
-			target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/$<CONFIG>/$<$<CONFIG:Debug>:libhdf5_D.lib>$<$<CONFIG:Release>:libhdf5.lib>)
-		else()
-			target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libz${CMAKE_STATIC_LIBRARY_SUFFIX})
-			target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5_cpp${CMAKE_STATIC_LIBRARY_SUFFIX})
-			target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/${HDF5_PREFIX}/src/hdf5-build/bin/libhdf5${CMAKE_STATIC_LIBRARY_SUFFIX})
-		endif()
+	    file(GENERATE OUTPUT hdf5_linking_files_${PROJNAME}_$<CONFIG>.txt CONTENT ${HDF5_C_STATIC_LIBRARY})
+		message(STATUS "Linking with   ${HDF5_CXX_STATIC_LIBRARY} and ${ZLIB_LIBRARIES}")
+		target_link_libraries(${PROJNAME} ${HDF5_C_STATIC_LIBRARY} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
 	else()
 		message(status "find_package searching zlib at ${HDF5_ZLIB_ROOT}")
 		set(ZLIB_ROOT ${HDF5_ZLIB_ROOT})
@@ -236,8 +229,8 @@ target_include_directories(${PROJNAME} PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/incl
 endfunction()
 
 function(SetPluginSettings PROJNAME)
-	add_dependencies(${PROJNAME} ${PROJECT})
-	target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${PROJECT}${CMAKE_STATIC_LIBRARY_SUFFIX})
+#	add_dependencies(${PROJNAME} ${PROJECT})
+#	target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT}${CMAKE_STATIC_LIBRARY_SUFFIX})
 
 	install(TARGETS ${PROJNAME}
 		RUNTIME DESTINATION Plugins COMPONENT ${PROJNAME} # Windows .dll
@@ -256,7 +249,7 @@ function(SetPluginSettings PROJNAME)
 endfunction()
 
 
-SetBuildSettings(${PROJECT})
+#SetBuildSettings(${PROJECT})
 SetBuildSettings(${H5ADPROJECT})
 SetBuildSettings(${H510XPROJECT})
 SetBuildSettings(${TOMEPROJECT})
@@ -267,6 +260,6 @@ SetPluginSettings(${TOMEPROJECT})
 
 # Automatically set the debug environment (command + working directory) for MSVC
 	if(MSVC)
-		set_property(TARGET ${PROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${MV_INSTALL_DIR}/debug,${MV_INSTALL_DIR}/release>)
-		set_property(TARGET ${PROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,"${MV_INSTALL_DIR}/debug/ManiVault Studio.exe","${MV_INSTALL_DIR}/release/ManiVault Studio.exe">)
+		set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${MV_INSTALL_DIR}/debug,${MV_INSTALL_DIR}/release>)
+		set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,"${MV_INSTALL_DIR}/debug/ManiVault Studio.exe","${MV_INSTALL_DIR}/release/ManiVault Studio.exe">)
 	endif()
