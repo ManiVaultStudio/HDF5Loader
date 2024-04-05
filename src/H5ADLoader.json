@@ -1,6 +1,6 @@
 {
     "name" : "H5AD Loader",
     "menuName" : "H5AD (.h5ad)",
-    "version" : "1.0",
+    "version" : "1.2",
     "dependencies" : ["Points"]
 }
