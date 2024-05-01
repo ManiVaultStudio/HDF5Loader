@@ -115,7 +115,7 @@ class HDF5LoaderConan(ConanFile):
 
         if os_info.is_macos:
             proc = subprocess.run("brew --prefix libomp",  shell=True, capture_output=True)
-            prefix_path = prefix_path + f";{proc.stdout.decode('UTF-8').strip()}"
+            prefix_path = f";{proc.stdout.decode('UTF-8').strip()}"
             tc.variables["CMAKE_PREFIX_PATH"] = prefix_path
             
         tc.variables["USE_HDF5_ARTIFACTORY_LIBS"] = "ON"
