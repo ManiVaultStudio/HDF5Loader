@@ -52,7 +52,15 @@ jobs:
             build-os: Macos
             build-xcode-version: 13.4
             build-libcxx: libc++
-            
+
+          - name: Macos_xcode14.3
+            os: macos-13
+            build-compiler: apple-clang
+            build-cversion: 14
+            build-config: Release
+            build-os: Macos
+            build-xcode-version: 14.3
+            build-libcxx: libc++            
     steps:
       - name: Checkout the source
         if: ${{ github.event_name != 'pull_request'}}
@@ -76,7 +84,7 @@ jobs:
       - name: Setup python 3 version
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.11'
           architecture: x64
 
       - name: Start ssh key agent
