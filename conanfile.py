@@ -121,9 +121,11 @@ class HDF5LoaderConan(ConanFile):
         tc.variables["Qt6_ROOT"] = f"{qt_root}"
 
         if os_info.is_macos:
-            proc = subprocess.run("brew --prefix libomp",  shell=True, capture_output=True)
+            proc = subprocess.run(
+                "brew --prefix libomp", shell=True, capture_output=True
+            )
             prefix_path = f"{proc.stdout.decode('UTF-8').strip()}"
-            tc.variables["CMAKE_PREFIX_PATH"] = prefix_path
+            tc.variables["OpenMP_ROOT"] = prefix_path
             
         tc.variables["USE_HDF5_ARTIFACTORY_LIBS"] = "ON"
         tc.variables[
