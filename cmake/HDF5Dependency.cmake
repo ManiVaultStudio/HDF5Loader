@@ -2,28 +2,19 @@
 SET(hdf5_VERSION "1.14.2" CACHE STRING "Version of HDF5 Library")
 SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.2)
 
-include(FetchContent)
-FetchContent_Declare(cmakesupport
-	GIT_REPOSITORY https://github.com/ManiVaultStudio/github-actions
-	GIT_TAG main
-	GIT_SHALLOW TRUE
-	SOURCE_SUBDIR CMakeSupport
-)
-FetchContent_MakeAvailable(cmakesupport)
-
 set(USE_HDF5_ARTIFACTORY_LIBS FALSE CACHE BOOL "Use the prebuilt libraries from artifactory")
 if(NOT USE_HDF5_ARTIFACTORY_LIBS)
 	set(HDF5_ARTIFACTORY_LIBS_INSTALLED FALSE CACHE BOOL "The prebuild libraries from artifactory are installed")
 endif()
 
-include("${cmakesupport_SOURCE_DIR}/CMakeSupport/InstallArtifactoryPackage.cmake")
+include(InstallArtifactoryPackage)
 set(LIBRARY_INSTALL_DIR ${PROJECT_BINARY_DIR})
 if (USE_HDF5_ARTIFACTORY_LIBS)
 	if (NOT HDF5_ARTIFACTORY_LIBS_INSTALLED) 
 		message(STATUS "Installing artifactory packages to: ${LIBRARY_INSTALL_DIR}")
 		# Both HDILib and flann are available prebuilt in the lkeb-artifactory as combined Debug/Release packages
 		# lz4 is also available in the lkb-artifactory in separate Debug and |Release packages
-		install_artifactory_package(hdf5 ${hdf5_VERSION} lkeb TRUE) 
+		install_artifactory_package(PACKAGE_NAME hdf5 PACKAGE_VERSION ${hdf5_VERSION} PACKAGE_BUILDER lkeb COMBINED_PACKAGE TRUE) 
 
 		message(STATUS "HDF5 root path ${hdf5_ROOT}")
 	endif()
@@ -104,4 +95,3 @@ else()
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
 	SET(HDF5_INCLUDE_DIR ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
 endif()
-
