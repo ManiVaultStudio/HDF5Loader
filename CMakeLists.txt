@@ -23,14 +23,16 @@ SET_PROPERTY(CACHE MANIVAULT_API_VERSION PROPERTY STRINGS Old New)
 add_compile_definitions(MANIVAULT_API_${MANIVAULT_API_VERSION})
 
 include(HDF5Dependency)
-
+message(STATUS "Msvc settings")
 include(MSVCSettings)
-
 
 if (APPLE)
 	# set(BREW_PATH "brew" CACHE FILEPATH "the path to the brew that matches the target build architecture (m1 or x86_64" )
 	# execute_process(COMMAND ${BREW_PATH} --prefix libomp RESULT_VARIABLE LIBOMP_ROOT)
-	set(OpenMP_ROOT "/usr/local/homebrew/opt/libomp")
+	# In CI OpenMP_ROOT is set by conan
+	if(NOT DEFINED OpenMP_ROOT)
+		set(OpenMP_ROOT "/usr/local/homebrew/opt/libomp")
+	endif()
 endif ()
 
 # Check if the directory to the ManiVault installation has been provided
@@ -42,20 +44,14 @@ file(TO_CMAKE_PATH ${MV_INSTALL_DIR} MV_INSTALL_DIR)
 
 find_package(Qt6 COMPONENTS Widgets WebEngineWidgets REQUIRED)
 
-
 set(DATATRANSFORM_SOURCES
 	src/DataTransform.cpp	
 	src/DataTransform.h
 )
-set(DATATRANSFORM_MOC_HEADERS
-	src/DataTransform.h
-)
 
 set(SHARED_SOURCES
-	
 	src/DataContainerInterface.cpp	
 	src/H5Utils.cpp	
-	
 )
 
 set(SHARED_HEADERS
@@ -65,14 +61,7 @@ set(SHARED_HEADERS
 	src/VectorHolder.h
 )
 
-
-
 source_group(${PROJECT} FILES ${SHARED_HEADERS} ${SHARED_SOURCES} ${DATATRANSFORM_SOURCES})
-qt_wrap_cpp(DATATRANSFORM_MOC ${DATATRANSFORM_MOC_HEADERS})
-
-
-#SET_PROPERTY(TARGET ${PROJECT} PROPERTY FOLDER ${LOADERFOLDER})
-#set_target_properties(${PROJECT} PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${PROJECT}${CMAKE_STATIC_LIBRARY_SUFFIX})
 
 ## BEGIN H510X Loader
 
@@ -88,14 +77,8 @@ set(H510X_SOURCES
 	src/H510XLoaderFactory.cpp
 )
 
-set(H510X_MOC_HEADERS
-	src/H510XLoaderFactory.h
-)
-
 source_group(H510XLoader FILES ${H510X_SOURCES})
 add_library(${H510XPROJECT} SHARED ${H510X_SOURCES} ${SHARED_SOURCES} ${SHARED_HEADERS} ${DATATRANSFORM_SOURCES})
-qt_wrap_cpp(H510XLOADER_MOC ${H510X_MOC_HEADERS} TARGET ${H510XPROJECT})
-target_sources(${H510XPROJECT} PRIVATE ${H510XLOADER_MOC} ${DATATRANSFORM_MOC}) 
 
 SET_PROPERTY(TARGET ${H510XPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 ## END H510X Loader
@@ -117,14 +100,8 @@ set(H5AD_SOURCES
 	
 )
 
-set(H5AD_MOC_HEADERS
-	src/H5ADLoaderFactory.h
-)
-
 source_group( H5ADLoader FILES ${H5AD_SOURCES})
 add_library(${H5ADPROJECT} SHARED ${H5AD_SOURCES} ${SHARED_SOURCES} ${SHARED_HEADERS})
-qt_wrap_cpp(H5ADLOADER_MOC ${H5AD_MOC_HEADERS} TARGET ${H5ADPROJECT})
-target_sources(${H5ADPROJECT} PRIVATE ${H5ADLOADER_MOC})
 
 SET_PROPERTY(TARGET ${H5ADPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 ## END H5AD Loader
@@ -142,22 +119,11 @@ set(TOME_SOURCES
 	src/TOMELoaderFactory.cpp
 )
 
-set(TOME_MOC_HEADERS
-	src/TOMELoaderFactory.h
-)
-
 source_group( TOMELoader FILES ${TOME_SOURCES})
 add_library(${TOMEPROJECT} SHARED ${TOME_SOURCES} ${SHARED_SOURCES} ${SHARED_HEADERS} ${DATATRANSFORM_SOURCES})
-qt_wrap_cpp(TOMELOADER_MOC ${TOME_MOC_HEADERS}   TARGET ${TOMEPROJECT})
-target_sources(${TOMEPROJECT} PRIVATE ${TOMELOADER_MOC} ${DATATRANSFORM_MOC})
 
 SET_PROPERTY(TARGET ${TOMEPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 ## END TOME Loader
-
-
-
-
-
 
 set(MV_LINK_PATH "${MV_INSTALL_DIR}/$<CONFIG>/lib")
 set(PLUGIN_LINK_PATH "${MV_INSTALL_DIR}/$<CONFIG>/$<IF:$<CXX_COMPILER_ID:MSVC>,lib,Plugins>")
@@ -167,12 +133,8 @@ set(MV_LINK_LIBRARY "${MV_LINK_PATH}/${CMAKE_SHARED_LIBRARY_PREFIX}MV_Public${MV
 set(POINTDATA_LINK_LIBRARY "${PLUGIN_LINK_PATH}/${CMAKE_SHARED_LIBRARY_PREFIX}PointData${MV_LINK_SUFFIX}") 
 set(CLUSTERDATA_LINK_LIBRARY "${PLUGIN_LINK_PATH}/${CMAKE_SHARED_LIBRARY_PREFIX}ClusterData${MV_LINK_SUFFIX}") 
 
-
 message(STATUS ${SOURCE_DIR})
 message(STATUS ${BINARY_DIR})
-
-
-
 
 function(SetBuildSettings PROJNAME)
 
