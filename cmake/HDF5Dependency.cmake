@@ -28,11 +28,6 @@ if (USE_HDF5_ARTIFACTORY_LIBS)
 	#endforeach()
 	message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
 	set(ARTIFACTORY_LIBS_INSTALLED TRUE CACHE BOOL "Use the prebuilt libraries from artifactory" FORCE)
-	message(status "hdf5 include ${HDF5_INCLUDE_DIR}")
-
-
-
-
 	
 else()
 	# Het HDF5 with ZLIB

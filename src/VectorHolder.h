@@ -3,6 +3,7 @@
 #include <cassert>
 #include <variant>
 #include <vector>
+#include <type_traits>
 
 #include <H5DataType.h>
 #include <H5PredType.h>
@@ -112,28 +113,21 @@ namespace H5Utils
 
 		VectorHolder() = default;
 
-		template <typename T>
+		template<typename T>
+		using is_allowed_type = std::disjunction<
+			std::is_same<T, float>,
+			std::is_same<T, biovault::bfloat16_t>,
+			std::is_same<T, std::int16_t>,
+			std::is_same<T, std::uint16_t>,
+			std::is_same<T, std::int8_t>,
+			std::is_same<T, std::uint8_t>
+		>;
+
+		template <typename T, typename = std::enable_if_t<is_allowed_type<T>::value>>
 		explicit VectorHolder(const std::vector<T>& vec)
 		{
-			auto* supported_vector = std::get_if<std::vector<T>>(_variantOfVectors);
-			if (supported_vector)
-			{
-				*supported_vector = vec;
-			}
-			else
-			{
-                if (std::holds_alternative<fallback_type>(_variantOfVectors)) {
-                    auto* fallback_vector = std::get<fallback_type>(_variantOfVectors); 
-					//copy the values
-					fallback_vector->assign(vec.cbegin(), vec.cend());
-                }
-				{
-					//throw bad_variant_access
-					std::get<std::vector<T>>(_variantOfVectors); 
-				}
-			}
+			std::get<std::vector<T>>(_variantOfVectors) = vec;
 		}
-
 
 		/// Explicit constructor that efficiently "moves" the specified vector
 		/// into the internal data structure. Ensures that the element type

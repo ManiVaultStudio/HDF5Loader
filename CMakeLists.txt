@@ -23,14 +23,17 @@ SET_PROPERTY(CACHE MANIVAULT_API_VERSION PROPERTY STRINGS Old New)
 add_compile_definitions(MANIVAULT_API_${MANIVAULT_API_VERSION})
 
 include(HDF5Dependency)
-
+message(STATUS "Msvc settings")
 include(MSVCSettings)
 
 
 if (APPLE)
 	# set(BREW_PATH "brew" CACHE FILEPATH "the path to the brew that matches the target build architecture (m1 or x86_64" )
 	# execute_process(COMMAND ${BREW_PATH} --prefix libomp RESULT_VARIABLE LIBOMP_ROOT)
-	set(OpenMP_ROOT "/usr/local/homebrew/opt/libomp")
+	# In CI OpenMP_ROOT is set by conan
+	if(NOT DEFINED OpenMP_ROOT)
+		set(OpenMP_ROOT "/usr/local/homebrew/opt/libomp")
+	endif()
 endif ()
 
 # Check if the directory to the ManiVault installation has been provided
@@ -47,9 +50,9 @@ set(DATATRANSFORM_SOURCES
 	src/DataTransform.cpp	
 	src/DataTransform.h
 )
-set(DATATRANSFORM_MOC_HEADERS
-	src/DataTransform.h
-)
+#set(DATATRANSFORM_MOC_HEADERS
+#	src/DataTransform.h
+#)
 
 set(SHARED_SOURCES
 	
@@ -68,7 +71,7 @@ set(SHARED_HEADERS
 
 
 source_group(${PROJECT} FILES ${SHARED_HEADERS} ${SHARED_SOURCES} ${DATATRANSFORM_SOURCES})
-qt_wrap_cpp(DATATRANSFORM_MOC ${DATATRANSFORM_MOC_HEADERS})
+#qt_wrap_cpp(DATATRANSFORM_MOC ${DATATRANSFORM_MOC_HEADERS})
 
 
 #SET_PROPERTY(TARGET ${PROJECT} PROPERTY FOLDER ${LOADERFOLDER})
@@ -88,9 +91,9 @@ set(H510X_SOURCES
 	src/H510XLoaderFactory.cpp
 )
 
-set(H510X_MOC_HEADERS
-	src/H510XLoaderFactory.h
-)
+#set(H510X_MOC_HEADERS
+#	src/H510XLoaderFactory.h
+#)
 
 source_group(H510XLoader FILES ${H510X_SOURCES})
 add_library(${H510XPROJECT} SHARED ${H510X_SOURCES} ${SHARED_SOURCES} ${SHARED_HEADERS} ${DATATRANSFORM_SOURCES})
