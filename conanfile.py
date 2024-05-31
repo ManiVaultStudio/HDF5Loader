@@ -158,8 +158,8 @@ class HDF5LoaderConan(ConanFile):
         shutil.copytree(hdps_pkg_root, self.install_dir)
 
         cmake = self._configure_cmake()
-        #cmake.build(build_type="Debug", cli_args=["--verbose"])
-        #cmake.install(build_type="Debug")
+        cmake.build(build_type="Debug", cli_args=["--verbose"])
+        cmake.install(build_type="Debug")
 
         # cmake_release = self._configure_cmake()
         cmake.build(build_type="Release")
@@ -168,17 +168,17 @@ class HDF5LoaderConan(ConanFile):
     def package(self):
         package_dir = os.path.join(self.build_folder, "package")
         print("Packaging install dir: ", package_dir)
-        #subprocess.run(
-        #    [
-        #        "cmake",
-        #        "--install",
-        #        self.build_folder,
-        #        "--config",
-        #        "Debug",
-        #        "--prefix",
-        #        os.path.join(package_dir, "Debug"),
-        #    ]
-        #)
+        subprocess.run(
+           [
+               "cmake",
+               "--install",
+               self.build_folder,
+               "--config",
+               "Debug",
+               "--prefix",
+               os.path.join(package_dir, "Debug"),
+           ]
+        )
         subprocess.run(
             [
                 "cmake",
