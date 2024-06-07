@@ -168,17 +168,17 @@ class HDF5LoaderConan(ConanFile):
     def package(self):
         package_dir = os.path.join(self.build_folder, "package")
         print("Packaging install dir: ", package_dir)
-        #subprocess.run(
-        #    [
-        #        "cmake",
-        #        "--install",
-        #        self.build_folder,
-        #        "--config",
-        #        "Debug",
-        #        "--prefix",
-        #        os.path.join(package_dir, "Debug"),
-        #    ]
-        #)
+        subprocess.run(
+           [
+               "cmake",
+               "--install",
+               self.build_folder,
+               "--config",
+               "Debug",
+               "--prefix",
+               os.path.join(package_dir, "Debug"),
+           ]
+        )
         subprocess.run(
             [
                 "cmake",
