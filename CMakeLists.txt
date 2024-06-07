@@ -168,17 +168,14 @@ function(SetBuildSettings PROJNAME)
 	target_link_libraries(${PROJNAME} "${POINTDATA_LINK_LIBRARY}")
 	target_link_libraries(${PROJNAME} "${CLUSTERDATA_LINK_LIBRARY}")
 
-	
+	message(status "************Define target linkage***********")
 	if (NOT USE_HDF5_ARTIFACTORY_LIBS)
 	    file(GENERATE OUTPUT hdf5_linking_files_${PROJNAME}_$<CONFIG>.txt CONTENT ${HDF5_C_STATIC_LIBRARY})
 		message(STATUS "Linking with   ${HDF5_CXX_STATIC_LIBRARY} and ${ZLIB_LIBRARIES}")
 		target_link_libraries(${PROJNAME} ${HDF5_C_STATIC_LIBRARY} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
 	else()
-		message(status "find_package searching zlib at ${HDF5_ZLIB_ROOT}")
-		set(ZLIB_ROOT ${HDF5_ZLIB_ROOT})
-		find_package (ZLIB REQUIRED)
-		message(STATUS "Linking with ${HDF5_CXX_LIBRARIES} ${HDF5_LIBRARIES} and ${ZLIB_LIBRARIES}")
-		target_link_libraries (${PROJNAME} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
+		message(STATUS "Linking with ${HDF5_CXX_STATIC_LIBRARY} and ${HDF5_ZLIB_STATIC}")  
+		target_link_libraries (${PROJNAME} ${HDF5_CXX_STATIC_LIBRARY} ${HDF5_ZLIB_STATIC}) 
 	endif()
 
 

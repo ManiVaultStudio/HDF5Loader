@@ -2,32 +2,44 @@
 SET(hdf5_VERSION "1.14.2" CACHE STRING "Version of HDF5 Library")
 SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.2)
 
-set(USE_HDF5_ARTIFACTORY_LIBS FALSE CACHE BOOL "Use the prebuilt libraries from artifactory")
-if(NOT USE_HDF5_ARTIFACTORY_LIBS)
-	set(HDF5_ARTIFACTORY_LIBS_INSTALLED FALSE CACHE BOOL "The prebuild libraries from artifactory are installed")
-endif()
+include(FetchContent)
+FetchContent_Declare(cmakesupport
+	GIT_REPOSITORY https://github.com/ManiVaultStudio/github-actions
+	GIT_TAG main
+	GIT_SHALLOW TRUE
+	SOURCE_SUBDIR CMakeSupport
+)
+FetchContent_MakeAvailable(cmakesupport)
 
-include(InstallArtifactoryPackage)
+option(USE_HDF5_ARTIFACTORY_LIBS "Use the prebuilt libraries from artifactory" ON)
+		
+# include(InstallArtifactoryPackage)
+include("${cmakesupport_SOURCE_DIR}/CMakeSupport/InstallArtifactoryPackage.cmake")
 set(LIBRARY_INSTALL_DIR ${PROJECT_BINARY_DIR})
-if (USE_HDF5_ARTIFACTORY_LIBS)
+if (USE_HDF5_ARTIFACTORY_LIBS)			
 	if (NOT HDF5_ARTIFACTORY_LIBS_INSTALLED) 
 		message(STATUS "Installing artifactory packages to: ${LIBRARY_INSTALL_DIR}")
 		# Both HDILib and flann are available prebuilt in the lkeb-artifactory as combined Debug/Release packages
-		# lz4 is also available in the lkb-artifactory in separate Debug and |Release packages
-		install_artifactory_package(PACKAGE_NAME hdf5 PACKAGE_VERSION ${hdf5_VERSION} PACKAGE_BUILDER lkeb COMBINED_PACKAGE TRUE) 
-
-		message(STATUS "HDF5 root path ${hdf5_ROOT}")
+		# For simplicity zlib is included in the hdf5 artifactory package
+		install_artifactory_package(hdf5 ${hdf5_VERSION} lkeb TRUE)
+	else()
+		set(hdf5_ROOT ${CMAKE_CURRENT_BINARY_DIR}/hdf5) 
 	endif()
-	set(HDF5_ROOT ${LIBRARY_INSTALL_DIR}/${package_name})
+	message(status " hdf5_ROOT : ${hdf5_ROOT}")
 	set(HDF5_USE_STATIC_LIBRARIES TRUE)
-	find_package(HDF5 COMPONENTS CXX C static REQUIRED NO_MODULE)
-	#get_cmake_property(_variableNames VARIABLES)
-	#list (SORT _variableNames)
-	#foreach (_variableName ${_variableNames})
-	#		message(STATUS "${_variableName}=${${_variableName}}")
-	#endforeach()
-	message(STATUS "Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}")
-	set(ARTIFACTORY_LIBS_INSTALLED TRUE CACHE BOOL "Use the prebuilt libraries from artifactory" FORCE)
+	# Use the hdf5 and its companion zlib which is included in the downloaded package
+	find_package(HDF5 ${hdf5_VERSION} COMPONENTS CXX C static REQUIRED NO_MODULE HINTS "${hdf5_ROOT}")
+	find_package(ZLIB COMPONENTS static REQUIRED NO_MODULE HINTS "${hdf5_ROOT}")
+	set(HDF5_ZLIB_STATIC "hdf5::zlib-static")
+
+	# For DEBUG
+	# get_cmake_property(_variableNames VARIABLES)
+	# list (SORT _variableNames)
+	# foreach (_variableName ${_variableNames})
+	# 		message(STATUS "${_variableName}=${${_variableName}}")
+	# endforeach()
+	message(STATUS "***************Include for HDF5 at ${HDF5_INCLUDE_DIR} - version ${HDF5_VERSION_STRING}****************")
+	set(HDF5_ARTIFACTORY_LIBS_INSTALLED TRUE CACHE BOOL "Use the prebuilt libraries from artifactory" FORCE)
 	
 else()
 	# Het HDF5 with ZLIB
