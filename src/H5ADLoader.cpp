@@ -49,6 +49,7 @@ namespace
 	namespace Keys
 	{
 		const QLatin1String storageValueKey("storageValue");
+		const QLatin1String dataStorageValueKey("dataStorageValue");
 		const QLatin1String fileNameKey("fileName");
 	
 		const QLatin1String selectedNameFilterKey("selectedNameFilter");
@@ -112,29 +113,44 @@ void H5ADLoader::loadData()
 
 	int rowCount = fileDialogLayout->rowCount();
 
-	QComboBox *storageTypeComboBox = new QComboBox;
-	QLabel* storageTypeLabel = new QLabel("Data Type");
+	QComboBox *dataTypeComboBox = new QComboBox;
+	QLabel* dataTypeLabel = new QLabel("Data Type");
 
-	storageTypeComboBox->addItem("Optimized (lossless)", -3);
-	storageTypeComboBox->addItem("Optimized (incl bfloat16)", -2);
-	storageTypeComboBox->addItem("Original", -1);
+	dataTypeComboBox->addItem("Optimized (lossless)", -3);
+	dataTypeComboBox->addItem("Optimized (incl bfloat16)", -2);
+	dataTypeComboBox->addItem("Original", -1);
 	auto elementTypeNames = PointData::getElementTypeNames();
 	QStringList dataTypeList(elementTypeNames.cbegin(), elementTypeNames.cend());
 	for (int i = 0; i < dataTypeList.size(); ++i)
 	{
-		storageTypeComboBox->addItem(dataTypeList[i], i);
+		dataTypeComboBox->addItem(dataTypeList[i], i);
 	}
 	
-	storageTypeComboBox->setCurrentIndex([&settings]
+	dataTypeComboBox->setCurrentIndex([&settings]
 	{
 		const auto value = settings.value(Keys::storageValueKey);
 		if (value.isValid())return value.toInt();
 		return 0;
 	}());
 		
-	fileDialogLayout->addWidget(storageTypeLabel, rowCount, 0);
-	fileDialogLayout->addWidget(storageTypeComboBox, rowCount, 1);
+	fileDialogLayout->addWidget(dataTypeLabel, rowCount, 0);
+	fileDialogLayout->addWidget(dataTypeComboBox, rowCount++, 1);
 
+
+	QComboBox* dataStorageComboBox = new QComboBox;
+	QLabel* dataStorageLabel = new QLabel("Data Storage");
+	dataStorageComboBox->addItem("Native", 0);
+	dataStorageComboBox->addItem("Always Dense",1);
+
+	dataStorageComboBox->setCurrentIndex([&settings]
+		{
+			const auto value = settings.value(Keys::dataStorageValueKey);
+			if (value.isValid())return value.toInt();
+			return 0;
+		}());
+
+	fileDialogLayout->addWidget(dataStorageLabel, rowCount, 0);
+	fileDialogLayout->addWidget(dataStorageComboBox, rowCount++, 1);
 
 	
 
@@ -148,8 +164,10 @@ void H5ADLoader::loadData()
 			fileDialogRef.selectFile(value.toString());
 	});
 
-	storageTypeComboBox->setVisible(true);
-	storageTypeLabel->setVisible(true);
+	dataTypeComboBox->setVisible(true);
+	dataTypeLabel->setVisible(true);
+	dataStorageComboBox->setVisible(true);
+	dataStorageLabel->setVisible(true);
 
 	if (_fileDialog.exec())
 	{
@@ -164,7 +182,8 @@ void H5ADLoader::loadData()
 		bool result = true;
 		QString selectedNameFilter = _fileDialog.selectedNameFilter();
 		
-		settings.setValue(Keys::storageValueKey,  storageTypeComboBox->currentIndex());
+		settings.setValue(Keys::storageValueKey,  dataTypeComboBox->currentIndex());
+		settings.setValue(Keys::dataStorageValueKey, dataStorageComboBox->currentIndex());
 		settings.setValue(Keys::fileNameKey, firstFileName);
 		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
 		
@@ -173,7 +192,7 @@ void H5ADLoader::loadData()
 		for (const auto fileName : fileNames)
 		{
 			if (loader.open(fileName))
-				loader.load(storageTypeComboBox->currentData().toInt());
+				loader.load(dataTypeComboBox->currentData().toInt(), dataStorageComboBox->currentData().toInt());
 			else
 			{
 				QString mesg = "Could not open " + fileName + ". Make sure the file has the correct file extension and is not corrupted.";

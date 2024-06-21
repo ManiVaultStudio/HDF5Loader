@@ -322,7 +322,7 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 	
  }
 
-bool HDF5_AD_Loader::load(int storageType)
+bool HDF5_AD_Loader::load(int dataElementType, int dataStorageType)
 {
 	
 	if (_file == nullptr)
@@ -398,8 +398,9 @@ bool HDF5_AD_Loader::load(int storageType)
 		loaderInfo._pointsDataset = pointsDataset;
 		loaderInfo._originalDimensionNames = _dimensionNames;
 		loaderInfo._sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
-
-		if (!H5AD::load_X(_file, loaderInfo, storageType))
+		loaderInfo._dataELementType = dataElementType;
+		loaderInfo._dataStorageType = dataStorageType;
+		if (!H5AD::load_X(_file, loaderInfo))
 		{
 			mv::data().removeDataset(pointsDataset);
 			_dimensionNames.clear();
@@ -427,13 +428,13 @@ bool HDF5_AD_Loader::load(int storageType)
 					if (objectType1 == H5G_DATASET)
 					{
 						H5::DataSet h5Dataset = _file->openDataSet(objectName1);
-						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo, storageType);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo, dataElementType);
 							
 					}
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group h5Group = _file->openGroup(objectName1);
-						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo, storageType);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo, dataElementType);
 					}
 				}
 			}

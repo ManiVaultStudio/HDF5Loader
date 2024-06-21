@@ -13,6 +13,8 @@ namespace H5AD
 		QVariantList _sampleNames;
 		std::vector<bool> _enabledDimensions;
 		std::vector<std::ptrdiff_t> _selectedDimensionsLUT;
+		int _dataStorageType;
+		int _dataELementType;
 	};
 
 	void CreateColorVector(std::size_t nrOfColors, std::vector<QColor>& colors);
@@ -34,7 +36,7 @@ namespace H5AD
 
 	bool LoadCodedCategories(H5::Group& group, std::map<QString, std::vector<unsigned>>& result);
 
-	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, LoaderInfo &loaderInfo, int storage_type);
+	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, LoaderInfo &loaderInfo);
 
 	
 	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo, int storage_type);

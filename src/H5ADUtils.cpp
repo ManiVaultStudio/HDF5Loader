@@ -262,8 +262,8 @@ namespace H5AD
 		bool result = true;
 		
 		std::vector<T> data;
-		std::vector<std::uint64_t> indices;
-		std::vector<std::uint32_t> indptr;
+		std::vector<mv::CSRMatrix<T>::column_index_type> indices;
+		std::vector<std::size_t> indptr;
 		std::vector<biovault::bfloat16_t> bf16data;
 		
 
@@ -450,19 +450,40 @@ namespace H5AD
 
 		if (result)
 		{
-			if(data.empty() && bf16data.size())
-				pointsDataset->setDataElementType<biovault::bfloat16_t>();
-			else
-				pointsDataset->setDataElementType<T>();
-			DataContainerInterface dci(pointsDataset);
 			std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
 			std::uint64_t ysize = selectedDimensionNames.size();
-			dci.resize(xsize, ysize);
-			if (data.empty() && bf16data.size())
-				dci.set_sparse_row_data(indices, indptr, bf16data, TRANSFORM::None());
+
+			if(datasetInfo._dataStorageType == 0)
+			{
+				if (data.empty() && bf16data.size())
+				{
+					mv::CSRMatrix<biovault::bfloat16_t> matrix(xsize, ysize, std::move(indptr), std::move(indices), std::move(bf16data));
+					pointsDataset->setMatrix(std::move(matrix));
+				}
+				else
+				{
+					mv::CSRMatrix<T> matrix(xsize, ysize, std::move(indptr), std::move(indices), std::move(data));
+					pointsDataset->setMatrix(std::move(matrix));
+				}
+				
+			}
 			else
-				dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
-			pointsDataset->setDimensionNames(selectedDimensionNames);
+			{
+				if (data.empty() && bf16data.size())
+					pointsDataset->setDataElementType<biovault::bfloat16_t>();
+				else
+					pointsDataset->setDataElementType<T>();
+				DataContainerInterface dci(pointsDataset);
+				std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
+				std::uint64_t ysize = selectedDimensionNames.size();
+				dci.resize(xsize, ysize);
+				if (data.empty() && bf16data.size())
+					dci.set_sparse_row_data<std::uint16_t, std::size_t, biovault::bfloat16_t>(indices, indptr, bf16data, TRANSFORM::None());
+				else
+					dci.set_sparse_row_data<std::uint16_t, std::size_t, T>(indices, indptr, data, TRANSFORM::None());
+				pointsDataset->setDimensionNames(selectedDimensionNames);
+			}
+			
 		}
 
 		
@@ -605,24 +626,24 @@ namespace H5AD
 		if (nrOfObjects > 2)
 		{
 			H5Utils::VectorHolder data;
-			H5Utils::VectorHolder indices;
-			H5Utils::VectorHolder indptr;
+			std::vector<CSRMatrix<float>::column_index_type> indices;
+			std::vector<std::size_t> indptr;
 
 			containsSparseMatrix = H5Utils::read_vector(group, "data", data);
 			if (containsSparseMatrix)
-				containsSparseMatrix &= H5Utils::read_vector(group, "indices", indices);
+				containsSparseMatrix &= H5Utils::read_vector(group, "indices", &indices);
 			if (containsSparseMatrix)
-				containsSparseMatrix &= H5Utils::read_vector(group, "indptr", indptr);
+				containsSparseMatrix &= H5Utils::read_vector(group, "indptr", &indptr);
 
 			if (containsSparseMatrix)
 			{
-				std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
-				if (xsize == loaderInfo._pointsDataset->getNumPoints())
+				std::uint64_t rows = indptr.size() > 0 ? indptr.size() - 1 : 0;
+				if (rows == loaderInfo._pointsDataset->getNumPoints())
 				{
-					std::uint64_t ysize = indices.visit<std::uint64_t>([](auto& vec) { return *std::max_element(vec.cbegin(), vec.cend()); }) + 1;
+					std::uint64_t dimensionSize = (*std::max_element(indices.cbegin(), indices.cend())) + 1;
 
-					std::vector<QString> dimensionNames(ysize);
-					for (std::size_t l = 0; l < ysize; ++l)
+					std::vector<QString> dimensionNames(dimensionSize);
+					for (std::size_t l = 0; l < dimensionSize; ++l)
 						dimensionNames[l] = QString::number(l);
 					QString numericalDatasetName = QString(h5groupName.c_str()) /* + " (numerical)" */;
 					while (numericalDatasetName[0] == '/')
@@ -630,19 +651,33 @@ namespace H5AD
 					while (numericalDatasetName[0] == '\\')
 						numericalDatasetName.remove(0, 1);
 					Dataset<Points> numericalDataset = mv::data().createDerivedDataset(numericalDatasetName, loaderInfo._pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
-					numericalDataset->setProperty("Sample Names", loaderInfo._sampleNames);
-					data.visit([&numericalDataset](auto& vec) {
-						typedef typename std::decay_t<decltype(vec)> v;
-						numericalDataset->setDataElementType<typename v::value_type>();
-						});
-
-
 					events().notifyDatasetAdded(numericalDataset);
-					DataContainerInterface dci(numericalDataset);
-					dci.resize(xsize, ysize);
-					dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+					numericalDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 
+					if (loaderInfo._dataStorageType == 0)
+					{
+						data.visit([&numericalDataset, rows, dimensionSize, &indptr, &indices](auto& vec) {
+							typedef typename std::decay_t<decltype(vec)> v;
+							mv::CSRMatrix<v::value_type> matrix(rows, dimensionSize, std::move(indptr), std::move(indices), std::move(vec));
+							numericalDataset->setMatrix(std::move(matrix));
+							});
+					}
+					else
+					{
+						data.visit([&numericalDataset, rows, dimensionSize, &indptr, &indices](auto& vec) {
+							typedef typename std::decay_t<decltype(vec)> v;
+							numericalDataset->setDataElementType<typename v::value_type>();
+							DataContainerInterface dci(numericalDataset);
+							dci.resize(rows, dimensionSize);
+							dci.set_sparse_row_data(indices, indptr, vec, TRANSFORM::None());
+							});
+						
+						
+						
 
+					}
+
+					
 					numericalDataset->setDimensionNames(dimensionNames);
 
 #ifdef MANIVAULT_API_Old
@@ -774,7 +809,7 @@ namespace H5AD
 
 
 
-	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, LoaderInfo &loaderInfo, int storageType)
+	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, LoaderInfo &loaderInfo)
 	{
 		try
 		{
@@ -792,7 +827,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::DataSet dataset = h5fILE->openDataSet(objectName1);
-						H5AD::LoadData(dataset, loaderInfo, storageType);
+						H5AD::LoadData(dataset, loaderInfo, loaderInfo._dataELementType);
 						break;
 
 					}
@@ -802,7 +837,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						H5AD::LoadData(group, loaderInfo, storageType);
+						H5AD::LoadData(group, loaderInfo, loaderInfo._dataELementType);
 						break;
 					}
 				}
