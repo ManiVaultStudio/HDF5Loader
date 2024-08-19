@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.24.0)
 message(STATUS "Building with cmake version ${CMAKE_VERSION}")
 
+# -----------------------------------------------------------------------------
+# HDF5 Loader Plugin
+# -----------------------------------------------------------------------------
 set(LOADERFOLDER "HDF5Loaders")
 set(PROJECT "HDF5Loader")
 set(H510XPROJECT "H510XLoader")
@@ -9,6 +12,9 @@ set(TOMEPROJECT "TOMELoader")
 
 PROJECT(${PROJECT})
 
+# -----------------------------------------------------------------------------
+# CMake Options
+# -----------------------------------------------------------------------------
 SET_PROPERTY(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -16,34 +22,20 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 
 # -----------------------------------------------------------------------------
-# Library versions
+# Dependencies
 # -----------------------------------------------------------------------------
-SET(MANIVAULT_API_VERSION "New" CACHE STRING "ManiVault API Version")
-SET_PROPERTY(CACHE MANIVAULT_API_VERSION PROPERTY STRINGS Old New)
-add_compile_definitions(MANIVAULT_API_${MANIVAULT_API_VERSION})
+find_package(Qt6 COMPONENTS Widgets WebEngineWidgets REQUIRED)
+find_package(OpenMP REQUIRED)
+
+find_package(ManiVault COMPONENTS Core PointData ClusterData CONFIG)
 
 include(HDF5Dependency)
 message(STATUS "Msvc settings")
 include(MSVCSettings)
 
-if (APPLE)
-	# set(BREW_PATH "brew" CACHE FILEPATH "the path to the brew that matches the target build architecture (m1 or x86_64" )
-	# execute_process(COMMAND ${BREW_PATH} --prefix libomp RESULT_VARIABLE LIBOMP_ROOT)
-	# In CI OpenMP_ROOT is set by conan
-	if(NOT DEFINED OpenMP_ROOT)
-		set(OpenMP_ROOT "/usr/local/homebrew/opt/libomp")
-	endif()
-endif ()
-
-# Check if the directory to the ManiVault installation has been provided
-if(NOT DEFINED MV_INSTALL_DIR)
-    set(MV_INSTALL_DIR "" CACHE PATH "Directory where ManiVault is installed")
-    message(FATAL_ERROR "Please set MV_INSTALL_DIR to the directory where ManiVault is installed")
-endif()
-file(TO_CMAKE_PATH ${MV_INSTALL_DIR} MV_INSTALL_DIR)
-
-find_package(Qt6 COMPONENTS Widgets WebEngineWidgets REQUIRED)
-
+# -----------------------------------------------------------------------------
+# Source files and CMake targets
+# -----------------------------------------------------------------------------
 set(DATATRANSFORM_SOURCES
 	src/DataTransform.cpp	
 	src/DataTransform.h
@@ -125,30 +117,19 @@ add_library(${TOMEPROJECT} SHARED ${TOME_SOURCES} ${SHARED_SOURCES} ${SHARED_HEA
 SET_PROPERTY(TARGET ${TOMEPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 ## END TOME Loader
 
-set(MV_LINK_PATH "${MV_INSTALL_DIR}/$<CONFIG>/lib")
-set(PLUGIN_LINK_PATH "${MV_INSTALL_DIR}/$<CONFIG>/$<IF:$<CXX_COMPILER_ID:MSVC>,lib,Plugins>")
-set(MV_LINK_SUFFIX $<IF:$<CXX_COMPILER_ID:MSVC>,${CMAKE_LINK_LIBRARY_SUFFIX},${CMAKE_SHARED_LIBRARY_SUFFIX}>)
-
-set(MV_LINK_LIBRARY "${MV_LINK_PATH}/${CMAKE_SHARED_LIBRARY_PREFIX}MV_Public${MV_LINK_SUFFIX}")
-set(POINTDATA_LINK_LIBRARY "${PLUGIN_LINK_PATH}/${CMAKE_SHARED_LIBRARY_PREFIX}PointData${MV_LINK_SUFFIX}") 
-set(CLUSTERDATA_LINK_LIBRARY "${PLUGIN_LINK_PATH}/${CMAKE_SHARED_LIBRARY_PREFIX}ClusterData${MV_LINK_SUFFIX}") 
-
 message(STATUS ${SOURCE_DIR})
 message(STATUS ${BINARY_DIR})
 
+# -----------------------------------------------------------------------------
+# Target include directories, linking and properties
+# -----------------------------------------------------------------------------
 function(SetBuildSettings PROJNAME)
 
 	target_include_directories(${PROJNAME} PRIVATE ${HDF5_INCLUDE_DIR})
-	target_include_directories(${PROJNAME} PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/include/")
+	target_include_directories(${PROJNAME} PRIVATE "${ManiVault_INCLUDE_DIR}")
 
-	find_package(OpenMP REQUIRED)
-	if(OpenMP_FOUND)
-		message(STATUS "OpenMP found")
-		target_link_libraries(${PROJNAME} OpenMP::OpenMP_CXX)
-		target_compile_options(${PROJNAME} PRIVATE ${OpenMP_CXX_FLAGS})
-	else()
-	    message(WARNING "OpenMP not found!")
-	endif()
+	target_link_libraries(${PROJNAME} OpenMP::OpenMP_CXX)
+	target_compile_options(${PROJNAME} PRIVATE ${OpenMP_CXX_FLAGS})
 
 	target_compile_features(${PROJNAME} PRIVATE cxx_std_17)
 	set_target_properties(${PROJNAME} PROPERTIES CXX_STANDARD 17)
@@ -158,15 +139,15 @@ function(SetBuildSettings PROJNAME)
 	else()
 		target_include_directories("${PROJNAME}" PRIVATE "${HDF5_INCLUDE_DIR}")
 		target_include_directories("${PROJNAME}" PRIVATE "${LIBRARY_INSTALL_DIR}/zlib/$<CONFIG>/include")
-		target_include_directories("${PROJNAME}" PRIVATE "${MV_INSTALL_DIR}/$<CONFIG>/include/")
 	endif()
 
 	target_compile_definitions(${PROJNAME} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
 	target_link_libraries(${PROJNAME} Qt6::Widgets)
 	target_link_libraries(${PROJNAME} Qt6::WebEngineWidgets)
-	target_link_libraries(${PROJNAME} "${MV_LINK_LIBRARY}")
-	target_link_libraries(${PROJNAME} "${POINTDATA_LINK_LIBRARY}")
-	target_link_libraries(${PROJNAME} "${CLUSTERDATA_LINK_LIBRARY}")
+
+	target_link_libraries(${PROJNAME} ManiVault::Core)
+	target_link_libraries(${PROJNAME} ManiVault::PointData)
+	target_link_libraries(${PROJNAME} ManiVault::ClusterData)
 
 	message(status "************Define target linkage***********")
 	if (NOT USE_HDF5_ARTIFACTORY_LIBS)
@@ -182,33 +163,30 @@ function(SetBuildSettings PROJNAME)
 	if(MSVC)
 	target_link_libraries(${PROJNAME} shlwapi.lib)
 	endif(MSVC)
-	
-	
 
 endfunction()
 
+# -----------------------------------------------------------------------------
+# Target installation
+# -----------------------------------------------------------------------------
 function(SetPluginSettings PROJNAME)
-#	add_dependencies(${PROJNAME} ${PROJECT})
-#	target_link_libraries(${PROJNAME} ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT}${CMAKE_STATIC_LIBRARY_SUFFIX})
-
 	install(TARGETS ${PROJNAME}
 		RUNTIME DESTINATION Plugins COMPONENT ${PROJNAME} # Windows .dll
 		LIBRARY DESTINATION Plugins COMPONENT ${PROJNAME} # Linux/Mac .so
-		
 	)
 	
-
 	add_custom_command(TARGET ${PROJNAME} POST_BUILD
 		COMMAND "${CMAKE_COMMAND}"
 		--install ${CMAKE_CURRENT_BINARY_DIR}
 		--config $<CONFIG>
-		--prefix ${MV_INSTALL_DIR}/$<CONFIG>
+		--prefix ${ManiVault_INSTALL_DIR}/$<CONFIG>
 		--component ${PROJNAME}
 	)
 endfunction()
 
-
-#SetBuildSettings(${PROJECT})
+# -----------------------------------------------------------------------------
+# Setup all targets
+# -----------------------------------------------------------------------------
 SetBuildSettings(${H5ADPROJECT})
 SetBuildSettings(${H510XPROJECT})
 SetBuildSettings(${TOMEPROJECT})
@@ -217,8 +195,11 @@ SetPluginSettings(${H5ADPROJECT})
 SetPluginSettings(${H510XPROJECT})
 SetPluginSettings(${TOMEPROJECT})
 
+# -----------------------------------------------------------------------------
+# Miscellaneous
+# -----------------------------------------------------------------------------
 # Automatically set the debug environment (command + working directory) for MSVC
-	if(MSVC)
-		set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${MV_INSTALL_DIR}/debug,${MV_INSTALL_DIR}/release>)
-		set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,"${MV_INSTALL_DIR}/debug/ManiVault Studio.exe","${MV_INSTALL_DIR}/release/ManiVault Studio.exe">)
-	endif()
+if(MSVC)
+	set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${ManiVault_INSTALL_DIR}/debug,${ManiVault_INSTALL_DIR}/release>)
+	set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,"${ManiVault_INSTALL_DIR}/debug/ManiVault Studio.exe","${ManiVault_INSTALL_DIR}/release/ManiVault Studio.exe">)
+endif()
