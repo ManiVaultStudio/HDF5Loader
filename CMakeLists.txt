@@ -145,9 +145,9 @@ function(SetBuildSettings PROJNAME)
 	target_link_libraries(${PROJNAME} Qt6::Widgets)
 	target_link_libraries(${PROJNAME} Qt6::WebEngineWidgets)
 
-	target_link_libraries(${PROJNAME} PRIVATE ManiVault::Core)
-	target_link_libraries(${PROJNAME} PRIVATE ManiVault::PointData)
-	target_link_libraries(${PROJNAME} PRIVATE ManiVault::ClusterData)
+	target_link_libraries(${PROJNAME} ManiVault::Core)
+	target_link_libraries(${PROJNAME} ManiVault::PointData)
+	target_link_libraries(${PROJNAME} ManiVault::ClusterData)
 
 	message(status "************Define target linkage***********")
 	if (NOT USE_HDF5_ARTIFACTORY_LIBS)
