@@ -1,6 +1,8 @@
 #pragma  once
+
 #include <QString>
 #include "DataTransform.h"
+
 namespace mv
 {
 	class CoreInterface;

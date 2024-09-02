@@ -1,7 +1,5 @@
 #include "HDF5_TOME_Loader.h"
 
-//#include "util/Dataset.h"
-
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QFileDialog>
@@ -13,13 +11,11 @@
 
 #include "H5Utils.h"
 #include "DataContainerInterface.h"
-#include <iostream>
 
 #include "ClusterData/Cluster.h"
 #include "ClusterData/ClusterData.h"
-#if defined(_OPENMP)
-#include <omp.h>
-#endif
+
+#include <iostream>
 
 using namespace mv;
 

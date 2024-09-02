@@ -1,12 +1,10 @@
-
 #include "DataTransform.h"
+
 #include <QGridLayout>
 #include <QMessageBox>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QLabel>
-
-
 
 namespace TRANSFORM
 {

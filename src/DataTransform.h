@@ -1,5 +1,8 @@
 #pragma once
-#include "QObject"
+
+#include <QObject>
+
+#include <utility>
 
 class QComboBox;
 class QLineEdit;
@@ -18,9 +21,9 @@ namespace TRANSFORM
 	{
 		Q_OBJECT
 
-		QComboBox* m_option;
-		QLineEdit* m_value;
-		QLabel* m_postLabel;
+		QComboBox* m_option = nullptr;
+		QLineEdit* m_value = nullptr;
+		QLabel* m_postLabel = nullptr;
 
 	private slots:
 		void currentOptionChanged(int option);

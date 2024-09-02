@@ -1,21 +1,22 @@
 #pragma once
 
+#include <PointData/PointData.h>
+#include <Dataset.h>
 #include <DataHierarchyItem.h>
 #include <CoreInterface.h>
 
 #include "H5Cpp.h"
+
+#include <iostream>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <map>
+
 #include <QVariant>
 #include <QColor>
-#include "PointData/PointData.h"
-#include "Dataset.h"
-#include <iostream>
-#include <cstdint>
 #include <QInputDialog>
 
-#include "VectorHolder.h"
 
 namespace mv
 {
@@ -24,6 +25,8 @@ namespace mv
 
 namespace H5Utils
 {
+	class VectorHolder;
+
 	template<typename R, typename U>
 	class IntegerCompareSpecialization
 	{
@@ -486,12 +489,7 @@ namespace H5Utils
 			
 			task.setFinished();
 
-#if defined(MANIVAULT_API_Old)
-			mv::events().notifyDatasetChanged(numericalMetadataDataset);
-#elif defined(MANIVAULT_API_New)
 			mv::events().notifyDatasetDataChanged(numericalMetadataDataset);
-#endif
-
 			return numericalMetadataDataset;
 		}
 

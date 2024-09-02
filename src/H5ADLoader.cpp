@@ -1,6 +1,9 @@
 #include "H5ADLoader.h"
 
 #include "HDF5_AD_Loader.h"
+
+#include "PointData/PointData.h"
+
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QGridLayout>
@@ -11,14 +14,13 @@
 #include <QString>
 #include <QStringList>
 #include <QSettings>
-#include "PointData/PointData.h"
-#include "QMessageBox"
-
+#include <QMessageBox>
 
 Q_PLUGIN_METADATA(IID "nl.lumc.H5ADLoader")
 
 // =============================================================================
 // Loader
+// =============================================================================
 
 using namespace mv;
 
@@ -91,12 +93,8 @@ void H5ADLoader::init()
 	_fileDialog.setOption(QFileDialog::DontUseNativeDialog);
 	_fileDialog.setFileMode(QFileDialog::ExistingFiles);
 	_fileDialog.setNameFilters(fileTypeOptions);
-
-	
-
 	
 }
-
 
 void H5ADLoader::loadData()
 {
@@ -134,9 +132,6 @@ void H5ADLoader::loadData()
 		
 	fileDialogLayout->addWidget(storageTypeLabel, rowCount, 0);
 	fileDialogLayout->addWidget(storageTypeComboBox, rowCount, 1);
-
-
-	
 
 	QFileDialog& fileDialogRef = _fileDialog;
 	IfValid(settings.value(Keys::selectedNameFilterKey), [&fileDialogRef](const QVariant& value)

@@ -1,21 +1,27 @@
 #include "DataContainerInterface.h"
+
+#include <DataHierarchyItem.h>
+#include <Plugin.h>
+
+#include "H5Utils.h"
+#include "VectorHolder.h"
+
+#include <QInputDialog>
+#include <QDebug>
+#include <QComboBox>
+#include <QGridLayout>
+#include <QLabel>
+#include <QString>
+#include <QBitArray>
+
+#include <stdexcept> // For std::out_of_range.
+#include <iostream>
 #include <vector>
 #include <cmath>
 #include <cassert>
 #include <numeric>
 #include <algorithm>
-#include <DataHierarchyItem.h>
-#include <QInputDialog>
-#include <QDebug>
-#include "Plugin.h"
 
-#include <QComboBox>
-#include <QGridLayout>
-#include <QLabel>
-#include <QString>
-#include <stdexcept> // For std::out_of_range.
-#include <iostream>
-#include <QBitArray>
 #if defined(_OPENMP)
 #include <omp.h>
 #endif

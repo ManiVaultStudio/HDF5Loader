@@ -1,8 +1,10 @@
 #include "H510XLoader.h"
 
 #include "DataTransform.h"
-
 #include "HDF5_10X_Loader.h"
+
+#include "PointData/PointData.h"
+
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QGridLayout>
@@ -13,14 +15,9 @@
 #include <QString>
 #include <QStringList>
 #include <QSettings>
-#include "PointData/PointData.h"
-#include "QMessageBox"
-
+#include <QMessageBox>
 
 Q_PLUGIN_METADATA(IID "nl.lumc.H510XLoader")
-
-// =============================================================================
-// Loader
 
 using namespace mv;
 
@@ -59,7 +56,6 @@ namespace
 
 	}
 
-
 	// Call the specified function on the specified value, if it is valid.
 	template <typename TFunction>
 	void IfValid(const QVariant& value, const TFunction& function)
@@ -73,6 +69,9 @@ namespace
 }	// Unnamed namespace
 
 
+// =============================================================================
+// Loader
+// =============================================================================
 
 H510XLoader::H510XLoader(PluginFactory* factory)
 	: LoaderPlugin(factory)
@@ -86,7 +85,6 @@ H510XLoader::~H510XLoader(void)
 
 }
 
-
 void H510XLoader::init()
 {
 
@@ -98,11 +96,7 @@ void H510XLoader::init()
 	_fileDialog.setFileMode(QFileDialog::ExistingFiles);
 	_fileDialog.setNameFilters(fileTypeOptions);
 
-
-
-
 }
-
 
 void H510XLoader::loadData()
 {
@@ -143,7 +137,6 @@ void H510XLoader::loadData()
 
 
 	TRANSFORM::Control transform(fileDialogLayout);
-
 
 
 	IfValid(settings.value(Keys::conversionIndexKey), [&transform, &settings](const QVariant& value)
@@ -209,7 +202,7 @@ void H510XLoader::loadData()
 		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
 
 
-		for (const auto fileName : fileNames)
+		for (const auto& fileName : fileNames)
 		{
 			HDF5_10X_Loader loader(_core);
 			if (loader.open(fileName))

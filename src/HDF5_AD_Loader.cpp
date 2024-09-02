@@ -1,5 +1,8 @@
 #include "HDF5_AD_Loader.h"
+
 #include "H5ADUtils.h"
+
+#include "H5Utils.h"
 
 #include <QGuiApplication>
 #include <QInputDialog>
@@ -7,32 +10,20 @@
 #include <QListView>
 #include <QDialogButtonBox>
 #include <QtGlobal>
-#include "H5Utils.h"
-#include "DataContainerInterface.h"
+
 #include <iostream>
-
-#include "ClusterData/Cluster.h"
-#include "ClusterData/ClusterData.h"
-
 #include <set>
 
 #include "DataContainerInterface.h"
-#include <omp.h>
 
 #include <PointData/PointData.h>
-#include <PointData/DimensionsPickerAction.h>
+
 using namespace mv;
-
-
-
 
 HDF5_AD_Loader::HDF5_AD_Loader(mv::CoreInterface *core)
 {
 	_core = core;
 }
-
-
-
 
 bool HDF5_AD_Loader::open(const QString& fileName)
 {
@@ -41,9 +32,6 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 		_file.reset(new H5::H5File(fileName.toLatin1().constData(), H5F_ACC_RDONLY));
 		auto nrOfObjects = _file->getNumObjs();
 		bool dataFound = false;
-
-		
-
 
 		for (auto fo = 0; fo < nrOfObjects; ++fo)
 		{
@@ -455,12 +443,8 @@ bool HDF5_AD_Loader::load(int storageType)
 					LoadProperties(h5Group, loaderInfo);
 				}
 			}
-#if defined(MANIVAULT_API_Old)
-			events().notifyDatasetChanged(pointsDataset);
-#elif defined(MANIVAULT_API_New)
-			events().notifyDatasetDataChanged(pointsDataset);
-#endif
 
+			events().notifyDatasetDataChanged(pointsDataset);
 
 			pointsDataset->getDataHierarchyItem().setVisible(true);
 			return true;

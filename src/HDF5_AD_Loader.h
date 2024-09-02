@@ -1,7 +1,11 @@
 #pragma  once
+
 #include <QString>
+
 #include <memory>
+#include <string>
 #include <vector>
+
 #include "H5Utils.h"
 
 namespace mv
@@ -20,9 +24,6 @@ class HDF5_AD_Loader
 
 	std::string _var_indexName;
 	std::string _obs_indexName;
-
-
-
 	
 public:
 	HDF5_AD_Loader(mv::CoreInterface *core);
