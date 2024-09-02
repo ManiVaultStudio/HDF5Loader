@@ -49,26 +49,24 @@ endif()
 # Source files and CMake targets
 # -----------------------------------------------------------------------------
 set(DATATRANSFORM_SOURCES
-	src/DataTransform.cpp	
+	src/DataTransform.cpp
 	src/DataTransform.h
 )
 
 set(SHARED_SOURCES
-	src/DataContainerInterface.cpp	
-	src/H5Utils.cpp	
+	src/DataContainerInterface.cpp
+	src/H5Utils.cpp
 )
 
 set(SHARED_HEADERS
 	src/DataContainerInterface.h
 	src/H5Utils.h
-	
 	src/VectorHolder.h
 )
 
 source_group(${PROJECT} FILES ${SHARED_HEADERS} ${SHARED_SOURCES} ${DATATRANSFORM_SOURCES})
 
 ## BEGIN H510X Loader
-
 set(H510X_SOURCES
 	src/HDF5_10X_Loader.h
 	src/HDF5_10X_Loader.cpp
@@ -128,9 +126,6 @@ add_library(${TOMEPROJECT} SHARED ${TOME_SOURCES} ${SHARED_SOURCES} ${SHARED_HEA
 
 SET_PROPERTY(TARGET ${TOMEPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 ## END TOME Loader
-
-message(STATUS ${SOURCE_DIR})
-message(STATUS ${BINARY_DIR})
 
 # -----------------------------------------------------------------------------
 # Target include directories, linking and properties
