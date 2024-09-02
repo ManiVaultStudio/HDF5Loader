@@ -141,7 +141,7 @@ function(SetBuildSettings PROJNAME)
 
     if(MV_H5_USE_VCPKG)
         target_link_libraries (${PROJNAME} PRIVATE hdf5::hdf5_cpp-static hdf5::hdf5_hl_cpp-static)
-    elseif(USE_HDF5_ARTIFACTORY_LIBS)
+    elseif(${USE_HDF5_ARTIFACTORY_LIBS})
         message(STATUS "Linking with artifactory libraries ${HDF5_CXX_STATIC_LIBRARY} and ${HDF5_ZLIB_STATIC}")
         target_include_directories("${PROJNAME}" PRIVATE "${HDF5_INCLUDE_DIR}")
         target_include_directories("${PROJNAME}" PRIVATE "${LIBRARY_INSTALL_DIR}/zlib/$<CONFIG>/include")
