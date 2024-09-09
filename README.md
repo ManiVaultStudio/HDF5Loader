@@ -4,7 +4,7 @@ Loader plugins for [HDF5](https://en.wikipedia.org/wiki/Hierarchical_Data_Format
 This repo currently builds three plugins:
 - H510XLoader
 - H5ADLoader
-- H5ADLoader
+- TOMELoader
 
 ## HDF5 dependency
 By default, a pre-built HDF5 library will be downloaded from the lkeb artifactory during cmake's configuration step.
