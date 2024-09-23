@@ -1,3 +1,5 @@
+#pragma once
+
 #include <array>
 #include <cstdint>
 #include <cassert>
@@ -5,8 +7,7 @@
 #include <vector>
 #include <type_traits>
 
-#include <H5DataType.h>
-#include <H5PredType.h>
+#include "H5Cpp.h"
 
 namespace H5Utils
 {
@@ -36,8 +37,6 @@ namespace H5Utils
 			fallback = float32
 		};
 
-		
-
 		static constexpr std::array<const char*, std::variant_size_v<VariantOfVectors>> getElementTypeNames()
 		{
 			return
@@ -53,11 +52,9 @@ namespace H5Utils
 
 	private:
 
-		
-
 		// Sets the index of the specified variant. If the new index is different from the previous one, the value will be reset. 
-	// Inspired by `expand_type` from kmbeutel at
-	// https://www.reddit.com/r/cpp/comments/f8cbzs/creating_stdvariant_based_on_index_at_runtime/?rdt=52905
+		// Inspired by `expand_type` from kmbeutel at
+		// https://www.reddit.com/r/cpp/comments/f8cbzs/creating_stdvariant_based_on_index_at_runtime/?rdt=52905
 		template <typename... Alternatives>
 		static void setIndexOfVariant(std::variant<Alternatives...> &var, std::size_t index)
 		{
@@ -221,9 +218,6 @@ namespace H5Utils
 				},
 				_variantOfVectors);
 		}
-
-		
-
 
 		// Similar to C++17 std::visit.
 		template <typename ReturnType = void, typename FunctionObject>

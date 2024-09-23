@@ -106,4 +106,7 @@ else()
 
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
 	SET(HDF5_INCLUDE_DIR ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
+	message(STATUS "HDF5 Loader SOURCE_DIR: ${SOURCE_DIR}")
+	message(STATUS "HDF5 Loader BINARY_DIR: ${BINARY_DIR}")
+
 endif()

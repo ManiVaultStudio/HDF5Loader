@@ -1,16 +1,18 @@
 #include "H5ADUtils.h"
+
 #include "DataContainerInterface.h"
-#include <filesystem>
+
 #include <QDialogButtonBox>
+#include <QMainWindow>
 
 #include <PointData/DimensionsPickerAction.h>
-#include <QMainWindow>
+
+#include <filesystem>
+#include <set>
 
 namespace H5AD
 {
 	using namespace  mv;
-
-	
 
 	struct compareStringsAsNumbers {
 		bool operator()(const std::string& a, const std::string& b) const
@@ -201,6 +203,7 @@ namespace H5AD
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		}
 	}
+
 	void LoadData(const H5::DataSet& dataset, LoaderInfo &loaderInfo, int storageType)
 	{
 		if(storageType < 0) // use native format
@@ -594,8 +597,6 @@ namespace H5AD
 		return std::string();
 	}
 
-
-
 	bool LoadSparseMatrix(H5::Group& group, LoaderInfo &loaderInfo)
 	{
 		auto nrOfObjects = group.getNumObjs();
@@ -645,12 +646,7 @@ namespace H5AD
 
 					numericalDataset->setDimensionNames(dimensionNames);
 
-#ifdef MANIVAULT_API_Old
-					events().notifyDatasetChanged(numericalDataset);
-#endif
-#ifdef MANIVAULT_API_New
 					events().notifyDatasetDataChanged(numericalDataset);
-#endif
 					
 				}
 			}
@@ -706,13 +702,6 @@ namespace H5AD
 		const auto& children = pointsDataset->getDataHierarchyItem().getChildren();
 		for (auto it = children.begin(); it != children.end(); ++it)
 		{
-#if defined(MANIVAULT_API_Old)
-			if ((*it)->getGuiName() == name)
-			{
-				return *it;
-			}
-
-#elif defined(MANIVAULT_API_New)
 			if ((*it)->getId() == name)
 			{
 				return *it;
@@ -722,14 +711,9 @@ namespace H5AD
 		    {
 				return *it;
 		    }
-#endif
 		}
 		return nullptr;
 	}
-
-
-
-	
 
 	bool LoadCodedCategories(H5::Group& group, std::map<QString, std::vector<unsigned>>& result)
 	{
@@ -923,8 +907,6 @@ namespace H5AD
 			return;
 		}
 			
-
-
 		std::vector<numericalMetaDataType> numericalMetaData;
 		std::size_t nrOfNumericalMetaData = 0;
 		std::vector<QString> numericalMetaDataDimensionNames;
@@ -1039,13 +1021,8 @@ namespace H5AD
 								}
 								if (unchangedClusterColors < clusters.size())
 								{
-#if defined(MANIVAULT_API_Old)
-									events().notifyDatasetChanged(foundDataset->getDataset());
-#elif defined(MANIVAULT_API_New)
 									events().notifyDatasetDataChanged(foundDataset->getDataset());
-#endif
 								}
-									
 
 								if (unchangedClusterColors)
 								{
@@ -1219,11 +1196,7 @@ namespace H5AD
 																}
 																if (unchangedClusterColors < clusters.size())
 																{
-#if defined(MANIVAULT_API_Old)
-																	events().notifyDatasetChanged(foundDataset->getDataset());
-#elif defined(MANIVAULT_API_New)
 																	events().notifyDatasetDataChanged(foundDataset->getDataset());
-#endif
 																}
 																	
 
@@ -1352,11 +1325,7 @@ namespace H5AD
 															for (std::size_t i = 0; i < clusters.size(); ++i)
 																clusters[i].setColor(items[i]);
 
-															#if defined(MANIVAULT_API_Old)
-																events().notifyDatasetChanged(foundDataset->getDataset());
-#elif defined(MANIVAULT_API_New)
 															events().notifyDatasetDataChanged(foundDataset->getDataset());
-#endif
 														}
 													}
 												}
@@ -1381,8 +1350,6 @@ namespace H5AD
 			}
 		}
 
-
-
 		if (numericalMetaDataDimensionNames.size())
 		{
 			QString numericalMetaDataString;
@@ -1399,8 +1366,6 @@ namespace H5AD
 	{
 		 H5AD::LoadSampleNamesAndMetaData<float>(dataset, loaderInfo, storage_type);
 	}
-	
-
 
 	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo, int storage_type)
 	{

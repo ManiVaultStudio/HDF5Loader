@@ -12,6 +12,7 @@
 
 #include "H5Utils.h"
 #include "DataContainerInterface.h"
+
 #include <iostream>
 
 #include "ClusterData/Cluster.h"
@@ -20,16 +21,12 @@
 #include "util/Miscellaneous.h"
 
 #include "biovault_bfloat16/biovault_bfloat16.h"
-#include "H5Utils.h"
-#if defined(_OPENMP)
-#include <omp.h>
-#endif
+
 using namespace mv;
 
 namespace HDF5_10X
 {
 	
-
 	/*
 Column	Type	Description
 barcodes	string	Barcode sequences and their corresponding gem groups (e.g. AAACGGGCAGCTCGAC-1)
@@ -77,7 +74,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				else
 					result = false;
 
-				if (result & group.exists("genes"))
+				if (result && group.exists("genes"))
 				{
 					H5::DataSet dataset = group.openDataSet("genes");
 					if (!H5Utils::read_vector_string(dataset, genes))
@@ -87,7 +84,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					result = false;
 
 				
-				if (result & group.exists("indptr"))
+				if (result && group.exists("indptr"))
 				{
 					if (!H5Utils::read_vector(group, "indptr", &indptr))
 						result = false;
@@ -95,7 +92,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				else
 					result = false;
 
-				if (result & group.exists("indices"))
+				if (result && group.exists("indices"))
 				{
 					if (!H5Utils::read_vector(group, "indices", &indices))
 						result = false;
@@ -105,12 +102,12 @@ shape	uint64	Tuple of (n_rows, n_columns)
 
 				
 
-				if (result & group.exists("data"))
+				if (result && group.exists("data"))
 				{
 					if (!H5Utils::read_vector(group, "data", &data))
 						result = false;
 				}
-				else if(result & group.exists("data16"))
+				else if(result && group.exists("data16"))
 				{
 					if (!H5Utils::read_vector(group, "data16", &data16))
 						result = false;
@@ -185,7 +182,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				pointsDataset->getDataHierarchyItem().getDataset()->getTask().setProgressDescription("");
 
 				
-				if (result & group.exists("meta"))
+				if (result && group.exists("meta"))
 				{
 					auto metaDataSuperGroup = group.openGroup("meta");
 					hsize_t nrOfMetaData = metaDataSuperGroup.getNumObjs();
@@ -304,12 +301,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 								assert(sum == rows);
 
 								// Notify others that the clusters have changed
-#if defined(MANIVAULT_API_Old)
-								events().notifyDatasetChanged(clusterDataset);
-#elif defined(MANIVAULT_API_New)
 								events().notifyDatasetDataChanged(clusterDataset);
-#endif
-								
 
 							}
 
@@ -447,11 +439,11 @@ shape	uint64	Tuple of (n_rows, n_columns)
 				result &= H5Utils::read_vector(group, "indptr", &indptr);
 			if (result)
 				result &= H5Utils::read_vector(group, "indices", &indices);
-			if (result & group.exists("data"))
+			if (result && group.exists("data"))
 			{
 				result &= H5Utils::read_vector(group, "data", &data);
 			}
-			else if (result & group.exists("data16"))
+			else if (result && group.exists("data16"))
 			{
 				result &= H5Utils::read_vector(group, "data16", &data16);
 			}
@@ -597,11 +589,7 @@ shape	uint64	Tuple of (n_rows, n_columns)
 					H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, pointsDataset);
 					
 				}
-#if defined(MANIVAULT_API_Old)
-				events().notifyDatasetChanged(pointsDataset);
-#elif defined(MANIVAULT_API_New)
 				events().notifyDatasetDataChanged(pointsDataset);
-#endif
 			}
 
 		}

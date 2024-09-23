@@ -1,7 +1,10 @@
 #include "TOMELoader.h"
 
+#include "PointData/PointData.h"
+
 #include "DataTransform.h"
 #include "HDF5_TOME_Loader.h"
+
 #include <QInputDialog>
 #include <QFileDialog>
 #include <QGridLayout>
@@ -12,9 +15,7 @@
 #include <QString>
 #include <QStringList>
 #include <QSettings>
-#include "PointData/PointData.h"
-#include "QMessageBox"
-
+#include <QMessageBox>
 
 Q_PLUGIN_METADATA(IID "nl.lumc.TOMELoader")
 

@@ -1,13 +1,19 @@
 #include "H5Utils.h"
-#include <iostream>
-#include <cstdint>
-#include <QInputDialog>
-#include <QMainWindow>
+
+#include "VectorHolder.h"
+
 #include "ClusterData/Cluster.h"
 #include "ClusterData/ClusterData.h"
 #include "PointData/PointData.h"
 #include "DataHierarchyItem.h"
 
+#include <iostream>
+#include <cstdint>
+
+#include <QInputDialog>
+#include <QMainWindow>
+
+#include "H5Cpp.h"
 
 namespace H5Utils
 {
@@ -1150,11 +1156,7 @@ namespace H5Utils
 		}
 
 		// Notify others that the clusters have changed
-#if defined(MANIVAULT_API_Old)
-		events().notifyDatasetChanged(clusterDataset);
-#elif defined(MANIVAULT_API_New)
 		events().notifyDatasetDataChanged(clusterDataset);
-#endif
 	}
 		
 

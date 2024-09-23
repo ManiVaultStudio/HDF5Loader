@@ -21,6 +21,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 
+if(DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg")
+    set(MV_H5_USE_VCPKG ON)
+endif()
+
 # -----------------------------------------------------------------------------
 # Dependencies
 # -----------------------------------------------------------------------------
@@ -29,34 +33,40 @@ find_package(OpenMP REQUIRED)
 
 find_package(ManiVault COMPONENTS Core PointData ClusterData CONFIG)
 
-include(HDF5Dependency)
-message(STATUS "Msvc settings")
-include(MSVCSettings)
+if(MV_H5_USE_VCPKG)
+    find_package(hdf5 CONFIG REQUIRED COMPONENTS CXX HL)
+    message(STATUS "Found HDF5 with version ${hdf5_VERSION}")
+else()
+    include(HDF5Dependency)
+endif()
+
+if(MSVC)
+	message(STATUS "HDF5 Loader: including MSVC settings")
+	include(MSVCSettings)
+endif()
 
 # -----------------------------------------------------------------------------
 # Source files and CMake targets
 # -----------------------------------------------------------------------------
 set(DATATRANSFORM_SOURCES
-	src/DataTransform.cpp	
+	src/DataTransform.cpp
 	src/DataTransform.h
 )
 
 set(SHARED_SOURCES
-	src/DataContainerInterface.cpp	
-	src/H5Utils.cpp	
+	src/DataContainerInterface.cpp
+	src/H5Utils.cpp
 )
 
 set(SHARED_HEADERS
 	src/DataContainerInterface.h
 	src/H5Utils.h
-	
 	src/VectorHolder.h
 )
 
 source_group(${PROJECT} FILES ${SHARED_HEADERS} ${SHARED_SOURCES} ${DATATRANSFORM_SOURCES})
 
 ## BEGIN H510X Loader
-
 set(H510X_SOURCES
 	src/HDF5_10X_Loader.h
 	src/HDF5_10X_Loader.cpp
@@ -117,51 +127,48 @@ add_library(${TOMEPROJECT} SHARED ${TOME_SOURCES} ${SHARED_SOURCES} ${SHARED_HEA
 SET_PROPERTY(TARGET ${TOMEPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 ## END TOME Loader
 
-message(STATUS ${SOURCE_DIR})
-message(STATUS ${BINARY_DIR})
-
 # -----------------------------------------------------------------------------
 # Target include directories, linking and properties
 # -----------------------------------------------------------------------------
 function(SetBuildSettings PROJNAME)
 
-	target_include_directories(${PROJNAME} PRIVATE ${HDF5_INCLUDE_DIR})
-	target_include_directories(${PROJNAME} PRIVATE "${ManiVault_INCLUDE_DIR}")
-
-	target_link_libraries(${PROJNAME} OpenMP::OpenMP_CXX)
+	target_link_libraries(${PROJNAME} PRIVATE OpenMP::OpenMP_CXX)
 	target_compile_options(${PROJNAME} PRIVATE ${OpenMP_CXX_FLAGS})
 
 	target_compile_features(${PROJNAME} PRIVATE cxx_std_17)
 	set_target_properties(${PROJNAME} PROPERTIES CXX_STANDARD 17)
-
-	if (NOT USE_HDF5_ARTIFACTORY_LIBS)
-		add_dependencies(${PROJNAME} hdf5)
-	else()
-		target_include_directories("${PROJNAME}" PRIVATE "${HDF5_INCLUDE_DIR}")
-		target_include_directories("${PROJNAME}" PRIVATE "${LIBRARY_INSTALL_DIR}/zlib/$<CONFIG>/include")
-	endif()
-
 	target_compile_definitions(${PROJNAME} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
-	target_link_libraries(${PROJNAME} Qt6::Widgets)
-	target_link_libraries(${PROJNAME} Qt6::WebEngineWidgets)
 
-	target_link_libraries(${PROJNAME} ManiVault::Core)
-	target_link_libraries(${PROJNAME} ManiVault::PointData)
-	target_link_libraries(${PROJNAME} ManiVault::ClusterData)
+    if(MV_H5_USE_VCPKG)
+        target_link_libraries (${PROJNAME} PRIVATE hdf5::hdf5_cpp-static hdf5::hdf5_hl_cpp-static)
+    elseif(${USE_HDF5_ARTIFACTORY_LIBS})
+        message(STATUS "Linking with artifactory libraries ${HDF5_CXX_STATIC_LIBRARY} and ${HDF5_ZLIB_STATIC}")
+        target_include_directories("${PROJNAME}" PRIVATE "${HDF5_INCLUDE_DIR}")
+        target_include_directories("${PROJNAME}" PRIVATE "${LIBRARY_INSTALL_DIR}/zlib/$<CONFIG>/include")
 
-	message(status "************Define target linkage***********")
-	if (NOT USE_HDF5_ARTIFACTORY_LIBS)
-	    file(GENERATE OUTPUT hdf5_linking_files_${PROJNAME}_$<CONFIG>.txt CONTENT ${HDF5_C_STATIC_LIBRARY})
-		message(STATUS "Linking with   ${HDF5_CXX_STATIC_LIBRARY} and ${ZLIB_LIBRARIES}")
-		target_link_libraries(${PROJNAME} ${HDF5_C_STATIC_LIBRARY} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
-	else()
-		message(STATUS "Linking with ${HDF5_CXX_STATIC_LIBRARY} and ${HDF5_ZLIB_STATIC}")  
-		target_link_libraries (${PROJNAME} ${HDF5_CXX_STATIC_LIBRARY} ${HDF5_ZLIB_STATIC}) 
-	endif()
+        target_link_libraries (${PROJNAME} PRIVATE ${HDF5_CXX_STATIC_LIBRARY} ${HDF5_ZLIB_STATIC})
 
+    else()
+        message(STATUS "Linking with local (externalProject) ${HDF5_CXX_STATIC_LIBRARY} and ${HDF5_ZLIB_STATIC}")
+        add_dependencies(${PROJNAME} hdf5)
+
+        file(GENERATE OUTPUT hdf5_linking_files_${PROJNAME}_$<CONFIG>.txt CONTENT ${HDF5_C_STATIC_LIBRARY})
+        message(STATUS "Linking with   ${HDF5_CXX_STATIC_LIBRARY} and ${ZLIB_LIBRARIES}")
+        target_include_directories(${PROJNAME} PRIVATE ${HDF5_INCLUDE_DIR})
+        target_link_libraries(${PROJNAME} PRIVATE ${HDF5_C_STATIC_LIBRARY} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES})
+
+    endif()
+
+	target_link_libraries(${PROJNAME} PRIVATE Qt6::Widgets)
+	target_link_libraries(${PROJNAME} PRIVATE Qt6::WebEngineWidgets)
+
+	target_include_directories(${PROJNAME} PRIVATE "${ManiVault_INCLUDE_DIR}")
+	target_link_libraries(${PROJNAME} PRIVATE ManiVault::Core)
+	target_link_libraries(${PROJNAME} PRIVATE ManiVault::PointData)
+	target_link_libraries(${PROJNAME} PRIVATE ManiVault::ClusterData)
 
 	if(MSVC)
-	target_link_libraries(${PROJNAME} shlwapi.lib)
+        target_link_libraries(${PROJNAME} PRIVATE shlwapi.lib)
 	endif(MSVC)
 
 endfunction()
