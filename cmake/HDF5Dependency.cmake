@@ -25,7 +25,7 @@ if (USE_HDF5_ARTIFACTORY_LIBS)
 	else()
 		set(hdf5_ROOT ${CMAKE_CURRENT_BINARY_DIR}/hdf5) 
 	endif()
-	message(status " hdf5_ROOT : ${hdf5_ROOT}")
+	message(STATUS "Using hdf5_ROOT : ${hdf5_ROOT}")
 	set(HDF5_USE_STATIC_LIBRARIES TRUE)
 	# Use the hdf5 and its companion zlib which is included in the downloaded package
 	find_package(HDF5 ${hdf5_VERSION} COMPONENTS CXX C static REQUIRED NO_MODULE HINTS "${hdf5_ROOT}")
