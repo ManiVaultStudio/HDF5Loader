@@ -36,9 +36,9 @@ namespace H5AD
 
 	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, LoaderInfo &loaderInfo, int storage_type);
 
-	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo, int storage_type);
+	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo);
 	
-	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo, int storage_type);
+	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo);
 	
 
 } // namespace H5AD

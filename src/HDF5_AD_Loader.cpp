@@ -415,13 +415,13 @@ bool HDF5_AD_Loader::load(int storageType)
 					if (objectType1 == H5G_DATASET)
 					{
 						H5::DataSet h5Dataset = _file->openDataSet(objectName1);
-						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo, storageType);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo);
 							
 					}
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group h5Group = _file->openGroup(objectName1);
-						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo, storageType);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo);
 					}
 				}
 			}

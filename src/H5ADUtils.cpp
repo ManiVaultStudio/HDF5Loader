@@ -74,7 +74,7 @@ namespace H5AD
 				if (mdd_float.size.size() == 2)
 				{
 					mdd.size = mdd_float.size;
-					mdd.data.resize(mdd.data.size());
+					mdd.data.resize(mdd_float.data.size());
 					#pragma omp parallel for
 					for (std::ptrdiff_t i = 0; i < mdd.data.size(); ++i)
 						mdd.data[i] = mdd_float.data[i];
@@ -817,7 +817,7 @@ namespace H5AD
 
 
 	template<typename numericMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, LoaderInfo &loaderInfo, int storage_type)
+	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, LoaderInfo &loaderInfo)
 	{
 		static_assert(std::is_same<numericMetaDataType, float>::value, "");
 		std::string h5datasetName = dataset.getObjName();
@@ -894,7 +894,7 @@ namespace H5AD
 
 	
 	template<typename numericalMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::Group& group, LoaderInfo& loaderInfo, int storage_type)
+	void LoadSampleNamesAndMetaData(H5::Group& group, LoaderInfo& loaderInfo)
 	{
 
 		static_assert(std::is_same<numericalMetaDataType, float>::value, "");
@@ -1342,7 +1342,7 @@ namespace H5AD
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group group2 = group.openGroup(objectName1);
-						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, loaderInfo, storage_type);
+						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, loaderInfo);
 					}
 				}
 
@@ -1362,14 +1362,14 @@ namespace H5AD
 		}
 	}
 
-	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo, int storage_type)
+	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo)
 	{
-		 H5AD::LoadSampleNamesAndMetaData<float>(dataset, loaderInfo, storage_type);
+		 H5AD::LoadSampleNamesAndMetaData<float>(dataset, loaderInfo);
 	}
 
-	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo, int storage_type)
+	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo)
 	{
-		 H5AD::LoadSampleNamesAndMetaData<float>(group, loaderInfo, storage_type);
+		 H5AD::LoadSampleNamesAndMetaData<float>(group, loaderInfo);
 	}
 	
 
