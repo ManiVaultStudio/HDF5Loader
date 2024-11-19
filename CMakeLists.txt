@@ -4,7 +4,7 @@ message(STATUS "Building with cmake version ${CMAKE_VERSION}")
 # -----------------------------------------------------------------------------
 # HDF5 Loader Plugin
 # -----------------------------------------------------------------------------
-set(LOADERFOLDER "HDF5Loaders")
+set(LOADERFOLDER "LoaderPlugins/HDF5Loaders")
 set(PROJECT "HDF5Loader")
 set(H510XPROJECT "H510XLoader")
 set(H5ADPROJECT "H5ADLoader")
