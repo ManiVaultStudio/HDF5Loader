@@ -40,13 +40,13 @@ jobs:
     steps:
       - name: Checkout the source
         if: ${{ github.event_name != 'pull_request'}}
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Checkout the source (pull_request version)
         if: ${{ github.event_name == 'pull_request'}}
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           submodules: recursive
@@ -58,13 +58,13 @@ jobs:
 
       # Self-hosted runners should have python and other software preconfigured
       - name: Setup python 3 version
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           architecture: x64
 
       - name: Start ssh key agent
-        uses: webfactory/ssh-agent@v0.7.0
+        uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.RULESSUPPORT_DEPLOY_KEY }}
 
