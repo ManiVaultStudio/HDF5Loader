@@ -2,47 +2,26 @@ from conans import ConanFile
 from conan.tools.cmake import CMakeDeps, CMake, CMakeToolchain
 from conans.tools import save, load, os_info, SystemPackageTool
 import os
-import shutil
 import pathlib
 import subprocess
 from rules_support import PluginBranchInfo
-import re
-
-def compatibility(os, compiler, compiler_version):
-    # On macos fallback to zlib apple-clang 13
-    if os == "Macos" and compiler == "apple-clang" and bool(re.match("14.*", compiler_version)):  
-        print("Compatibility match")
-        return ["zlib/1.3:compiler.version=13"]
-    return None
-
-def compareVersion(version1, version2):
-    versions1 = [int(v) for v in version1.split(".")]
-    versions2 = [int(v) for v in version2.split(".")]
-    for i in range(max(len(versions1), len(versions2))):
-        v1 = versions1[i] if i < len(versions1) else 0
-        v2 = versions2[i] if i < len(versions2) else 0
-        if v1 > v2:
-            return 1
-        elif v1 < v2:
-            return -1
-    return 0
 
 
 class HDF5LoaderConan(ConanFile):
     """Class to package the HDF5Loader plugin using conan
 
     Packages both RELEASE and DEBUG.
-    Uses rules_support (github.com/hdps/rulessupport) to derive
+    Uses rules_support (github.com/ManiVaultStudio/rulessupport) to derive
     versioninfo based on the branch naming convention
-    as described in https://github.com/hdps/core/wiki/Branch-naming-rules
+    as described in https://github.com/ManiVaultStudio/core/wiki/Branch-naming-rules
     """
 
     name = "HDF5LoaderPlugin"
     description = (
-        "Load HDF5 encoded data into the HDPS framework. " "Supports 10x TOME and H5AD"
+        "Load HDF5 encoded data into the ManiVaultStudio framework. " "Supports 10x TOME and H5AD"
     )
     topics = ("hdps", "plugin", "data", "HDF5 loader")
-    url = "https://github.com/hdps/HDF5Loader"
+    url = "https://github.com/ManiVaultStudio/HDF5Loader"
     author = "B. van Lew b.van_lew@lumc.nl"  # conan recipe author
     license = "MIT"  # conan recipe license
 
@@ -53,8 +32,6 @@ class HDF5LoaderConan(ConanFile):
     settings = {"os": None, "build_type": None, "compiler": None, "arch": None}
     options = {"shared": [True, False], "fPIC": [True, False]}
     default_options = {"shared": True, "fPIC": True}
-
-    #   QT requirement is provided by hdps-core "qt/5.15.1@lkeb/stable",
 
     scm = {
         "type": "git",
@@ -97,6 +74,8 @@ class HDF5LoaderConan(ConanFile):
             installer.install("libomp")
             proc = subprocess.run("brew --prefix libomp",  shell=True, capture_output=True)
             subprocess.run(f"ln {proc.stdout.decode('UTF-8').strip()}/lib/libomp.dylib /usr/local/lib/libomp.dylib", shell=True)
+        if os_info.is_linux:
+            self.run("sudo apt update && sudo apt install -y libtbb2-dev")
 
     def config_options(self):
         if self.settings.os == "Windows":
@@ -110,41 +89,35 @@ class HDF5LoaderConan(ConanFile):
             generator = "Ninja Multi-Config"
 
         tc = CMakeToolchain(self, generator=generator)
-        if self.settings.os == "Windows" and self.options.shared:
-            tc.variables["CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS"] = True
-        if self.settings.os == "Linux" or self.settings.os == "Macos":
-            tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = "ON"
-            
-        # Use the Qt provided .cmake files    
-        qtpath = pathlib.Path(self.deps_cpp_info["qt"].rootpath)
-        qt_root = str(list(qtpath.glob("**/Qt6Config.cmake"))[0].parents[3].as_posix())
-        tc.variables["Qt6_ROOT"] = f"{qt_root}"
+
+        tc.variables["CMAKE_CXX_STANDARD_REQUIRED"] = "ON"
+
+        # Use the Qt provided .cmake files
+        qt_path = pathlib.Path(self.deps_cpp_info["qt"].rootpath)
+        qt_cfg = list(qt_path.glob("**/Qt6Config.cmake"))[0]
+        qt_dir = qt_cfg.parents[0].as_posix()
+        qt_root = qt_cfg.parents[3].as_posix()
+
+        # for Qt >= 6.4.2
+        #tc.variables["Qt6_DIR"] = qt_dir
+
+        # for Qt < 6.4.2
+        tc.variables["Qt6_ROOT"] = qt_root
+
+        # Use the ManiVault .cmake file to find ManiVault with find_package
+        mv_core_root = self.deps_cpp_info["hdps-core"].rootpath
+        manivault_dir = pathlib.Path(mv_core_root, "cmake", "mv").as_posix()
+        print("ManiVault_DIR: ", manivault_dir)
+        tc.variables["ManiVault_DIR"] = manivault_dir
 
         if os_info.is_macos:
-            proc = subprocess.run(
-                "brew --prefix libomp", shell=True, capture_output=True
-            )
+            proc = subprocess.run("brew --prefix libomp", shell=True, capture_output=True)
             prefix_path = f"{proc.stdout.decode('UTF-8').strip()}"
             tc.variables["OpenMP_ROOT"] = prefix_path
             
         tc.variables["USE_HDF5_ARTIFACTORY_LIBS"] = "ON"
-        tc.variables[
-            "CMAKE_BUILD_PARALLEL_LEVEL"
-        ] = "1"  # Try single core build for out of memory problems
-        
-        # Set the installation directory for ManiVault based on the MV_INSTALL_DIR environment variable
-        # or if none is specified, set it to the build/install dir.
-        if not os.environ.get("MV_INSTALL_DIR", None):
-            os.environ["MV_INSTALL_DIR"] = os.path.join(self.build_folder, "install")
-        print("MV_INSTALL_DIR: ", os.environ["MV_INSTALL_DIR"])
-        self.install_dir = pathlib.Path(os.environ["MV_INSTALL_DIR"]).as_posix()
-        # Give the installation directory to CMake
-        tc.variables["MV_INSTALL_DIR"] = self.install_dir
-        
-        # Find ManiVault with find_package
-        self.manivault_dir = self.install_dir + '/cmake/mv/'
-        tc.variables["ManiVault_DIR"] = self.manivault_dir
-        
+        tc.variables["CMAKE_BUILD_PARALLEL_LEVEL"] = "1"  # Try single core build for out of memory problems
+                
         tc.generate()
 
     def _configure_cmake(self):
@@ -154,34 +127,27 @@ class HDF5LoaderConan(ConanFile):
         return cmake
 
     def build(self):
-        print("Build OS is : ", self.settings.os)
-
-        # The HDF5Loader build expects the HDPS package to be in this install dir
-        hdps_pkg_root = self.deps_cpp_info["hdps-core"].rootpath
-        print("Install dir type: ", self.install_dir)
-        shutil.copytree(hdps_pkg_root, self.install_dir)
+        print("Build OS is: ", self.settings.os)
 
         cmake = self._configure_cmake()
-        cmake.build(build_type="Debug", cli_args=["--verbose"])
-        cmake.install(build_type="Debug")
-
-        cmake_release = self._configure_cmake()
-        cmake_release.build(build_type="Release")
-        cmake_release.install(build_type="Release")
+        cmake.build(build_type="Debug")
+        cmake.build(build_type="Release")
 
     def package(self):
-        package_dir = os.path.join(self.build_folder, "package")
+        package_dir = pathlib.Path(self.build_folder, "package")
+        debug_dir = package_dir / "Debug"
+        release_dir = package_dir / "Release"
         print("Packaging install dir: ", package_dir)
         subprocess.run(
-           [
-               "cmake",
-               "--install",
-               self.build_folder,
-               "--config",
-               "Debug",
-               "--prefix",
-               os.path.join(package_dir, "Debug"),
-           ]
+            [
+                "cmake",
+                "--install",
+                self.build_folder,
+                "--config",
+                "Debug",
+                "--prefix",
+                debug_dir,
+            ]
         )
         subprocess.run(
             [
@@ -191,7 +157,7 @@ class HDF5LoaderConan(ConanFile):
                 "--config",
                 "Release",
                 "--prefix",
-                os.path.join(package_dir, "Release"),
+                release_dir,
             ]
         )
         self.copy(pattern="*", src=package_dir)
