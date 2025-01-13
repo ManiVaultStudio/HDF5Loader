@@ -12,7 +12,8 @@ if (USE_HDF5_ARTIFACTORY_LIBS)
 		SOURCE_SUBDIR CMakeSupport
 	)
 	FetchContent_MakeAvailable(cmakesupport)
-
+	include("${cmakesupport_SOURCE_DIR}/CMakeSupport/InstallArtifactoryPackage.cmake")
+	
 	if (NOT HDF5_ARTIFACTORY_LIBS_INSTALLED) 
 		message(STATUS "Installing artifactory packages to: ${LIBRARY_INSTALL_DIR}")
 		# For simplicity zlib is included in the hdf5 artifactory package
