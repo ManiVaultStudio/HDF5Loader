@@ -88,7 +88,6 @@ namespace H5AD
 
 		if (mdd.size.size() == 2)
 			
-
 		if(optimize_storage_size)
 		{
 			auto sizeOfT = sizeof(T);
@@ -255,9 +254,6 @@ namespace H5AD
 		}
 	}
 
-	
-	
-
 	template<typename T>
 	void LoadDataAs(H5::Group& group, LoaderInfo &datasetInfo, bool optimize_storage_size = false, bool allow_lossy_storage = false)
 	{
@@ -269,7 +265,6 @@ namespace H5AD
 		std::vector<std::uint32_t> indptr;
 		std::vector<biovault::bfloat16_t> bf16data;
 		
-
 		if(!std::numeric_limits<T>::is_specialized)
 		{
 			// bfloat16
@@ -947,11 +942,9 @@ namespace H5AD
 	}
 
 
-	
 	template<typename numericalMetaDataType>
 	void LoadSampleNamesAndMetaData(H5::Group& group, LoaderInfo& loaderInfo)
 	{
-
 		static_assert(std::is_same<numericalMetaDataType, float>::value, "");
 		auto nrOfObjects = group.getNumObjs();
 
@@ -1006,8 +999,6 @@ namespace H5AD
 				}
 				if (itemsAreColors)
 				{
-
-					
 					int options = 2;
 					for(int option =0; option < options; ++option)
 					{
@@ -1298,7 +1289,7 @@ namespace H5AD
 									}
 									else
 									{
-										// multi-dimensiona,  only 2 supported for now
+										// multi-dimensional,  only 2 supported for now
 										H5Utils::MultiDimensionalData<float> mdd;
 
 										if (H5Utils::read_multi_dimensional_data(dataSet, mdd))

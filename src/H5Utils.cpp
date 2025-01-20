@@ -226,10 +226,6 @@ namespace H5Utils
 			return false;
 
 		H5::DataSet dataset = group.openDataSet(name);
-
-		H5::PredType predType = getPredTypeFromDataset(dataset);
-		
-
 		H5::DataSpace dataspace = dataset.getSpace();
 
 		/*
@@ -239,24 +235,22 @@ namespace H5Utils
 		std::size_t totalSize = 1;
 		if (dimensions > 0)
 		{
-
 			std::vector<hsize_t> dimensionSize(dimensions);
 			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
 			for (std::size_t d = 0; d < dimensions; ++d)
-			{
-
 				totalSize *= dimensionSize[d];
-			}
+		}
 
-		}
 		if (dimensions != 1)
-		{
 			return false;
-		}
+
+		H5::PredType predType = getPredTypeFromDataset(dataset);
 		vectorHolder.resize(totalSize);
 		vectorHolder.setPredTypeSpecifier(predType);
+
 		dataset.read(vectorHolder.data(), vectorHolder.H5DataType()); // since vector holder doesn't support all H5::PredType types we ask which one it is compatible with
 		dataset.close();
+
 		return true;
 	}
 

@@ -145,10 +145,8 @@ void DataContainerInterface::resize(RowID rows, ColumnID columns, std::size_t re
 			qDebug() << "Bad Allocation in setData: " << rows << " x " << columns;
 		}
 			
-			
-
-			qDebug() << "Number of dimensions: " << m_data->getNumDimensions();
-			qDebug() << "Number of data points: " << m_data->getNumPoints();		
+		qDebug() << "Number of dimensions: " << m_data->getNumDimensions();
+		qDebug() << "Number of data points: " << m_data->getNumPoints();		
 	}
 }
 
