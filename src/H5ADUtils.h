@@ -26,6 +26,8 @@ namespace H5AD
 
 	std::string LoadIndexStrings(H5::Group& group, std::vector<QString>& result);
 
+	bool ContainsSparseMatrix(H5::Group& group);
+
 	bool LoadSparseMatrix(H5::Group& group, LoaderInfo& loaderInfo);
 
 	bool LoadCategories(H5::Group& group, std::map<std::string, std::vector<QString>>& categories);

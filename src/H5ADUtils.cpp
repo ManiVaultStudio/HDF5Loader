@@ -597,62 +597,117 @@ namespace H5AD
 		return std::string();
 	}
 
+	bool ContainsSparseMatrix(H5::Group& group)
+	{
+		bool hasData = H5Utils::contains_name(group, "data");
+		bool hasIndices = H5Utils::contains_name(group, "indices");
+		bool hasIndicesPtr = H5Utils::contains_name(group, "indptr");
+
+		return hasData && hasIndices && hasIndicesPtr;
+	}
+
 	bool LoadSparseMatrix(H5::Group& group, LoaderInfo &loaderInfo)
 	{
+		bool loadSuccess = false;
+
 		auto nrOfObjects = group.getNumObjs();
 		auto h5groupName = group.getObjName();
 
-		bool containsSparseMatrix = false;
-		if (nrOfObjects > 2)
-		{
-			H5Utils::VectorHolder data;
-			H5Utils::VectorHolder indices;
-			H5Utils::VectorHolder indptr;
+		if (nrOfObjects <= 2)
+			return loadSuccess;
 
-			containsSparseMatrix = H5Utils::read_vector(group, "data", data);
-			if (containsSparseMatrix)
-				containsSparseMatrix &= H5Utils::read_vector(group, "indices", indices);
-			if (containsSparseMatrix)
-				containsSparseMatrix &= H5Utils::read_vector(group, "indptr", indptr);
+		if (!ContainsSparseMatrix(group))
+			return loadSuccess;
 
-			if (containsSparseMatrix)
-			{
-				std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
-				if (xsize == loaderInfo._pointsDataset->getNumPoints())
-				{
-					std::uint64_t ysize = indices.visit<std::uint64_t>([](auto& vec) { return *std::max_element(vec.cbegin(), vec.cend()); }) + 1;
+		H5Utils::VectorHolder data;
+		H5Utils::VectorHolder indices;
+		H5Utils::VectorHolder indptr;
 
-					std::vector<QString> dimensionNames(ysize);
-					for (std::size_t l = 0; l < ysize; ++l)
-						dimensionNames[l] = QString::number(l);
-					QString numericalDatasetName = QString(h5groupName.c_str()) /* + " (numerical)" */;
-					while (numericalDatasetName[0] == '/')
-						numericalDatasetName.remove(0, 1);
-					while (numericalDatasetName[0] == '\\')
-						numericalDatasetName.remove(0, 1);
-					Dataset<Points> numericalDataset = mv::data().createDerivedDataset(numericalDatasetName, loaderInfo._pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
-					numericalDataset->setProperty("Sample Names", loaderInfo._sampleNames);
-					data.visit([&numericalDataset](auto& vec) {
-						typedef typename std::decay_t<decltype(vec)> v;
-						numericalDataset->setDataElementType<typename v::value_type>();
-						});
+		bool readDataSuccess = H5Utils::read_vector(group, "data", data);
+		bool readIndicesSuccess = H5Utils::read_vector(group, "indices", indices);
+		bool readIndicesPtrSuccess = H5Utils::read_vector(group, "indptr", indptr);
 
+		if(!(readDataSuccess && readIndicesSuccess && readIndicesPtrSuccess))
+			return loadSuccess;
 
-					events().notifyDatasetAdded(numericalDataset);
-					DataContainerInterface dci(numericalDataset);
-					dci.resize(xsize, ysize);
-					dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
+		std::uint64_t xsize = indptr.size() > 0 ? indptr.size() - 1 : 0;
 
+		if(xsize != loaderInfo._pointsDataset->getNumPoints())
+			return loadSuccess;
 
-					numericalDataset->setDimensionNames(dimensionNames);
+		std::uint64_t ysize = indices.visit<std::uint64_t>([](auto& vec) { return *std::max_element(vec.cbegin(), vec.cend()); }) + 1;
 
-					events().notifyDatasetDataChanged(numericalDataset);
-					
-				}
+		// Data name
+		QString numericalDatasetName = QString(h5groupName.c_str()) /* + " (numerical)" */;
+		while (numericalDatasetName[0] == '/')
+			numericalDatasetName.remove(0, 1);
+		while (numericalDatasetName[0] == '\\')
+			numericalDatasetName.remove(0, 1);
+
+		// Create Dataset
+		Dataset<Points> numericalDataset = mv::data().createDerivedDataset(numericalDatasetName, loaderInfo._pointsDataset); // core->addDataset("Points", numericalDatasetName, parent);
+		numericalDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+
+		data.visit([&numericalDataset](auto& vec) {
+			typedef typename std::decay_t<decltype(vec)> v;
+			numericalDataset->setDataElementType<typename v::value_type>();
+			});
+
+		auto exceedsXGigabytes = [](size_t length, size_t gigabytes = 4) -> bool{
+			constexpr size_t BYTES_PER_GB = 1024ll * 1024 * 1024;
+			const size_t maxBytes = gigabytes * BYTES_PER_GB;
+
+			// Get size of the type
+			const size_t elementSize = sizeof(float);
+
+			// Check for multiplication overflow
+			if (length > std::numeric_limits<size_t>::max() / elementSize) {
+				return true;
 			}
+
+			// Calculate total size and compare
+			const size_t totalBytes = length * elementSize;
+			return totalBytes > maxBytes;
+		};
+
+		if (exceedsXGigabytes(xsize * ysize, 4))
+		{
+			qDebug() << "H5AD loader: Store sparse data as sparse";
+
+			// Store sparse data as sparse
+			std::vector<float> data_float = data.getVectorAs<float>();
+			std::vector<size_t> column_index = indices.getVectorAs<size_t>();
+			std::vector<size_t> row_offset = indptr.getVectorAs<size_t>();
+
+			auto numericalDataset_p = static_cast<Points*>(numericalDataset.getDataset());
+
+			Points::Experimental::setSparseData(numericalDataset_p, xsize, ysize, std::move(column_index), std::move(row_offset), std::move(data_float));
+
+			// Experimental: other plugins cannot yet handle this sparse data
+			numericalDataset->lock();
+		}
+		else
+		{
+			qDebug() << "H5AD loader: Store sparse data as dense";
+
+			// Store sparse data as dense
+			DataContainerInterface dci(numericalDataset);
+			dci.resize(xsize, ysize);
+			dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
 		}
 
-		return containsSparseMatrix;
+		events().notifyDatasetDataChanged(numericalDataset);
+
+		// Dimension names
+		std::vector<QString> dimensionNames(ysize);
+		for (std::size_t l = 0; l < ysize; ++l)
+			dimensionNames[l] = QString::number(l);
+
+		numericalDataset->setDimensionNames(dimensionNames);
+
+		events().notifyDatasetDataChanged(numericalDataset);
+		
+		return loadSuccess;
 	}
 
 	bool LoadCategories(H5::Group& group, std::map<std::string, std::vector<QString>>& categories)
@@ -902,8 +957,10 @@ namespace H5AD
 
 		std::filesystem::path path(group.getObjName());
 		std::string h5GroupName = path.filename().string();
-		if (LoadSparseMatrix(group, loaderInfo))
+
+		if (ContainsSparseMatrix(group))
 		{
+			bool loadSparseSuccess = LoadSparseMatrix(group, loaderInfo);
 			return;
 		}
 			
