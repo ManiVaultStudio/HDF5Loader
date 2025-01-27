@@ -1,4 +1,5 @@
 #pragma once
+
 #include "H5Utils.h"
 
 #include "PointData/PointData.h"
@@ -25,6 +26,8 @@ namespace H5AD
 	std::string LoadIndexStrings(H5::DataSet& dataset, std::vector<QString>& result);
 
 	std::string LoadIndexStrings(H5::Group& group, std::vector<QString>& result);
+
+	bool ContainsSparseMatrix(H5::Group& group);
 
 	bool LoadSparseMatrix(H5::Group& group, LoaderInfo& loaderInfo);
 

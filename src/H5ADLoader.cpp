@@ -74,7 +74,6 @@ namespace
 
 H5ADLoader::H5ADLoader(PluginFactory* factory)
     : LoaderPlugin(factory)
-	
 {
 	
 }
@@ -87,7 +86,6 @@ H5ADLoader::~H5ADLoader(void)
 
 void H5ADLoader::init()
 {
-	
 	QStringList fileTypeOptions;
 	fileTypeOptions.append("H5AD (*.h5ad)");
 	_fileDialog.setOption(QFileDialog::DontUseNativeDialog);
@@ -162,10 +160,9 @@ void H5ADLoader::loadData()
 		settings.setValue(Keys::storageValueKey,  storageTypeComboBox->currentIndex());
 		settings.setValue(Keys::fileNameKey, firstFileName);
 		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
-		
 
 		HDF5_AD_Loader loader(_core);
-		for (const auto fileName : fileNames)
+		for (const auto& fileName : fileNames)
 		{
 			if (loader.open(fileName))
 				loader.load(storageTypeComboBox->currentData().toInt());

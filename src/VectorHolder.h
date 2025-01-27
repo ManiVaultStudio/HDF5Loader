@@ -87,6 +87,20 @@ namespace H5Utils
 
 	public:		
 
+		template<typename T>
+		std::vector<T> getVectorAs() const {
+			return std::visit([](const auto& vec) -> std::vector<T> {
+				std::vector<T> result;
+				result.reserve(vec.size());
+
+				for (const auto& element : vec) {
+					result.push_back(static_cast<T>(element));
+				}
+
+				return result;
+				}, _variantOfVectors);
+		}
+
 		template <typename T>
 		const std::vector<T>& getConstVector() const
 		{
