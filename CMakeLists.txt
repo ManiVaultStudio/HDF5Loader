@@ -23,8 +23,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 
-if(DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg")
-    set(MV_H5_USE_VCPKG ON)
+if(NOT DEFINED MV_H5_USE_VCPKG)
+    set(MV_H5_USE_VCPKG OFF)
+elseif(MV_H5_USE_VCPKG)
+    message(STATUS "HDF5 Loader Plugins: Using vcpkg to install dependencies")
 endif()
 
 # -----------------------------------------------------------------------------
