@@ -135,7 +135,6 @@ void H510XLoader::loadData()
 				transform_type.first = index;
 				transform_type.second = transformValueSetting.toDouble();
 				transform.set(transform_type);
-
 			}
 		}
 		else

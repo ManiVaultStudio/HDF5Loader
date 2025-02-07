@@ -3,8 +3,8 @@
 #include <LoaderPlugin.h>
 
 #include <QObject>
-
 #include <QFileDialog>
+
 using namespace mv::plugin;
 
 // =============================================================================
@@ -13,11 +13,6 @@ using namespace mv::plugin;
 
 class TOMELoader :  public LoaderPlugin
 {
-	QFileDialog _fileDialog;
-
-protected:
-	int _storageType;
-
 public:
     TOMELoader(PluginFactory* factory);
     ~TOMELoader() Q_DECL_OVERRIDE;
@@ -26,4 +21,6 @@ public:
 
     void loadData() Q_DECL_OVERRIDE;
 
+private:
+	QFileDialog _fileDialog = QFileDialog{};
 };

@@ -14,13 +14,13 @@
 #include <QCheckBox>
 #include <QString>
 #include <QStringList>
-#include <QSettings>
 #include <QMessageBox>
 
 Q_PLUGIN_METADATA(IID "nl.lumc.TOMELoader")
 
 // =============================================================================
 // Loader
+// =============================================================================
 
 using namespace mv;
 
@@ -50,57 +50,33 @@ namespace
 	// Alphabetic list of keys used to access settings from QSettings.
 	namespace Keys
 	{
-		const QLatin1String conversionIndexKey("conversionIndex");
-		const QLatin1String transformValueKey("transformValue");
-		const QLatin1String storageValueKey("storageValue");
-		const QLatin1String fileNameKey("fileName");
-		const QLatin1String normalizeKey("normalize");
-		const QLatin1String selectedNameFilterKey("selectedNameFilter");
-		
-	}
-
-
-	// Call the specified function on the specified value, if it is valid.
-	template <typename TFunction>
-	void IfValid(const QVariant& value, const TFunction& function)
-	{
-		if (value.isValid())
-		{
-			function(value);
-		}
+		const QString conversionIndexKey("conversionIndex");
+		const QString transformValueKey("transformValue");
+		const QString fileNameKey("fileName");
+		const QString normalizeKey("normalize");
+		const QString selectedNameFilterKey("selectedNameFilter");
 	}
 
 }	// Unnamed namespace
 
-
-
 TOMELoader::TOMELoader(PluginFactory* factory)
     : LoaderPlugin(factory)
-	
 {
 	
 }
 
 TOMELoader::~TOMELoader(void)
 {
-	
 }
-
 
 void TOMELoader::init()
 {
-	
 	QStringList fileTypeOptions;
 	fileTypeOptions.append("TOME (*.tome)");
 	_fileDialog.setOption(QFileDialog::DontUseNativeDialog);
 	_fileDialog.setFileMode(QFileDialog::ExistingFiles);
 	_fileDialog.setNameFilters(fileTypeOptions);
-
-	
-
-	
 }
-
 
 void TOMELoader::loadData()
 {
@@ -116,9 +92,6 @@ void TOMELoader::loadData()
 
 	int rowCount = fileDialogLayout->rowCount();
 
-	
-	
-
 	TRANSFORM::Control transform(fileDialogLayout);
 
 #ifdef USE_HDF5_TRANSFORM
@@ -133,18 +106,21 @@ void TOMELoader::loadData()
 	}());
 #endif	
 
-	IfValid(settings.value(Keys::conversionIndexKey), [&transform, &settings](const QVariant& value)
+	const auto conversionIndexSetting = getSetting(Keys::conversionIndexKey, QVariant::QVariant());
+	if (conversionIndexSetting.isValid())
 	{
-		TRANSFORM::Index index = static_cast<TRANSFORM::Index>(value.toInt());
-		if(index == TRANSFORM::ARCSIN5)
+		TRANSFORM::Index index = static_cast<TRANSFORM::Index>(conversionIndexSetting.toInt());
+		if (index == TRANSFORM::ARCSIN5)
 		{
-			IfValid(settings.value(Keys::transformValueKey), [&transform, index](const QVariant& value)
-				{
-					TRANSFORM::Type transform_type;
-					transform_type.first = index;
-					transform_type.second = value.toDouble();
-					transform.set(transform_type);
-				});
+			const auto transformValueSetting = getSetting(Keys::transformValueKey, QVariant::QVariant());
+
+			if (transformValueSetting.isValid())
+			{
+				TRANSFORM::Type transform_type;
+				transform_type.first = index;
+				transform_type.second = transformValueSetting.toDouble();
+				transform.set(transform_type);
+			}
 		}
 		else
 		{
@@ -153,22 +129,17 @@ void TOMELoader::loadData()
 			type_pair.second = 1.0f;
 			transform.set(type_pair);
 		}
-		
-	});
+	}
 
-	QFileDialog& fileDialogRef = _fileDialog;
-	IfValid(settings.value(Keys::selectedNameFilterKey), [&fileDialogRef](const QVariant& value)
-	{
-			fileDialogRef.selectNameFilter(value.toString());
-	});
-	IfValid(settings.value(Keys::fileNameKey), [&fileDialogRef](const QVariant& value)
-	{
-			fileDialogRef.selectFile(value.toString());
-	});
+	const auto selectedNameFilterSetting = getSetting(Keys::selectedNameFilterKey, QVariant::QVariant());
+	if (selectedNameFilterSetting.isValid())
+		_fileDialog.selectNameFilter(selectedNameFilterSetting.toString());
+
+	const auto fileNameSetting = getSetting(Keys::fileNameKey, QVariant::QVariant());
+	if (fileNameSetting.isValid())
+		_fileDialog.selectFile(fileNameSetting.toString());
 
 	transform.setVisible(true);
-
-	
 
 	if (_fileDialog.exec())
 	{
@@ -189,13 +160,12 @@ void TOMELoader::loadData()
 		const bool normalize = false;
 #endif
 
-		settings.setValue(Keys::conversionIndexKey, transform_setting.first);
-		settings.setValue(Keys::transformValueKey, transform_setting.second);
-		settings.setValue(Keys::fileNameKey, firstFileName);
-		settings.setValue(Keys::normalizeKey, normalize);
-		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
+		setSetting(Keys::conversionIndexKey, transform_setting.first);
+		setSetting(Keys::transformValueKey, transform_setting.second);
+		setSetting(Keys::fileNameKey, firstFileName);
+		setSetting(Keys::normalizeKey, normalize);
+		setSetting(Keys::selectedNameFilterKey, selectedNameFilter);
 		
-
 		if (selectedNameFilter == "TOME (*.tome)")
 		{
 			for (const auto fileName : fileNames)

@@ -23,5 +23,5 @@ public:
     void loadData() Q_DECL_OVERRIDE;
 
 private:
-	QFileDialog _fileDialog;
+	QFileDialog _fileDialog = QFileDialog{};
 };
