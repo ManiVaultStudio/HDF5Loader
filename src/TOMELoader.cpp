@@ -106,13 +106,13 @@ void TOMELoader::loadData()
 	}());
 #endif	
 
-	const auto conversionIndexSetting = getSetting(Keys::conversionIndexKey, QVariant::QVariant());
+	const auto conversionIndexSetting = getSetting(Keys::conversionIndexKey, QVariant());
 	if (conversionIndexSetting.isValid())
 	{
 		TRANSFORM::Index index = static_cast<TRANSFORM::Index>(conversionIndexSetting.toInt());
 		if (index == TRANSFORM::ARCSIN5)
 		{
-			const auto transformValueSetting = getSetting(Keys::transformValueKey, QVariant::QVariant());
+			const auto transformValueSetting = getSetting(Keys::transformValueKey, QVariant());
 
 			if (transformValueSetting.isValid())
 			{
@@ -131,11 +131,11 @@ void TOMELoader::loadData()
 		}
 	}
 
-	const auto selectedNameFilterSetting = getSetting(Keys::selectedNameFilterKey, QVariant::QVariant());
+	const auto selectedNameFilterSetting = getSetting(Keys::selectedNameFilterKey, QVariant());
 	if (selectedNameFilterSetting.isValid())
 		_fileDialog.selectNameFilter(selectedNameFilterSetting.toString());
 
-	const auto fileNameSetting = getSetting(Keys::fileNameKey, QVariant::QVariant());
+	const auto fileNameSetting = getSetting(Keys::fileNameKey, QVariant());
 	if (fileNameSetting.isValid())
 		_fileDialog.selectFile(fileNameSetting.toString());
 
