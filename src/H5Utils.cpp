@@ -12,6 +12,7 @@
 
 #include <QInputDialog>
 #include <QMainWindow>
+#include <QtDebug>
 
 #include "H5Cpp.h"
 
@@ -154,7 +155,7 @@ namespace H5Utils
 			catch (const H5::DataTypeIException& e)
 			{
 				std::cout << strType.getObjName() << std::endl;
-				qInfo(e.getDetailMsg().c_str());
+				qInfo() << e.getDetailMsg().c_str();
 			}
 			std::size_t stringSize = strType.getSize();
 			result.resize(totalsize);
@@ -172,7 +173,7 @@ namespace H5Utils
 		}
 		catch (const H5::Exception &e)
 		{
-			qCritical(e.getDetailMsg().c_str());
+			qCritical() << e.getDetailMsg().c_str();
 			result.clear();
 		}
 		
@@ -225,10 +226,6 @@ namespace H5Utils
 			return false;
 
 		H5::DataSet dataset = group.openDataSet(name);
-
-		H5::PredType predType = getPredTypeFromDataset(dataset);
-		
-
 		H5::DataSpace dataspace = dataset.getSpace();
 
 		/*
@@ -238,24 +235,22 @@ namespace H5Utils
 		std::size_t totalSize = 1;
 		if (dimensions > 0)
 		{
-
 			std::vector<hsize_t> dimensionSize(dimensions);
 			int ndims = dataspace.getSimpleExtentDims(&(dimensionSize[0]), NULL);
 			for (std::size_t d = 0; d < dimensions; ++d)
-			{
-
 				totalSize *= dimensionSize[d];
-			}
+		}
 
-		}
 		if (dimensions != 1)
-		{
 			return false;
-		}
+
+		H5::PredType predType = getPredTypeFromDataset(dataset);
 		vectorHolder.resize(totalSize);
 		vectorHolder.setPredTypeSpecifier(predType);
+
 		dataset.read(vectorHolder.data(), vectorHolder.H5DataType()); // since vector holder doesn't support all H5::PredType types we ask which one it is compatible with
 		dataset.close();
+
 		return true;
 	}
 
@@ -296,7 +291,7 @@ namespace H5Utils
 		}
 		catch (const H5::Exception& e)
 		{
-			qCritical(e.getDetailMsg().c_str());
+			qCritical() << e.getDetailMsg().c_str();
 		}
 		result.clear();
 		return false;
@@ -306,8 +301,6 @@ namespace H5Utils
 	{
 		try
 		{
-
-
 			//	std::cout << name << " ";
 			if (!group.exists(name))
 				return false;
@@ -341,7 +334,7 @@ namespace H5Utils
 		}
 		catch(const H5::Exception &e)
 		{
-			qCritical(e.getDetailMsg().c_str());
+			qCritical() << e.getDetailMsg().c_str();
 			result.clear();
 		}
 		
@@ -361,7 +354,7 @@ namespace H5Utils
 			}
 			catch (const H5::DataTypeIException& e)
 			{
-				qInfo(e.getDetailMsg().c_str());
+				qInfo() << e.getDetailMsg().c_str();
 			}
 			std::size_t stringSize = strType.getSize();
 			result.resize(totalsize);
@@ -392,7 +385,7 @@ namespace H5Utils
 		}
 		catch (const H5::Exception &e)
 		{
-			qCritical(e.getDetailMsg().c_str());
+			qCritical() << e.getDetailMsg().c_str();
 			result.clear();
 		}
 		
@@ -419,7 +412,7 @@ namespace H5Utils
 				}
 				catch (const H5::DataTypeIException& e)
 				{
-					qInfo(e.getDetailMsg().c_str());
+					qInfo() << e.getDetailMsg().c_str();
 				}
 				std::size_t size = get_vector_size(dataset);
 				if (size)
@@ -475,7 +468,7 @@ namespace H5Utils
 		}
 		catch(const H5::Exception &e)
 		{
-			qCritical(e.getDetailMsg().c_str());
+			qCritical() << e.getDetailMsg().c_str();
 		}
 		result.clear();
 		return false;
@@ -486,9 +479,6 @@ namespace H5Utils
 	{
 		try
 		{
-			
-
-
 			H5::DataType datatype = dataset.getDataType();
 			if (datatype.isVariableStr())
 			{
@@ -503,7 +493,7 @@ namespace H5Utils
 				}
 				catch (const H5::DataTypeIException& e)
 				{
-					qInfo(e.getDetailMsg().c_str());
+					qInfo() << e.getDetailMsg().c_str();
 				}
 				std::size_t size = get_vector_size(dataset);
 				if (size)

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.24.0)
 message(STATUS "Building with cmake version ${CMAKE_VERSION}")
 
+option(USE_HDF5_ARTIFACTORY_LIBS "Use the prebuilt libraries from artifactory" ON)
+
 # -----------------------------------------------------------------------------
 # HDF5 Loader Plugin
 # -----------------------------------------------------------------------------
@@ -21,8 +23,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 
-if(DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg")
-    set(MV_H5_USE_VCPKG ON)
+if(NOT DEFINED MV_H5_USE_VCPKG)
+    set(MV_H5_USE_VCPKG OFF)
+elseif(MV_H5_USE_VCPKG)
+    message(STATUS "HDF5 Loader Plugins: Using vcpkg to install dependencies")
 endif()
 
 # -----------------------------------------------------------------------------
@@ -36,6 +40,7 @@ find_package(ManiVault COMPONENTS Core PointData ClusterData CONFIG)
 if(MV_H5_USE_VCPKG)
     find_package(hdf5 CONFIG REQUIRED COMPONENTS CXX HL)
     message(STATUS "Found HDF5 with version ${hdf5_VERSION}")
+    set(USE_HDF5_ARTIFACTORY_LIBS OFF)
 else()
     include(HDF5Dependency)
 endif()

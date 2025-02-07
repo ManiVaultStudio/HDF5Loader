@@ -248,7 +248,10 @@ namespace H5Utils
 		return true;
 	}
 
-	
+		inline bool contains_name(H5::Group& group, const std::string& name)
+	{
+		return group.exists(name);
+	}
 
 	bool read_vector(H5::Group& group, const std::string& name, VectorHolder& vectorHolder);
 	

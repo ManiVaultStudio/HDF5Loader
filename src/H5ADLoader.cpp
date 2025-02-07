@@ -58,8 +58,7 @@ namespace
 
 
 H5ADLoader::H5ADLoader(PluginFactory* factory)
-    : LoaderPlugin(factory),
-	_fileDialog()
+    : LoaderPlugin(factory)
 {
 	
 }

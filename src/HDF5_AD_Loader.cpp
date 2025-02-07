@@ -11,10 +11,10 @@
 #include <QDialogButtonBox>
 #include <QtGlobal>
 
+#include <cassert>
 #include <iostream>
+#include <map>
 #include <set>
-
-#include "DataContainerInterface.h"
 
 #include <PointData/PointData.h>
 
@@ -117,7 +117,7 @@ bool HDF5_AD_Loader::open(const QString& fileName)
  }
 
  
- void LoadProperties(H5::DataSet dataset, H5AD::LoaderInfo &datasetInfo)
+static void LoadProperties(H5::DataSet dataset, H5AD::LoaderInfo &datasetInfo)
  {
 	 auto datasetClass = dataset.getDataType().getClass();
 	 QVariantMap propertyMap;
@@ -142,12 +142,7 @@ bool HDF5_AD_Loader::open(const QString& fileName)
 	
  }
 
-
-
-
-
-
- void LoadProperties(H5::Group &group, H5AD::LoaderInfo &datasetInfo)
+static void LoadProperties(H5::Group &group, H5AD::LoaderInfo &datasetInfo)
  {
 	 QString name = group.getObjName().c_str();
 	 if (name.isEmpty())
@@ -334,7 +329,6 @@ bool HDF5_AD_Loader::load(int storageType)
 			}
 		}
 
-
 		std::set<std::string> objectsToProcess;
 
 		QString pointDatasetLabel;
@@ -353,7 +347,6 @@ bool HDF5_AD_Loader::load(int storageType)
 			buttonBox->connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
 			layout->addWidget(buttonBox, 3, 0, 1, 2);
 
-
 			dialog.setLayout(layout);
 
 			auto result = dialog.exec();
@@ -363,7 +356,6 @@ bool HDF5_AD_Loader::load(int storageType)
 
 			pointDatasetLabel = lineEdit->displayText();
 
-			
 			for (hsize_t i = 0; i < model.rowCount(); ++i)
 			{
 				auto* item = model.item(i, 0);
@@ -377,9 +369,6 @@ bool HDF5_AD_Loader::load(int storageType)
 		Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, false,  pointDatasetLabel);
 		pointsDataset->getDataHierarchyItem().setVisible(false);
 	
-		
-		
-		
 		// first load the main data matrix
 		H5AD::LoaderInfo loaderInfo;
 		
@@ -395,12 +384,9 @@ bool HDF5_AD_Loader::load(int storageType)
 			return false;
 		}
 		
-		
-		
 		//_dimensionNames = pointsDataset->getDimensionNames();
 		
 		// now we look for nice to have annotation for the observations in the main data matrix
-		
 		try
 		{
 			auto nrOfObjects = _file->getNumObjs();
@@ -416,7 +402,6 @@ bool HDF5_AD_Loader::load(int storageType)
 					{
 						H5::DataSet h5Dataset = _file->openDataSet(objectName1);
 						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo);
-							
 					}
 					else if (objectType1 == H5G_GROUP)
 					{

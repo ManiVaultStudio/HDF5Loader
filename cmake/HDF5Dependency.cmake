@@ -1,25 +1,21 @@
-#set(hdf5_VERSION 1.12.1)
 SET(hdf5_VERSION "1.14.2" CACHE STRING "Version of HDF5 Library")
 SET_PROPERTY(CACHE hdf5_VERSION PROPERTY STRINGS 1.12.1 1.14.2)
 
 include(FetchContent)
-FetchContent_Declare(cmakesupport
-	GIT_REPOSITORY https://github.com/ManiVaultStudio/github-actions
-	GIT_TAG main
-	GIT_SHALLOW TRUE
-	SOURCE_SUBDIR CMakeSupport
-)
-FetchContent_MakeAvailable(cmakesupport)
 
-option(USE_HDF5_ARTIFACTORY_LIBS "Use the prebuilt libraries from artifactory" ON)
-		
-# include(InstallArtifactoryPackage)
-include("${cmakesupport_SOURCE_DIR}/CMakeSupport/InstallArtifactoryPackage.cmake")
 set(LIBRARY_INSTALL_DIR ${PROJECT_BINARY_DIR})
-if (USE_HDF5_ARTIFACTORY_LIBS)			
+if (USE_HDF5_ARTIFACTORY_LIBS)
+	FetchContent_Declare(cmakesupport
+		GIT_REPOSITORY https://github.com/ManiVaultStudio/github-actions
+		GIT_TAG main
+		GIT_SHALLOW TRUE
+		SOURCE_SUBDIR CMakeSupport
+	)
+	FetchContent_MakeAvailable(cmakesupport)
+	include("${cmakesupport_SOURCE_DIR}/CMakeSupport/InstallArtifactoryPackage.cmake")
+	
 	if (NOT HDF5_ARTIFACTORY_LIBS_INSTALLED) 
 		message(STATUS "Installing artifactory packages to: ${LIBRARY_INSTALL_DIR}")
-		# Both HDILib and flann are available prebuilt in the lkeb-artifactory as combined Debug/Release packages
 		# For simplicity zlib is included in the hdf5 artifactory package
 		install_artifactory_package(hdf5 ${hdf5_VERSION} lkeb TRUE)
 	else()
@@ -78,33 +74,33 @@ else()
 	endif(LINUX)
 	
 	ExternalProject_Add(hdf5
-	GIT_REPOSITORY https://github.com/HDFGroup/hdf5.git
-	GIT_TAG ${HDF5_GIT_TAG}
-	GIT_SHALLOW ON
-	UPDATE_COMMAND ""
-	PREFIX ${HDF5_PREFIX}
-	CMAKE_ARGS
+		GIT_REPOSITORY https://github.com/HDFGroup/hdf5.git
+		GIT_TAG ${HDF5_GIT_TAG}
+		GIT_SHALLOW ON
+		UPDATE_COMMAND ""
+		PREFIX ${HDF5_PREFIX}
+		CMAKE_ARGS
 			-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
 			-DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}
-	-DBUILD_SHARED_LIBS=OFF
-	-DHDF5_BUILD_CPP_LIB=ON
-	-DBUILD_TESTING=OFF 
-	-DHDF5_BUILD_EXAMPLES=OFF 
-	-DHDF5_BUILD_HL_LIB=OFF 
-	-DHDF5_BUILD_TOOLS=OFF 
-	-DHDF5_BUILD_UTILS=OFF
-	-DHDF5_ENABLE_EMBEDDED_LIBINFO=OFF 
-	-DHDF5_ENABLE_HSIZET=OFF 
-	-DHDF5_ALLOW_EXTERNAL_SUPPORT="GIT" 
-	-DHDF5_ENABLE_Z_LIB_SUPPORT=ON
-	-DZLIB_URL=https://github.com/madler/zlib 
-	-DZLIB_BRANCH=master
-
-	INSTALL_COMMAND ""
-	BUILD_BYPRODUCTS  ${HDF5_C_STATIC_LIBRARY} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES}
+			-DBUILD_SHARED_LIBS=OFF
+			-DHDF5_BUILD_CPP_LIB=ON
+			-DBUILD_TESTING=OFF 
+			-DHDF5_BUILD_EXAMPLES=OFF 
+			-DHDF5_BUILD_HL_LIB=OFF 
+			-DHDF5_BUILD_TOOLS=OFF 
+			-DHDF5_BUILD_UTILS=OFF
+			-DHDF5_ENABLE_EMBEDDED_LIBINFO=OFF 
+			-DHDF5_ENABLE_HSIZET=OFF 
+			-DHDF5_ALLOW_EXTERNAL_SUPPORT="GIT" 
+			-DHDF5_ENABLE_Z_LIB_SUPPORT=ON
+			-DZLIB_URL=https://github.com/madler/zlib 
+			-DZLIB_BRANCH=master
+		INSTALL_COMMAND ""
+		BUILD_BYPRODUCTS  ${HDF5_C_STATIC_LIBRARY} ${HDF5_CXX_STATIC_LIBRARY} ${ZLIB_LIBRARIES}
 	)
 
 	ExternalProject_Get_Property(hdf5 SOURCE_DIR BINARY_DIR)
+
 	SET(HDF5_INCLUDE_DIR ${SOURCE_DIR}/src ${SOURCE_DIR}/src/H5FDsubfiling ${SOURCE_DIR}/c++/src ${BINARY_DIR} ${BINARY_DIR}/src)
 	message(STATUS "HDF5 Loader SOURCE_DIR: ${SOURCE_DIR}")
 	message(STATUS "HDF5 Loader BINARY_DIR: ${BINARY_DIR}")
