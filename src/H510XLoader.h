@@ -13,12 +13,6 @@ using namespace mv::plugin;
 
 class H510XLoader :  public LoaderPlugin
 {
-	QFileDialog _fileDialog;
-
-protected:
-	
-	int _storageType;
-
 public:
 	
 	H510XLoader(PluginFactory* factory);
@@ -28,4 +22,6 @@ public:
 
     void loadData() Q_DECL_OVERRIDE;
 
+private:
+	QFileDialog _fileDialog = QFileDialog{};
 };

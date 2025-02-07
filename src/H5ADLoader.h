@@ -24,5 +24,4 @@ public:
 
 private:
 	QFileDialog _fileDialog = QFileDialog{};
-
 };

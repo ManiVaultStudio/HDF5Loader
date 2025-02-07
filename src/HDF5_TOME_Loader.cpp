@@ -40,7 +40,7 @@ namespace TOME
 	};
 
 
-	bool LoadDesc(const H5::DataSet &dataset, TOME::descType &desc)
+	static bool LoadDesc(const H5::DataSet &dataset, TOME::descType &desc)
 	{
 		try
 		{
@@ -58,7 +58,7 @@ namespace TOME
 	}
 	enum { Exons = 1, Introns = 2, Exons_T, Introns_T };
 
-	void LoadData(H5::Group &group, std::shared_ptr<DataContainerInterface>&rawData, TRANSFORM::Type transformType, bool normalize_and_cpm, int test)
+	static void LoadData(H5::Group &group, std::shared_ptr<DataContainerInterface>&rawData, TRANSFORM::Type transformType, bool normalize_and_cpm, int test)
 	{
 #ifndef HIDE_CONSOLE
 		std::cout << "Loading Data" << std::endl;
