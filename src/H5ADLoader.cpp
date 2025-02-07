@@ -13,7 +13,6 @@
 #include <QCheckBox>
 #include <QString>
 #include <QStringList>
-#include <QSettings>
 #include <QMessageBox>
 
 Q_PLUGIN_METADATA(IID "nl.lumc.H5ADLoader")
@@ -50,31 +49,17 @@ namespace
 	// Alphabetic list of keys used to access settings from QSettings.
 	namespace Keys
 	{
-		const QLatin1String storageValueKey("storageValue");
-		const QLatin1String fileNameKey("fileName");
-	
-		const QLatin1String selectedNameFilterKey("selectedNameFilter");
-		
-	}
-
-
-	// Call the specified function on the specified value, if it is valid.
-	template <typename TFunction>
-	void IfValid(const QVariant& value, const TFunction& function)
-	{
-		if (value.isValid())
-		{
-			function(value);
-		}
+		const QString storageValueKey("storageValue");
+		const QString fileNameKey("fileName");
+		const QString selectedNameFilterKey("selectedNameFilter");
 	}
 
 }	// Unnamed namespace
 
 
-
 H5ADLoader::H5ADLoader(PluginFactory* factory)
-    : LoaderPlugin(factory)
-	
+    : LoaderPlugin(factory),
+	_fileDialog()
 {
 	
 }
@@ -84,16 +69,13 @@ H5ADLoader::~H5ADLoader(void)
 	
 }
 
-
 void H5ADLoader::init()
 {
-	
 	QStringList fileTypeOptions;
 	fileTypeOptions.append("H5AD (*.h5ad)");
 	_fileDialog.setOption(QFileDialog::DontUseNativeDialog);
 	_fileDialog.setFileMode(QFileDialog::ExistingFiles);
 	_fileDialog.setNameFilters(fileTypeOptions);
-	
 }
 
 void H5ADLoader::loadData()
@@ -105,7 +87,6 @@ void H5ADLoader::loadData()
 	};
 	LockGuard lockGuard(Hdf5Lock());
 	
-	QSettings settings(QString::fromLatin1("ManiVault"), QString::fromLatin1("Plugins/H5ADLoader"));
 	QGridLayout* fileDialogLayout = dynamic_cast<QGridLayout*>(_fileDialog.layout());
 
 	int rowCount = fileDialogLayout->rowCount();
@@ -123,25 +104,22 @@ void H5ADLoader::loadData()
 		storageTypeComboBox->addItem(dataTypeList[i], i);
 	}
 	
-	storageTypeComboBox->setCurrentIndex([&settings]
+	storageTypeComboBox->setCurrentIndex([this]
 	{
-		const auto value = settings.value(Keys::storageValueKey);
-		if (value.isValid())return value.toInt();
-		return 0;
+		const auto value = getSetting(Keys::storageValueKey, 0).toInt();
+		return value;
 	}());
 		
 	fileDialogLayout->addWidget(storageTypeLabel, rowCount, 0);
 	fileDialogLayout->addWidget(storageTypeComboBox, rowCount, 1);
 
-	QFileDialog& fileDialogRef = _fileDialog;
-	IfValid(settings.value(Keys::selectedNameFilterKey), [&fileDialogRef](const QVariant& value)
-	{
-			fileDialogRef.selectNameFilter(value.toString());
-	});
-	IfValid(settings.value(Keys::fileNameKey), [&fileDialogRef](const QVariant& value)
-	{
-			fileDialogRef.selectFile(value.toString());
-	});
+	const auto selectedNameFilterSetting = getSetting(Keys::selectedNameFilterKey, QVariant::QVariant());
+	if (selectedNameFilterSetting.isValid())
+		_fileDialog.selectNameFilter(selectedNameFilterSetting.toString());
+
+	const auto fileNameSetting = getSetting(Keys::fileNameKey, QVariant::QVariant());
+	if (fileNameSetting.isValid())
+		_fileDialog.selectFile(fileNameSetting.toString());
 
 	storageTypeComboBox->setVisible(true);
 	storageTypeLabel->setVisible(true);
@@ -159,13 +137,12 @@ void H5ADLoader::loadData()
 		bool result = true;
 		QString selectedNameFilter = _fileDialog.selectedNameFilter();
 		
-		settings.setValue(Keys::storageValueKey,  storageTypeComboBox->currentIndex());
-		settings.setValue(Keys::fileNameKey, firstFileName);
-		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
+		setSetting(Keys::storageValueKey, storageTypeComboBox->currentIndex());
+		setSetting(Keys::fileNameKey, firstFileName);
+		setSetting(Keys::selectedNameFilterKey, selectedNameFilter);
 		
-
 		HDF5_AD_Loader loader(_core);
-		for (const auto fileName : fileNames)
+		for (const auto& fileName : fileNames)
 		{
 			if (loader.open(fileName))
 				loader.load(storageTypeComboBox->currentData().toInt());

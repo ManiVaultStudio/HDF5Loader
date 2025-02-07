@@ -14,7 +14,6 @@
 #include <QCheckBox>
 #include <QString>
 #include <QStringList>
-#include <QSettings>
 #include <QMessageBox>
 
 Q_PLUGIN_METADATA(IID "nl.lumc.H510XLoader")
@@ -47,23 +46,12 @@ namespace
 	// Alphabetic list of keys used to access settings from QSettings.
 	namespace Keys
 	{
-		const QLatin1String conversionIndexKey("conversionIndex");
-		const QLatin1String transformValueKey("transformValue");
-		const QLatin1String storageValueKey("storageValue");
-		const QLatin1String fileNameKey("fileName");
-		const QLatin1String normalizeKey("normalize");
-		const QLatin1String selectedNameFilterKey("selectedNameFilter");
-
-	}
-
-	// Call the specified function on the specified value, if it is valid.
-	template <typename TFunction>
-	void IfValid(const QVariant& value, const TFunction& function)
-	{
-		if (value.isValid())
-		{
-			function(value);
-		}
+		const QString conversionIndexKey("conversionIndex");
+		const QString transformValueKey("transformValue");
+		const QString storageValueKey("storageValue");
+		const QString fileNameKey("fileName");
+		const QString normalizeKey("normalize");
+		const QString selectedNameFilterKey("selectedNameFilter");
 	}
 
 }	// Unnamed namespace
@@ -74,8 +62,8 @@ namespace
 // =============================================================================
 
 H510XLoader::H510XLoader(PluginFactory* factory)
-	: LoaderPlugin(factory)
-
+	: LoaderPlugin(factory),
+	_fileDialog()
 {
 
 }
@@ -87,7 +75,6 @@ H510XLoader::~H510XLoader(void)
 
 void H510XLoader::init()
 {
-
 	QStringList fileTypeOptions;
 	
 	fileTypeOptions.append("10X (*.h5)");
@@ -95,7 +82,6 @@ void H510XLoader::init()
 	_fileDialog.setOption(QFileDialog::DontUseNativeDialog);
 	_fileDialog.setFileMode(QFileDialog::ExistingFiles);
 	_fileDialog.setNameFilters(fileTypeOptions);
-
 }
 
 void H510XLoader::loadData()
@@ -107,7 +93,6 @@ void H510XLoader::loadData()
 	};
 	LockGuard lockGuard(Hdf5Lock());
 
-	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/H510XLoader"));
 	QGridLayout* fileDialogLayout = dynamic_cast<QGridLayout*>(_fileDialog.layout());
 
 	int rowCount = fileDialogLayout->rowCount();
@@ -125,57 +110,54 @@ void H510XLoader::loadData()
 		storageTypeComboBox->addItem(dataTypeList[i], i);
 	}
 
-	storageTypeComboBox->setCurrentIndex([&settings]
+	storageTypeComboBox->setCurrentIndex([this]
 		{
-			const auto value = settings.value(Keys::storageValueKey);
-			if (value.isValid())return value.toInt();
-			return 0;
+			const auto value = getSetting(Keys::storageValueKey, 0);
+			return value.toInt();
 		}());
 
 	fileDialogLayout->addWidget(storageTypeLabel, rowCount, 0);
 	fileDialogLayout->addWidget(storageTypeComboBox, rowCount, 1);
 
-
 	TRANSFORM::Control transform(fileDialogLayout);
 
-
-	IfValid(settings.value(Keys::conversionIndexKey), [&transform, &settings](const QVariant& value)
+	const auto conversionIndexSetting = getSetting(Keys::conversionIndexKey, QVariant::QVariant());
+	if (conversionIndexSetting.isValid())
+	{
+		TRANSFORM::Index index = static_cast<TRANSFORM::Index>(conversionIndexSetting.toInt());
+		if (index == TRANSFORM::ARCSIN5)
 		{
-			TRANSFORM::Index index = static_cast<TRANSFORM::Index>(value.toInt());
-			if (index == TRANSFORM::ARCSIN5)
+			const auto transformValueSetting = getSetting(Keys::transformValueKey, QVariant::QVariant());
+
+			if (transformValueSetting.isValid())
 			{
-				IfValid(settings.value(Keys::transformValueKey), [&transform, index](const QVariant& value)
-					{
-						TRANSFORM::Type transform_type;
-						transform_type.first = index;
-						transform_type.second = value.toDouble();
-						transform.set(transform_type);
-					});
-			}
-			else
-			{
-				TRANSFORM::Type type_pair;
-				type_pair.first = index;
-				type_pair.second = 1.0f;
-				transform.set(type_pair);
-			}
+				TRANSFORM::Type transform_type;
+				transform_type.first = index;
+				transform_type.second = transformValueSetting.toDouble();
+				transform.set(transform_type);
 
-		});
+			}
+		}
+		else
+		{
+			TRANSFORM::Type type_pair;
+			type_pair.first = index;
+			type_pair.second = 1.0f;
+			transform.set(type_pair);
+		}
+	}
 
-	QFileDialog& fileDialogRef = _fileDialog;
-	IfValid(settings.value(Keys::selectedNameFilterKey), [&fileDialogRef](const QVariant& value)
-		{
-			fileDialogRef.selectNameFilter(value.toString());
-		});
-	IfValid(settings.value(Keys::fileNameKey), [&fileDialogRef](const QVariant& value)
-		{
-			fileDialogRef.selectFile(value.toString());
-		});
+	const auto selectedNameFilterSetting = getSetting(Keys::selectedNameFilterKey, QVariant::QVariant());
+	if (selectedNameFilterSetting.isValid())
+		_fileDialog.selectNameFilter(selectedNameFilterSetting.toString());
+
+	const auto fileNameSetting = getSetting(Keys::fileNameKey, QVariant::QVariant());
+	if (fileNameSetting.isValid())
+		_fileDialog.selectFile(fileNameSetting.toString());
 
 	// keeping storageTypeComboBox for now since we probably should implement this functionality
 	storageTypeComboBox->setVisible(false);
 	storageTypeLabel->setVisible(false);
-
 
 	transform.setVisible(true);
 	transform.setTransform(0);
@@ -190,17 +172,14 @@ void H510XLoader::loadData()
 		}
 		const QString firstFileName = fileNames.constFirst();
 
-		bool result = true;
 		QString selectedNameFilter = _fileDialog.selectedNameFilter();
 		const TRANSFORM::Type transform_setting = transform.get();
 		
-
-		settings.setValue(Keys::conversionIndexKey, transform_setting.first);
-		settings.setValue(Keys::storageValueKey, storageTypeComboBox->currentIndex());
-		settings.setValue(Keys::transformValueKey, transform_setting.second);
-		settings.setValue(Keys::fileNameKey, firstFileName);
-		settings.setValue(Keys::selectedNameFilterKey, selectedNameFilter);
-
+		setSetting(Keys::conversionIndexKey, transform_setting.first);
+		setSetting(Keys::storageValueKey, storageTypeComboBox->currentIndex());
+		setSetting(Keys::transformValueKey, transform_setting.second);
+		setSetting(Keys::fileNameKey, firstFileName);
+		setSetting(Keys::selectedNameFilterKey, selectedNameFilter);
 
 		for (const auto& fileName : fileNames)
 		{
