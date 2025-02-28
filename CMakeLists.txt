@@ -35,7 +35,7 @@ endif()
 find_package(Qt6 COMPONENTS Widgets WebEngineWidgets REQUIRED)
 find_package(OpenMP REQUIRED)
 
-find_package(ManiVault COMPONENTS Core PointData ClusterData CONFIG)
+find_package(ManiVault COMPONENTS Core PointData ClusterData CONFIG QUIET)
 
 if(MV_H5_USE_VCPKG)
     find_package(hdf5 CONFIG REQUIRED COMPONENTS CXX HL)
@@ -140,8 +140,8 @@ function(SetBuildSettings PROJNAME)
 	target_link_libraries(${PROJNAME} PRIVATE OpenMP::OpenMP_CXX)
 	target_compile_options(${PROJNAME} PRIVATE ${OpenMP_CXX_FLAGS})
 
-	target_compile_features(${PROJNAME} PRIVATE cxx_std_17)
-	set_target_properties(${PROJNAME} PROPERTIES CXX_STANDARD 17)
+	target_compile_features(${PROJNAME} PRIVATE cxx_std_20)
+	set_target_properties(${PROJNAME} PROPERTIES CXX_STANDARD 20)
 	target_compile_definitions(${PROJNAME} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
 
     if(MV_H5_USE_VCPKG)
@@ -212,6 +212,12 @@ SetPluginSettings(${TOMEPROJECT})
 # -----------------------------------------------------------------------------
 # Automatically set the debug environment (command + working directory) for MSVC
 if(MSVC)
-	set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${ManiVault_INSTALL_DIR}/debug,${ManiVault_INSTALL_DIR}/release>)
-	set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,"${ManiVault_INSTALL_DIR}/debug/ManiVault Studio.exe","${ManiVault_INSTALL_DIR}/release/ManiVault Studio.exe">)
+    set_property(TARGET ${H5ADPROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${ManiVault_INSTALL_DIR}/Debug,$<IF:$<CONFIG:RELWITHDEBINFO>,${ManiVault_INSTALL_DIR}/RelWithDebInfo,${ManiVault_INSTALL_DIR}/Release>>)
+    set_property(TARGET ${H5ADPROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,"${ManiVault_INSTALL_DIR}/Debug/ManiVault Studio.exe",$<IF:$<CONFIG:RELWITHDEBINFO>,"${ManiVault_INSTALL_DIR}/RelWithDebInfo/ManiVault Studio.exe","${ManiVault_INSTALL_DIR}/Release/ManiVault Studio.exe">>)
+
+    set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${ManiVault_INSTALL_DIR}/Debug,$<IF:$<CONFIG:RELWITHDEBINFO>,${ManiVault_INSTALL_DIR}/RelWithDebInfo,${ManiVault_INSTALL_DIR}/Release>>)
+    set_property(TARGET ${H510XPROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,"${ManiVault_INSTALL_DIR}/Debug/ManiVault Studio.exe",$<IF:$<CONFIG:RELWITHDEBINFO>,"${ManiVault_INSTALL_DIR}/RelWithDebInfo/ManiVault Studio.exe","${ManiVault_INSTALL_DIR}/Release/ManiVault Studio.exe">>)
+
+    set_property(TARGET ${TOMEPROJECT} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY $<IF:$<CONFIG:DEBUG>,${ManiVault_INSTALL_DIR}/Debug,$<IF:$<CONFIG:RELWITHDEBINFO>,${ManiVault_INSTALL_DIR}/RelWithDebInfo,${ManiVault_INSTALL_DIR}/Release>>)
+    set_property(TARGET ${TOMEPROJECT} PROPERTY VS_DEBUGGER_COMMAND $<IF:$<CONFIG:DEBUG>,"${ManiVault_INSTALL_DIR}/Debug/ManiVault Studio.exe",$<IF:$<CONFIG:RELWITHDEBINFO>,"${ManiVault_INSTALL_DIR}/RelWithDebInfo/ManiVault Studio.exe","${ManiVault_INSTALL_DIR}/Release/ManiVault Studio.exe">>)
 endif()
