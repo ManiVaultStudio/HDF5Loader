@@ -8,6 +8,7 @@ This repo currently builds three plugins:
 
 ## HDF5 dependency
 By default, a pre-built HDF5 library will be downloaded from the LKEB artifactory during cmake's configuration step.
+On Linux you'll probably need to add a certificate for this to work: `sudo ./cmake/install-lkeb-artifactory-cert.sh`.
 
 You can also install HDF5 with [vcpkg](https://github.com/microsoft/vcpkg) and use `-DCMAKE_TOOLCHAIN_FILE="[YOURPATHTO]/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md` to point to your vcpkg installation:
 ```bash
