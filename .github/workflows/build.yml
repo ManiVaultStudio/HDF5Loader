@@ -4,11 +4,6 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-    inputs:
-      forceMacBuild:
-        description: 'If set true override the ENABLE_MACOS_BUILD to force a build'
-        type: boolean
-        default: false
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
@@ -95,6 +90,7 @@ jobs:
           conan-libcxx-version: ${{matrix.build-libcxx}}
           conan-build-type: ${{matrix.build-config}}
           conan-build-os: ${{matrix.build-os}}
+          build-arch: ${{matrix.build-arch}}
           conan-user: ${{secrets.LKEB_UPLOAD_USER}}
           conan-password: ${{secrets.LKEB_UPLOAD_USER_PASSWORD}}
           conan-pem: ${{secrets.LKEB_UPLOAD_CERT_CHAIN}}
@@ -102,7 +98,7 @@ jobs:
           conan-cxx: g++-${{matrix.build-cversion}}
     
       - name: Mac build
-        if: startsWith(matrix.os, 'macos') &&  (env.MACENABLED == 'true' || vars.ENABLE_MACOS_BUILD == 'True')
+        if: startsWith(matrix.os, 'macos') 
         uses: ManiVaultStudio/github-actions/conan_linuxmac_build@main
         with:
           conan-compiler: ${{matrix.build-compiler}}
@@ -110,19 +106,7 @@ jobs:
           conan-libcxx-version: ${{matrix.build-libcxx}}
           conan-build-type: ${{matrix.build-config}}
           conan-build-os: ${{matrix.build-os}}
+          build-arch: ${{matrix.build-arch}}
           conan-user: ${{secrets.LKEB_UPLOAD_USER}}
           conan-password: ${{secrets.LKEB_UPLOAD_USER_PASSWORD}}
           conan-pem: ${{secrets.LKEB_UPLOAD_CERT_CHAIN}}
-
-      # - name: Mac M1 build self-hosted
-      #   if: "contains(matrix.os, 'macOS') && contains(matrix.os, 'self-hosted') && contains(matrix.os, 'X64') "
-      #   uses: ManiVaultStudio/github-actions/conan_selfhosted_m1_build@main
-      #   with:
-      #     conan-compiler: ${{matrix.build-compiler}}
-      #     conan-compiler-version: ${{matrix.build-cversion}}
-      #     conan-libcxx-version: ${{matrix.build-libcxx}}
-      #     conan-build-type: ${{matrix.build-config}}
-      #     conan-build-os: ${{matrix.build-os}}
-      #     conan-user: ${{secrets.LKEB_UPLOAD_USER}}
-      #     conan-password: ${{secrets.LKEB_UPLOAD_USER_PASSWORD}}
-      #     conan-pem: ${{secrets.LKEB_UPLOAD_CERT_CHAIN}}
