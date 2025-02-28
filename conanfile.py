@@ -75,11 +75,10 @@ class HDF5LoaderConan(ConanFile):
             proc = subprocess.run("brew --prefix libomp",  shell=True, capture_output=True)
             subprocess.run(f"ln {proc.stdout.decode('UTF-8').strip()}/lib/libomp.dylib /usr/local/lib/libomp.dylib", shell=True)
         if os_info.is_linux:
-            print(f"current script path: {pathlib.Path(__file__).parent.resolve()}")
-            print(f"current working directory: {pathlib.Path().resolve()}")
-
+            cwd = pathlib.Path().resolve()
             self.run("sudo apt update && sudo apt install -y libtbb-dev")
-            self.run("sudo ./cmake/install-lkeb-artifactory-cert.sh" , cwd=pathlib.Path(__file__).parent.resolve())
+            print(f"current working directory: {cwd}")
+            self.run("sudo ./cmake/install-lkeb-artifactory-cert.sh" , cwd=cwd)
 
     def config_options(self):
         if self.settings.os == "Windows":
