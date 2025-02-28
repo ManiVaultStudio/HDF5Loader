@@ -138,7 +138,6 @@ SET_PROPERTY(TARGET ${TOMEPROJECT} PROPERTY FOLDER ${LOADERFOLDER})
 function(SetBuildSettings PROJNAME)
 
 	target_link_libraries(${PROJNAME} PRIVATE OpenMP::OpenMP_CXX)
-	target_compile_options(${PROJNAME} PRIVATE ${OpenMP_CXX_FLAGS})
 
 	target_compile_features(${PROJNAME} PRIVATE cxx_std_20)
 	set_target_properties(${PROJNAME} PROPERTIES CXX_STANDARD 20)
