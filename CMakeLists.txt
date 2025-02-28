@@ -140,7 +140,6 @@ function(SetBuildSettings PROJNAME)
 	target_link_libraries(${PROJNAME} PRIVATE OpenMP::OpenMP_CXX)
 
 	target_compile_features(${PROJNAME} PRIVATE cxx_std_20)
-	set_target_properties(${PROJNAME} PROPERTIES CXX_STANDARD 20)
 	target_compile_definitions(${PROJNAME} PRIVATE BIOVAULT_BFLOAT16_CONVERTING_CONSTRUCTORS)
 
     if(MV_H5_USE_VCPKG)
