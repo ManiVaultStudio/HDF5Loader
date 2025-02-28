@@ -78,7 +78,9 @@ class HDF5LoaderConan(ConanFile):
             cwd = pathlib.Path().resolve()
             self.run("sudo apt update && sudo apt install -y libtbb-dev")
             print(f"current working directory: {cwd}")
-            self.run("sudo ./cmake/install-lkeb-artifactory-cert.sh" , cwd=cwd)
+            self.run("sudo ls cmake/")
+            self.run("sudo cp cmake/lkeb-artifactory-lumc-nl-chain.crt /usr/local/share/ca-certificates/")
+            self.run("sudo update-ca-certificates")
 
     def config_options(self):
         if self.settings.os == "Windows":
