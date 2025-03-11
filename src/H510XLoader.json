@@ -1,6 +1,6 @@
 {
     "name" : "H5 Loader (10X, Cell Ranger)",
     "menuName" : "H5 (.h5)",
-    "version" : "1.0",
+    "version" : "1.4",
     "dependencies" : ["Points"]
 }
