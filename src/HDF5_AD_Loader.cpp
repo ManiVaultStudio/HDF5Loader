@@ -117,192 +117,204 @@ bool HDF5_AD_Loader::open(const QString& fileName)
  }
 
  
-static void LoadProperties(H5::DataSet dataset, H5AD::LoaderInfo &datasetInfo)
+static void LoadDimensionProperties(H5::DataSet dataset,  H5AD::LoaderInfo &loaderInfo)
  {
-	 auto datasetClass = dataset.getDataType().getClass();
-	 QVariantMap propertyMap;
-	 if (datasetClass == H5T_COMPOUND)
+	 
+	 if (loaderInfo._pointsDataset.isValid())
 	 {
-		 
-		 const auto nrOfOriginalDimensions = datasetInfo._originalDimensionNames.size();
-		 std::map<std::string, std::vector<QVariant> > compoundMap;
-		 if (H5Utils::read_compound(dataset, compoundMap))
+		 QVariantMap propertyMap;
+
+		 auto datasetClass = dataset.getDataType().getClass();
+		 if (datasetClass == H5T_COMPOUND)
 		 {
-			 for (auto component = compoundMap.begin(); component != compoundMap.end(); ++component)
+
+			 const auto nrOfOriginalDimensions = loaderInfo._originalDimensionNames.size();
+			 std::map<std::string, std::vector<QVariant> > compoundMap;
+			 if (H5Utils::read_compound(dataset, compoundMap))
 			 {
-				if(component->second.size())
-				{
-					filterValues(component->second, datasetInfo._selectedDimensionsLUT);
-					propertyMap[component->first.c_str()] =  QVariantList(component->second.cbegin(), component->second.cend());
-				}
+				 for (auto component = compoundMap.begin(); component != compoundMap.end(); ++component)
+				 {
+					 if (component->second.size())
+					 {
+						 filterValues(component->second, loaderInfo._selectedDimensionsLUT);
+						 propertyMap[component->first.c_str()] = QVariantList(component->second.cbegin(), component->second.cend());
+					 }
+				 }
 			 }
 		 }
+		 QVariantMap dimensionPropertyMap = loaderInfo._pointsDataset->getProperty("Dimension").toMap();
+		 dimensionPropertyMap[dataset.getObjName().c_str()] = propertyMap;
+		 loaderInfo._pointsDataset->setProperty("Dimension", dimensionPropertyMap);
 	 }
-	 datasetInfo._pointsDataset->setProperty(dataset.getObjName().c_str(), propertyMap);
+	 
 	
  }
 
-static void LoadProperties(H5::Group &group, H5AD::LoaderInfo &datasetInfo)
+static void LoadDimensionProperties(H5::Group &group,  H5AD::LoaderInfo &loaderInfo)
  {
-	 QString name = group.getObjName().c_str();
-	 if (name.isEmpty())
-		 return;
-	 if (name[0] == '/')
-		 name.remove(0, 1);
-	 QVariantMap propertyMap;
+	if (loaderInfo._pointsDataset.isValid())
+	{
+		QString name = group.getObjName().c_str();
+		if (name.isEmpty())
+			return;
+		if (name[0] == '/')
+			name.remove(0, 1);
+		QVariantMap propertyMap;
 
-	 std::map<std::string, std::vector<QString>> categories;
-	 H5AD::LoadCategories(group, categories);
+		std::map<std::string, std::vector<QString>> categories;
+		H5AD::LoadCategories(group, categories);
 
-	 const auto nrOfOriginalDimensions = datasetInfo._originalDimensionNames.size();
-	 const auto nrOfObjects = group.getNumObjs();
-	 for (auto go = 0; go < nrOfObjects; ++go)
-	 {
-		 std::string objectName1 = group.getObjnameByIdx(go);
-		 H5G_obj_t objectType1 = group.getObjTypeByIdx(go);
+		const auto nrOfOriginalDimensions = loaderInfo._originalDimensionNames.size();
+		const auto nrOfObjects = group.getNumObjs();
+		for (auto go = 0; go < nrOfObjects; ++go)
+		{
+			std::string objectName1 = group.getObjnameByIdx(go);
+			H5G_obj_t objectType1 = group.getObjTypeByIdx(go);
 
-		 if (objectType1 == H5G_DATASET)
-		 {
-			 H5::DataSet dataSet = group.openDataSet(objectName1);
-			 auto datasetClass = dataSet.getDataType().getClass();
+			if (objectType1 == H5G_DATASET)
+			{
+				H5::DataSet dataSet = group.openDataSet(objectName1);
+				auto datasetClass = dataSet.getDataType().getClass();
 
-			 if (datasetClass == H5T_FLOAT)
-			 {
-				 std::vector<float> values;
-				 if (H5Utils::read_vector(group, objectName1, &values))
-				 {
-					 if (values.size())
-					 {
-					 	filterValues(values, datasetInfo._selectedDimensionsLUT);
-					 	propertyMap[objectName1.c_str()] = QVariantList(values.cbegin(), values.cend());
-					 }
-				 }
-			 }
-			 else if ((datasetClass == H5T_INTEGER) || (datasetClass == H5T_ENUM))
-			 {
-				 std::vector<qlonglong> values;
-				 if (H5Utils::read_vector(group, objectName1, &values))
-				 {
-					 if (values.size())
-					 {
-						 QString label = objectName1.c_str();
-						 QVariantList labels;
-						 if (dataSet.attrExists("categories"))
-						 {
-							 if (categories.count(objectName1))
-							 {
-								 const std::vector<QString>& category_labels = categories[objectName1];
-								 labels.resize(values.size());
-								 for (qsizetype i = 0; i < labels.size(); ++i)
-								 {
-									 qsizetype index = values[i];
-									 if (index < category_labels.size())
-									 {
-										 labels[i] = category_labels[index];
-									 }
-									 else
-									 {
-										 labels.clear();
-										 break;
-									 }
-								 }
-							 }
-						 }
-						 if (labels.isEmpty())
-						 {
-							 if (values.size())
-							 {
-								 filterValues(values, datasetInfo._selectedDimensionsLUT);
-								 propertyMap[label] = QVariantList(values.cbegin(), values.cend());
-								 if (datasetClass == H5T_ENUM)
-								 {
-									 auto enumType = dataSet.getEnumType();
-									 labels.reserve(values.size());
-									 for (std::size_t i = 0; i < values.size(); ++i)
-									 {
-										 int v = values[i];
-										 labels.push_back(enumType.nameOf(&v, 100).c_str());
-									 }
-									 QString label = objectName1.c_str();
-									 label += " (label)";
-									 if (labels.size())
-									 {
-										 filterValues(labels, datasetInfo._selectedDimensionsLUT);
-										 propertyMap[label] = labels;
-									 }
-								 }
-							 }
-						 }
-						 else
-						 {
-							 if (values.size())
-							 {
-								 filterValues(values, datasetInfo._selectedDimensionsLUT);
-								 propertyMap[label] = labels;
-							 }
-						 }
+				if (datasetClass == H5T_FLOAT)
+				{
+					std::vector<float> values;
+					if (H5Utils::read_vector(group, objectName1, &values))
+					{
+						if (values.size())
+						{
+							filterValues(values, loaderInfo._selectedDimensionsLUT);
+							propertyMap[objectName1.c_str()] = QVariantList(values.cbegin(), values.cend());
+						}
+					}
+				}
+				else if ((datasetClass == H5T_INTEGER) || (datasetClass == H5T_ENUM))
+				{
+					std::vector<qlonglong> values;
+					if (H5Utils::read_vector(group, objectName1, &values))
+					{
+						if (values.size())
+						{
+							QString label = objectName1.c_str();
+							QVariantList labels;
+							if (dataSet.attrExists("categories"))
+							{
+								if (categories.count(objectName1))
+								{
+									const std::vector<QString>& category_labels = categories[objectName1];
+									labels.resize(values.size());
+									for (qsizetype i = 0; i < labels.size(); ++i)
+									{
+										qsizetype index = values[i];
+										if (index < category_labels.size())
+										{
+											labels[i] = category_labels[index];
+										}
+										else
+										{
+											labels.clear();
+											break;
+										}
+									}
+								}
+							}
+							if (labels.isEmpty())
+							{
+								if (values.size())
+								{
+									filterValues(values, loaderInfo._selectedDimensionsLUT);
+									propertyMap[label] = QVariantList(values.cbegin(), values.cend());
+									if (datasetClass == H5T_ENUM)
+									{
+										auto enumType = dataSet.getEnumType();
+										labels.reserve(values.size());
+										for (std::size_t i = 0; i < values.size(); ++i)
+										{
+											int v = values[i];
+											labels.push_back(enumType.nameOf(&v, 100).c_str());
+										}
+										QString label = objectName1.c_str();
+										label += " (label)";
+										if (labels.size())
+										{
+											filterValues(labels, loaderInfo._selectedDimensionsLUT);
+											propertyMap[label] = labels;
+										}
+									}
+								}
+							}
+							else
+							{
+								if (values.size())
+								{
+									filterValues(values, loaderInfo._selectedDimensionsLUT);
+									propertyMap[label] = labels;
+								}
+							}
 
-					 }
-				 }
-			 }
-			 else if (datasetClass == H5T_STRING)
-			 {
-				 // try to read as strings
-				 std::vector<QString> values;
-				 H5Utils::read_vector_string(dataSet, values);
-				 if (values.size())
-				 {
-					 filterValues(values, datasetInfo._selectedDimensionsLUT);
-					 propertyMap[objectName1.c_str()] = QVariantList(values.cbegin(), values.cend());
-				 }
-			 }
-		 }
-		 else if (objectType1 == H5G_GROUP)
-		 {
-			 H5::Group subgroup = group.openGroup(objectName1);
-			 std::map<QString, std::vector<unsigned>> codedCategories;
-			 
-			 if (H5AD::LoadCodedCategories(subgroup, codedCategories))
-			 {
-				 std::size_t count = 0;
-				 for (auto cat_it = codedCategories.cbegin(); cat_it != codedCategories.cend(); ++cat_it)
-					 count += cat_it->second.size();
-				 if (count != nrOfOriginalDimensions)
-					 std::cout << "WARNING: " << "not all dimensions are accounted for" << std::endl;
-//				 else
-				 {
-					 QVariantList values(count);
-					 for (auto cat_it = codedCategories.cbegin(); cat_it != codedCategories.cend(); ++cat_it)
-					 {
-						 for (auto idx_it = cat_it->second.cbegin(); idx_it != cat_it->second.cend(); ++idx_it)
-						 {
+						}
+					}
+				}
+				else if (datasetClass == H5T_STRING)
+				{
+					// try to read as strings
+					std::vector<QString> values;
+					H5Utils::read_vector_string(dataSet, values);
+					if (values.size())
+					{
+						filterValues(values, loaderInfo._selectedDimensionsLUT);
+						propertyMap[objectName1.c_str()] = QVariantList(values.cbegin(), values.cend());
+					}
+				}
+			}
+			else if (objectType1 == H5G_GROUP)
+			{
+				H5::Group subgroup = group.openGroup(objectName1);
+				std::map<QString, std::vector<unsigned>> codedCategories;
 
-							 if (values[*idx_it].isNull())
-							 {
-								 values[*idx_it] = cat_it->first;
-							 }
-							 else
-							 {
-								 values.clear();
-								 idx_it = cat_it->second.cend();
-								 cat_it = codedCategories.cend();
-								 break;
-							 }
-						 }
+				if (H5AD::LoadCodedCategories(subgroup, codedCategories))
+				{
+					std::size_t count = 0;
+					for (auto cat_it = codedCategories.cbegin(); cat_it != codedCategories.cend(); ++cat_it)
+						count += cat_it->second.size();
+					if (count != nrOfOriginalDimensions)
+						std::cout << "WARNING: " << "not all dimensions are accounted for" << std::endl;
+					//				 else
+					{
+						QVariantList values(count);
+						for (auto cat_it = codedCategories.cbegin(); cat_it != codedCategories.cend(); ++cat_it)
+						{
+							for (auto idx_it = cat_it->second.cbegin(); idx_it != cat_it->second.cend(); ++idx_it)
+							{
 
-					 }
-					 if (values.size())
-					 {
-						 filterValues(values, datasetInfo._selectedDimensionsLUT);
-						 propertyMap[objectName1.c_str()] = values;
-					 }
-				 }
-			 }
-		 }
-	 }
-	 
-	 datasetInfo._pointsDataset->setProperty(name, propertyMap);
-	
+								if (values[*idx_it].isNull())
+								{
+									values[*idx_it] = cat_it->first;
+								}
+								else
+								{
+									values.clear();
+									idx_it = cat_it->second.cend();
+									cat_it = codedCategories.cend();
+									break;
+								}
+							}
+
+						}
+						if (values.size())
+						{
+							filterValues(values, loaderInfo._selectedDimensionsLUT);
+							propertyMap[objectName1.c_str()] = values;
+						}
+					}
+				}
+			}
+		}
+
+		QVariantMap dimensionPropertyMap = loaderInfo._pointsDataset->getProperty("Dimension").toMap();
+		dimensionPropertyMap[name] = propertyMap;
+		loaderInfo._pointsDataset->setProperty("Dimension", dimensionPropertyMap);
+	}
  }
 
 bool HDF5_AD_Loader::load(int storageType)
@@ -332,20 +344,28 @@ bool HDF5_AD_Loader::load(int storageType)
 		std::set<std::string> objectsToProcess;
 
 		QString pointDatasetLabel;
+		bool filterUniqueProperties = false;
 		{
+			int line = 0;
 			QDialog dialog(nullptr);
 			QGridLayout* layout = new QGridLayout;
 			QLineEdit* lineEdit = new QLineEdit(QFileInfo(_fileName).baseName());
-			layout->addWidget(new QLabel("Dataset Name: "), 0, 0);
-			layout->addWidget(lineEdit, 0, 1);
-			layout->addWidget(new QLabel("Load:"), 1, 0, 1, 2);
+			layout->addWidget(new QLabel("Dataset Name: "), line, 0);
+			layout->addWidget(lineEdit, line++, 1);
+			layout->addWidget(new QLabel("Load:"), line++, 0, 1, 2);
 			QListView* listView = new QListView;
 			listView->setModel(&model);
 			listView->setSelectionMode(QListView::MultiSelection);
-			layout->addWidget(listView, 2, 0, 1, 2);
+			layout->addWidget(listView, line++, 0, 1, 2);
+			layout->addWidget(new QLabel(), line++, 0, 1, 2);
+			QCheckBox* filterUniquePropertiesCheckBox = new QCheckBox("Filter Unique Properties");
+			layout->addWidget(filterUniquePropertiesCheckBox, line++, 0, 1, 2);
+
 			auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok);
 			buttonBox->connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-			layout->addWidget(buttonBox, 3, 0, 1, 2);
+			layout->addWidget(buttonBox, line++, 0, 1, 2);
+
+			
 
 			dialog.setLayout(layout);
 
@@ -362,6 +382,8 @@ bool HDF5_AD_Loader::load(int storageType)
 				if (item->checkState() == Qt::Checked)
 					objectsToProcess.insert(item->data(Qt::DisplayRole).toString().toLocal8Bit().data());
 			}
+
+			filterUniqueProperties = filterUniquePropertiesCheckBox->isChecked();
 		}
 		
 		// create and setup the pointsDataset here since we have access to _core, _filename and storageType here.
@@ -375,6 +397,7 @@ bool HDF5_AD_Loader::load(int storageType)
 		loaderInfo._pointsDataset = pointsDataset;
 		loaderInfo._originalDimensionNames = _dimensionNames;
 		loaderInfo._sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
+		loaderInfo._filterUniqueProperties = filterUniqueProperties;
 
 		if (!H5AD::load_X(_file, loaderInfo, storageType))
 		{
@@ -419,13 +442,13 @@ bool HDF5_AD_Loader::load(int storageType)
 				if (objectType1 == H5G_DATASET)
 				{
 					H5::DataSet h5Dataset = _file->openDataSet("var");
-					LoadProperties(h5Dataset, loaderInfo);
+					LoadDimensionProperties(h5Dataset, loaderInfo);
 
 				}
 				else if (objectType1 == H5G_GROUP)
 				{
 					H5::Group h5Group = _file->openGroup("var");
-					LoadProperties(h5Group, loaderInfo);
+					LoadDimensionProperties(h5Group, loaderInfo);
 				}
 			}
 

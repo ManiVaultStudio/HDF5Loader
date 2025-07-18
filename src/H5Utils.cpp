@@ -1097,7 +1097,7 @@ namespace H5Utils
 		return true;
 	}
 
-	void addClusterMetaData(std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix)
+	void addClusterMetaData(const std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors, QString prefix, bool filterUniqueProperties)
 	{
 		if (indices.size() <= 1)
 			return; // no point in adding only a single cluster
@@ -1107,6 +1107,50 @@ namespace H5Utils
 			name.remove(0, 1);
 		if (colors.empty())
 		{
+			if (filterUniqueProperties) // if there are no colors we will check if the number of potential clusters matches the number of samples
+			{
+				if (parent.isValid())
+				{
+					if (indices.size() == parent->getNumPoints())
+					{
+						// get the property map for Samples.
+						QVariantMap sampleProperties; parent->getProperty("Sample").toMap();
+
+						// add as property rather than cluster
+						QVariantList property(indices.size());
+						for (auto item : indices)
+						{
+							for (unsigned indice : item.second)
+								property[indice] = item.first;
+						}
+						
+						
+						if (!sampleProperties.contains(name))
+						{
+							sampleProperties[name] = property;
+							parent->setProperty("Sample", sampleProperties);
+							return;
+						}
+						else
+						{
+							for (std::size_t i = 0; i < std::numeric_limits<std::size_t>::max(); ++i)
+							{
+								QString nameString = name + "(" + QString::number(i) + ")";
+								if (!sampleProperties.contains(nameString))
+								{
+									sampleProperties[name] = property;
+									parent->setProperty("Sample", sampleProperties);
+									return;
+								}
+							}
+							// else return anyway but not store anything
+							return;
+						}
+					}
+				}
+			}
+
+
 			std::vector<QColor> qcolors;
 			local::CreateColorVector(indices.size(), qcolors);
 

@@ -15,6 +15,7 @@ namespace H5AD
 		QVariantList _sampleNames;
 		std::vector<bool> _enabledDimensions;
 		std::vector<std::ptrdiff_t> _selectedDimensionsLUT;
+		bool _filterUniqueProperties;
 	};
 
 	void CreateColorVector(std::size_t nrOfColors, std::vector<QColor>& colors);

@@ -928,7 +928,7 @@ namespace H5AD
 						else
 						{
 							QString prefix = h5datasetName.c_str() + QString("\\");
-							H5Utils::addClusterMetaData(indices, component->first.c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), prefix);
+							H5Utils::addClusterMetaData(indices, component->first.c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), prefix, loaderInfo._filterUniqueProperties);
 						}
 
 					}
@@ -979,7 +979,7 @@ namespace H5AD
 			{
 				if (count == nrOfRows)
 				{
-					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset);
+					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), QString(), loaderInfo._filterUniqueProperties);
 				}
 			}
 			else
@@ -1080,7 +1080,7 @@ namespace H5AD
 										colors[it->first] = QColor(it->first);
 
 
-									H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset, colors);
+									H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset, colors, QString(), loaderInfo._filterUniqueProperties);
 									option = options;
 								}
 							}
@@ -1092,7 +1092,7 @@ namespace H5AD
 				}
 				else
 				{
-					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset);
+					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), QString(), loaderInfo._filterUniqueProperties);
 				}
 			}
 		}
@@ -1148,7 +1148,7 @@ namespace H5AD
 												assert(indices_iterator->second.size() > 0);
 											}
 											if (load_colors == 0)
-												H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset);
+												H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), QString(), loaderInfo._filterUniqueProperties);
 											else
 											{
 												const std::vector<QString>& items = categories[objectName1];
@@ -1255,7 +1255,7 @@ namespace H5AD
 																	for (auto it = indices.cbegin(); it != indices.cend(); ++it)
 																		colors[it->first] = QColor(it->first);
 
-																	H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset, colors);
+																	H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset, colors, QString(), loaderInfo._filterUniqueProperties);
 
 																}
 															}
@@ -1335,7 +1335,7 @@ namespace H5AD
 										{
 											indices[items[i]].push_back(i);
 										}
-										H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset);
+										H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), QString(), loaderInfo._filterUniqueProperties);
 									}
 									else
 									{

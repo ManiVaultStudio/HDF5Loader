@@ -499,7 +499,7 @@ namespace H5Utils
 		return mv::Dataset<Points>();
 	}
 
-	void addClusterMetaData(std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>(), QString prefix = QString());
+	void addClusterMetaData(const std::map<QString, std::vector<unsigned int>>& indices, QString name, mv::Dataset<Points> parent, std::map<QString, QColor> colors = std::map<QString, QColor>(), QString prefix = QString(), bool filterUniqueProperties = false);
 
 }
 
