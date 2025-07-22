@@ -137,6 +137,21 @@ namespace local
 		auto name = std::filesystem::path(fullPath).filename().string();
 
 		QString qName = QString::fromStdString(name);
+		if (parentItem && parentItem->text() == "obs")
+		{
+			if (qName == "_index")
+				return false;
+		}
+
+		if (parentItem && parentItem->text() == "raw")
+		{
+			if (qName == "var")
+				return false;
+			if (qName == "varm")
+				return false;
+			if (qName == "varp")
+				return false;
+		}
 
 		bool addObjectToHierarchy = isDataSet(obj);
 
@@ -204,40 +219,90 @@ namespace local
 				}
 			}
 
-			// for some known combination we don't want to show the underlying datasets.
-			if (numObjs >= 2)
-			{
-				// hide categories & codes
-				QSet<QString> childNames;
-				for (std::size_t i = 0; i < currentItem->rowCount(); ++i)
-				{
-					childNames.insert(currentItem->child(i, 0)->text());
-				}
-				if (childNames.size() == 2)
-				{
-					if (childNames.contains({ "codes","categories" }))
-					{
-						currentItemSize +=local::hideChildrenAndComputeSize(currentItem);
 
-						currentItemIconName = ClustersIconName;
-					}
-				}
-				else if (childNames.size() == 3)
+			if (group.attrExists("shape"))
+			{
+				H5::Attribute attribute = group.openAttribute("shape");
+				H5::DataSpace dataSpaceOfAttribute = attribute.getSpace();
+			
+				const int dimensions = dataSpaceOfAttribute.getSimpleExtentNdims();
+				std::size_t nrOfItems = 1;
+				if (dimensions > 0)
 				{
-					if (childNames.contains({ "data","indices","indptr"}))
+
+					std::vector<hsize_t> dimensionSize(dimensions);
+					int ndims = dataSpaceOfAttribute.getSimpleExtentDims(&(dimensionSize[0]), NULL);
+					for (std::size_t d = 0; d < dimensions; ++d)
 					{
-						currentItemSize += local::hideChildrenAndComputeSize(currentItem);
+						nrOfItems *= dimensionSize[d];
 					}
-					currentItemIconName = PointsIconName;
+
+				}
+
+				std::size_t totalSize = 0;
+				if (dimensions == 1)
+				{
+					std::vector<std::size_t> temp(nrOfItems);
+					attribute.read(H5Utils::getH5DataType<std::size_t>(), temp.data());
+
+					std::size_t totalNrOfElements = temp[0];
+					for (std::size_t i = 1; i < nrOfItems; ++i)
+					{
+						totalNrOfElements *= temp[i];
+					}
+					totalSize = totalNrOfElements;
+
+					if (group.exists("data"))
+					{
+						H5::DataSet data = group.openDataSet("data");
+						H5::DataType datatype = data.getDataType();
+						currentItemSize = totalNrOfElements * datatype.getSize();
+						auto dummy = local::hideChildrenAndComputeSize(currentItem);
+						
+					}
 				}
 			}
+			else
+			{
+				// for some known combination we don't want to show the underlying datasets.
+				if (numObjs >= 2)
+				{
+					// hide categories & codes
+					QSet<QString> childNames;
+					for (std::size_t i = 0; i < currentItem->rowCount(); ++i)
+					{
+						childNames.insert(currentItem->child(i, 0)->text());
+					}
+					if (childNames.size() == 2)
+					{
+						if (childNames.contains({ "codes","categories" }))
+						{
+							currentItemSize += local::hideChildrenAndComputeSize(currentItem);
+
+							currentItemIconName = ClustersIconName;
+						}
+					}
+					/*
+					else if (childNames.size() == 3)
+					{
+						if (childNames.contains({ "data","indices","indptr"}))
+						{
+							currentItemSize += local::hideChildrenAndComputeSize(currentItem);
+						}
+						currentItemIconName = PointsIconName;
+
+					}
+					*/
+				}
+			}
+			
 		}
 		
 
 		if (addObjectToHierarchy)
 		{
 			currentItem->setIcon(util::StyledIcon(currentItemIconName));
-			currentItem->setCheckState(qName.endsWith("obs") ? Qt::Checked : Qt::Unchecked);
+			
 
 			
 			QStandardItem* currentSizeItem = currentItemSize ? new QStandardItem(local::formatBytes1024_QString(currentItemSize)) : new QStandardItem("");
@@ -249,10 +314,12 @@ namespace local
 			}
 			else if (model)
 			{
+				std::size_t r = model->rowCount();
 				model->appendRow({ currentItem, currentSizeItem });
 				
 			}
-			
+			// do this after adding it to the model otherwise the children don't get checked.
+			currentItem->setCheckState( (qName=="obs") ? Qt::Checked : Qt::Unchecked);
 			return true;
 		}
 		else
@@ -593,8 +660,8 @@ bool HDF5_AD_Loader::load(int storageType)
 	{
 		auto nrOfObjects = _file->getNumObjs();
 		QStandardItemModel model;
-		model.setRowCount(2);
-		model.setHorizontalHeaderLabels({ "Name", "Size" });
+		model.setColumnCount(2);
+		model.setHorizontalHeaderLabels({ "Name", "Estimated Size" });
 
 		// Connect the itemChanged signal to handle checking
 		QObject::connect(&model, &QStandardItemModel::itemChanged, [&](QStandardItem* item) {
@@ -632,11 +699,13 @@ bool HDF5_AD_Loader::load(int storageType)
 				if (objectType1 == H5G_DATASET)
 				{
 					H5::DataSet h5Dataset = _file->openDataSet(objectName1);
+					std::size_t r = model.rowCount();
 					local::addHdf5ObjectToModel(h5Dataset, fo, nullptr, &model);
 				}
 				else if (objectType1 == H5G_GROUP)
 				{
 					H5::Group h5Group = _file->openGroup(objectName1);
+					std::size_t r = model.rowCount();
 					local::addHdf5ObjectToModel(h5Group, fo, nullptr, &model);
 				}
 			}
@@ -737,23 +806,31 @@ bool HDF5_AD_Loader::load(int storageType)
 		// now we look for nice to have annotation for the observations in the main data matrix
 		try
 		{
+			std::size_t x = model.rowCount();
 			for (hsize_t i = 0; i < model.rowCount(); ++i)
 			{
-				//auto* item = model.item(i, 0);
+				
 				loaderInfo.currentItem = model.item(i, 0);
-				hsize_t idx = loaderInfo.currentItem->data(Qt::UserRole).toULongLong();
-				std::string objectName1 = _file->getObjnameByIdx(idx);
-				H5G_obj_t objectType1 = _file->getObjTypeByIdx(idx);
+				if (loaderInfo.currentItem)
+				{
+					hsize_t idx = loaderInfo.currentItem->data(Qt::UserRole).toULongLong();
+					std::string objectName1 = _file->getObjnameByIdx(idx);
+					H5G_obj_t objectType1 = _file->getObjTypeByIdx(idx);
 
-				if (objectType1 == H5G_DATASET)
-				{
-					H5::DataSet h5Dataset = _file->openDataSet(objectName1);
-					H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo);
+					if (objectType1 == H5G_DATASET)
+					{
+						H5::DataSet h5Dataset = _file->openDataSet(objectName1);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo);
+					}
+					else if (objectType1 == H5G_GROUP)
+					{
+						H5::Group h5Group = _file->openGroup(objectName1);
+						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo);
+					}
 				}
-				else if (objectType1 == H5G_GROUP)
+				else
 				{
-					H5::Group h5Group = _file->openGroup(objectName1);
-					H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo);
+					assert(false); // this should never happen
 				}
 			}
 			/*
