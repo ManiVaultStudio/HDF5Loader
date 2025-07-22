@@ -10,6 +10,8 @@ bool FilterTreeModel::filterAcceptsRow(int sourceRow, const QModelIndex& sourceP
 		bp++;
 	}
 	QVariant data = sourceModel()->data(index, ItemVisible);
-	bool b = data.toBool();
-	return b;
+	if (!data.toBool())
+		return false;
+	return QSortFilterProxyModel::filterAcceptsRow(sourceRow, sourceParent);
 }
+

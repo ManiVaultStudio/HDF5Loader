@@ -20,7 +20,7 @@
 #include <set>
 
 #include <PointData/PointData.h>
-
+#include <actions/StringAction.h>
 #include <util/StyledIcon.h>
 
 using namespace mv;
@@ -125,7 +125,11 @@ namespace gemini
 		
 		bool addObjectToHierarchy = isDataSet(obj);
 
-		QString currentItemIconName = "circle-question";
+		static const QString PointsIconName = "database";
+		static const QString ClustersIconName = "table-cells-large";
+		static const QString UnknownIconName = "circle-question";
+		static const QString GroupIconName = "layer-group";
+		QString currentItemIconName = (objIsGroup ? GroupIconName :  UnknownIconName);
 
 		// Check if the object is a group
 		
@@ -171,7 +175,7 @@ namespace gemini
 					{
 						local::hideChildren(currentItem);
 
-						currentItemIconName = "table-cells-large"; // cluster dataset
+						currentItemIconName = ClustersIconName;
 					}
 				}
 				else if (childNames.size() == 3)
@@ -180,7 +184,7 @@ namespace gemini
 					{
 						local::hideChildren(currentItem);
 					}
-					currentItemIconName = "database"; // point dataset
+					currentItemIconName = PointsIconName;
 				}
 			}
 		}
@@ -193,9 +197,9 @@ namespace gemini
 			{
 				case H5T_INTEGER:
 				case H5T_FLOAT:
-				case H5T_ENUM: currentItemIconName = "database"; // point dataset
+				case H5T_ENUM: currentItemIconName = PointsIconName; // point dataset
 					break;
-				case H5T_STRING: currentItemIconName = "table-cells-large"; // cluster dataset
+				case H5T_STRING: currentItemIconName = ClustersIconName; // cluster dataset
 					break;
 			}
 		}
@@ -210,10 +214,8 @@ namespace gemini
 			{
 				model->appendRow(currentItem);
 			}
-			if(objIsGroup)
-				currentItem->setIcon(util::StyledIcon("layer-group"));
-			else
-				currentItem->setIcon(util::StyledIcon(currentItemIconName));
+			currentItem->setIcon(util::StyledIcon(currentItemIconName));
+				
 
 			currentItem->setCheckState(qName.endsWith("obs") ? Qt::Checked : Qt::Unchecked);
 			return true;
@@ -606,21 +608,35 @@ bool HDF5_AD_Loader::load(int storageType)
 		QString pointDatasetLabel;
 		bool filterUniqueProperties = false;
 		{
+			FilterTreeModel filterModel(nullptr);
+			filterModel.setSourceModel(&model);
+			filterModel.setRecursiveFilteringEnabled(true);
 			int line = 0;
 			QDialog dialog(nullptr);
 			QGridLayout* layout = new QGridLayout;
 			QLineEdit* lineEdit = new QLineEdit(QFileInfo(_fileName).baseName());
 			layout->addWidget(new QLabel("Dataset Name: "), line, 0);
 			layout->addWidget(lineEdit, line++, 1);
+
 			layout->addWidget(new QLabel("Try to load:"), line++, 0, 1, 2);
+
 			QTreeView* h5View = new QTreeView;
-			FilterTreeModel filterModel(nullptr);
-			filterModel.setSourceModel(&model);
+
+			
 			h5View->setModel(&filterModel);
 			h5View->header()->hide();
 			//h5View->expandAll();
 			//listView->setSelectionMode(QListView::MultiSelection);
 			layout->addWidget(h5View, line++, 0, 1, 2);
+
+			mv::gui::StringAction filterAction(&dialog, "Filter on name");
+			filterAction.setSearchMode(true);
+			filterAction.setClearable(true);
+			filterAction.setPlaceHolderString("Filter on Name");
+			QObject::connect(&filterAction, &mv::gui::StringAction::stringChanged, &filterModel, [&filterModel](const QString& text) {filterModel.setFilterRegularExpression(text); });
+			QWidget* filterWidget = filterAction.createWidget(&dialog);
+			layout->addWidget(filterWidget, line++, 0, 1, 2);
+			
 			layout->addWidget(new QLabel(), line++, 0, 1, 2);
 			QCheckBox* filterUniquePropertiesCheckBox = new QCheckBox("Filter Unique Properties");
 			layout->addWidget(filterUniquePropertiesCheckBox, line++, 0, 1, 2);
