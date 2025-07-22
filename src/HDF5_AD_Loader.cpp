@@ -27,18 +27,29 @@ using namespace mv;
 
 namespace local
 {
-
-	void hideChildren(QStandardItem* currentItem)
+	struct TreeItemRole
 	{
-		enum { ItemIndex = Qt::UserRole, ItemVisible = Qt::UserRole + 1 };
+		enum { Value = Qt::UserRole, Visible = Qt::UserRole + 1, Sorting = Qt::UserRole+2 };
+		enum { Description = 0, Size = 1};
+	};
+	
+
+	hsize_t hideChildrenAndComputeSize(QStandardItem* currentItem)
+	{
+		
+		hsize_t sum = 0;
 		if (currentItem)
 		{
+			
 			for (std::size_t i = 0; i < currentItem->rowCount(); ++i)
 			{
-				currentItem->child(i, 0)->setData(false, ItemVisible);
-				currentItem->child(i, 0)->setIcon(util::StyledIcon("user-ninja"));
+				auto size = currentItem->child(i, TreeItemRole::Size)->data(TreeItemRole::Value).toULongLong();
+				sum += size;
+				currentItem->child(i, TreeItemRole::Description)->setData(false, TreeItemRole::Visible);
+				currentItem->child(i, TreeItemRole::Description)->setIcon(util::StyledIcon("user-ninja"));
 			}
 		}
+		return sum;
 	}
 	void checkParent(QStandardItem* parent, Qt::CheckState checkState)
 	{
@@ -65,12 +76,6 @@ namespace local
 				parent->setCheckState(stateToCheck);
 		}
 	}
-}
-
-
-namespace gemini
-{
-	
 
 	bool isGroup(const H5::H5Object& obj) 
 	{
@@ -100,11 +105,29 @@ namespace gemini
 		return false;
 	}
 
+	QString formatBytes1024_QString(hsize_t bytes) {
+		const QStringList units = { "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB" };
+		double value = static_cast<double>(bytes);
+		int unitIndex = 0;
+
+		while (value >= 1024 && unitIndex < units.size() - 1) {
+			value /= 1024;
+			unitIndex++;
+		}
+
+		if (unitIndex == 0) { // For bytes, no decimal places
+			return QString("%1 %2").arg(static_cast<long long>(value)).arg(units[unitIndex]);
+		}
+		else {
+			return QString("%1 %2").arg(value, 0, 'f', 2).arg(units[unitIndex]);
+		}
+	}
+
 	// Function to recursively add HDF5 objects to the QStandardItemModel
 	bool addHdf5ObjectToModel(const H5::H5Object& obj, hsize_t idx, QStandardItem* parentItem, QStandardItemModel *model = nullptr)
 	{
 		
-		enum { ItemIndex = Qt::UserRole, ItemVisible = Qt::UserRole+1 };
+		
 		if ((parentItem == nullptr) && (model == nullptr))
 			return false;
 
@@ -115,14 +138,6 @@ namespace gemini
 
 		QString qName = QString::fromStdString(name);
 
-		
-		// Create a new item for the current object
-		QStandardItem* currentItem = new QStandardItem(qName);
-		currentItem->setCheckable(true);
-		currentItem->setData(idx, ItemIndex);
-		currentItem->setData(true, ItemVisible);
-		
-		
 		bool addObjectToHierarchy = isDataSet(obj);
 
 		static const QString PointsIconName = "database";
@@ -131,8 +146,37 @@ namespace gemini
 		static const QString GroupIconName = "layer-group";
 		QString currentItemIconName = (objIsGroup ? GroupIconName :  UnknownIconName);
 
-		// Check if the object is a group
 		
+		hsize_t currentItemSize = 0;
+		// Check if the object is a group
+		if (isDataSet(obj))
+		{
+			H5::DataSet dataset(obj.getId());
+			auto datatype = dataset.getDataType();
+			H5T_class_t class_type = datatype.getClass();
+			currentItemSize = dataset.getStorageSize();
+			
+
+			switch (class_type)
+			{
+			case H5T_INTEGER:
+			case H5T_FLOAT:
+			case H5T_ENUM: currentItemIconName = PointsIconName; // point dataset
+				break;
+			case H5T_STRING: currentItemIconName = ClustersIconName; // cluster dataset
+				break;
+			}
+		}
+		
+
+		// Create a new item for the current object
+		QStandardItem* currentItem = new QStandardItem(qName);
+		currentItem->setCheckable(true);
+		currentItem->setData(idx, TreeItemRole::Value);
+		currentItem->setData(true, TreeItemRole::Visible);
+		currentItem->setData(qName, TreeItemRole::Sorting);
+
+		// Check if the object is a group
 		if (objIsGroup)
 		{
 			
@@ -160,7 +204,7 @@ namespace gemini
 				}
 			}
 
-			
+			// for some known combination we don't want to show the underlying datasets.
 			if (numObjs >= 2)
 			{
 				// hide categories & codes
@@ -173,7 +217,7 @@ namespace gemini
 				{
 					if (childNames.contains({ "codes","categories" }))
 					{
-						local::hideChildren(currentItem);
+						currentItemSize +=local::hideChildrenAndComputeSize(currentItem);
 
 						currentItemIconName = ClustersIconName;
 					}
@@ -182,47 +226,39 @@ namespace gemini
 				{
 					if (childNames.contains({ "data","indices","indptr"}))
 					{
-						local::hideChildren(currentItem);
+						currentItemSize += local::hideChildrenAndComputeSize(currentItem);
 					}
 					currentItemIconName = PointsIconName;
 				}
 			}
 		}
-		else if (isDataSet(obj))
-		{
-			H5::DataSet dataset(obj.getId());
-			auto datatype = dataset.getDataType();
-			H5T_class_t class_type = datatype.getClass();
-			switch (class_type)
-			{
-				case H5T_INTEGER:
-				case H5T_FLOAT:
-				case H5T_ENUM: currentItemIconName = PointsIconName; // point dataset
-					break;
-				case H5T_STRING: currentItemIconName = ClustersIconName; // cluster dataset
-					break;
-			}
-		}
+		
 
 		if (addObjectToHierarchy)
 		{
+			currentItem->setIcon(util::StyledIcon(currentItemIconName));
+			currentItem->setCheckState(qName.endsWith("obs") ? Qt::Checked : Qt::Unchecked);
+
+			
+			QStandardItem* currentSizeItem = currentItemSize ? new QStandardItem(local::formatBytes1024_QString(currentItemSize)) : new QStandardItem("");
+			currentSizeItem->setData(currentItemSize, TreeItemRole::Value);
+			currentSizeItem->setData(currentItemSize, TreeItemRole::Sorting);
 			if (parentItem)
 			{
-				parentItem->appendRow(currentItem);
+				parentItem->appendRow({ currentItem, currentSizeItem });
 			}
 			else if (model)
 			{
-				model->appendRow(currentItem);
-			}
-			currentItem->setIcon(util::StyledIcon(currentItemIconName));
+				model->appendRow({ currentItem, currentSizeItem });
 				
-
-			currentItem->setCheckState(qName.endsWith("obs") ? Qt::Checked : Qt::Unchecked);
+			}
+			
 			return true;
 		}
 		else
 		{
 			delete currentItem;
+			
 			return false;
 		}
 	}
@@ -557,13 +593,16 @@ bool HDF5_AD_Loader::load(int storageType)
 	{
 		auto nrOfObjects = _file->getNumObjs();
 		QStandardItemModel model;
+		model.setRowCount(2);
+		model.setHorizontalHeaderLabels({ "Name", "Size" });
+
 		// Connect the itemChanged signal to handle checking
 		QObject::connect(&model, &QStandardItemModel::itemChanged, [&](QStandardItem* item) {
 			// When an item's check state changes, we want to update its children
 			if (item->isCheckable()) 
 			{
 				if(item->checkState() != Qt::PartiallyChecked)
-					gemini::checkAllChildren(item, item->checkState());
+					local::checkAllChildren(item, item->checkState());
 		        
 				local::checkParent(item->parent(), item->checkState());
 			}
@@ -593,12 +632,12 @@ bool HDF5_AD_Loader::load(int storageType)
 				if (objectType1 == H5G_DATASET)
 				{
 					H5::DataSet h5Dataset = _file->openDataSet(objectName1);
-					gemini::addHdf5ObjectToModel(h5Dataset, fo, nullptr, &model);
+					local::addHdf5ObjectToModel(h5Dataset, fo, nullptr, &model);
 				}
 				else if (objectType1 == H5G_GROUP)
 				{
 					H5::Group h5Group = _file->openGroup(objectName1);
-					gemini::addHdf5ObjectToModel(h5Group, fo, nullptr, &model);
+					local::addHdf5ObjectToModel(h5Group, fo, nullptr, &model);
 				}
 			}
 		}
@@ -611,8 +650,11 @@ bool HDF5_AD_Loader::load(int storageType)
 			FilterTreeModel filterModel(nullptr);
 			filterModel.setSourceModel(&model);
 			filterModel.setRecursiveFilteringEnabled(true);
+			filterModel.setSortRole(local::TreeItemRole::Sorting);
+
 			int line = 0;
 			QDialog dialog(nullptr);
+			dialog.setMinimumWidth(400);
 			QGridLayout* layout = new QGridLayout;
 			QLineEdit* lineEdit = new QLineEdit(QFileInfo(_fileName).baseName());
 			layout->addWidget(new QLabel("Dataset Name: "), line, 0);
@@ -624,8 +666,18 @@ bool HDF5_AD_Loader::load(int storageType)
 
 			
 			h5View->setModel(&filterModel);
-			h5View->header()->hide();
-			//h5View->expandAll();
+			h5View->expandAll();
+			h5View->setSortingEnabled(true); h5View->expandAll();
+
+			
+			
+			h5View->header()->setSectionResizeMode(local::TreeItemRole::Description, QHeaderView::Stretch);
+			h5View->header()->setSectionResizeMode(local::TreeItemRole::Size, QHeaderView::Fixed);
+			h5View->header()->setStretchLastSection(false);
+
+			h5View->header()->resizeSection(local::TreeItemRole::Description, 320);
+			h5View->header()->resizeSection(local::TreeItemRole::Size, 80);
+			
 			//listView->setSelectionMode(QListView::MultiSelection);
 			layout->addWidget(h5View, line++, 0, 1, 2);
 
@@ -655,15 +707,7 @@ bool HDF5_AD_Loader::load(int storageType)
 				return false;
 
 			pointDatasetLabel = lineEdit->displayText();
-/*
-			for (hsize_t i = 0; i < model.rowCount(); ++i)
-			{
-				auto* item = model.item(i, 0);
-				if (item->checkState() == Qt::Checked)
-				{ }
-					objectsToProcess.insert(item->data(Qt::DisplayRole).toString().toLocal8Bit().data());
-			}
-*/
+
 			filterUniqueProperties = filterUniquePropertiesCheckBox->isChecked();
 		}
 		
