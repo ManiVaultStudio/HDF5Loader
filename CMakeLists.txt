@@ -104,7 +104,8 @@ set(H5AD_SOURCES
 
 	src/H5ADLoaderFactory.h
 	src/H5ADLoaderFactory.cpp
-	
+	src/FilterTreeModel.cpp
+	src/FilterTreeModel.h
 )
 
 source_group( H5ADLoader FILES ${H5AD_SOURCES})

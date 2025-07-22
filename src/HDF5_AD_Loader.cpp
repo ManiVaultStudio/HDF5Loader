@@ -1,8 +1,10 @@
 #include "HDF5_AD_Loader.h"
+#include "FilterTreeModel.h"
 
 #include "H5ADUtils.h"
-
 #include "H5Utils.h"
+
+
 
 #include <QGuiApplication>
 #include <QInputDialog>
@@ -19,10 +21,25 @@
 
 #include <PointData/PointData.h>
 
+#include <util/StyledIcon.h>
+
 using namespace mv;
 
 namespace local
 {
+
+	void hideChildren(QStandardItem* currentItem)
+	{
+		enum { ItemIndex = Qt::UserRole, ItemVisible = Qt::UserRole + 1 };
+		if (currentItem)
+		{
+			for (std::size_t i = 0; i < currentItem->rowCount(); ++i)
+			{
+				currentItem->child(i, 0)->setData(false, ItemVisible);
+				currentItem->child(i, 0)->setIcon(util::StyledIcon("user-ninja"));
+			}
+		}
+	}
 	void checkParent(QStandardItem* parent, Qt::CheckState checkState)
 	{
 		if (parent == nullptr)
@@ -69,9 +86,29 @@ namespace gemini
 		return false;
 	}
 
-	// Function to recursively add HDF5 objects to the QStandardItemModel
-	void addHdf5ObjectToModel(const H5::H5Object& obj, hsize_t idx, QStandardItem* parentItem, QStandardItemModel *model = nullptr)
+	bool isDataSet(const H5::H5Object& obj)
 	{
+		try
+		{
+			// Try to cast the object to a Group
+			H5::DataSet dataSet = dynamic_cast<const H5::DataSet&>(obj);
+			return true; // Successful cast means it is a Group
+		}
+		catch (std::bad_cast&) {
+			return false; // If cast fails, it's not a Group
+		}
+		return false;
+	}
+
+	// Function to recursively add HDF5 objects to the QStandardItemModel
+	bool addHdf5ObjectToModel(const H5::H5Object& obj, hsize_t idx, QStandardItem* parentItem, QStandardItemModel *model = nullptr)
+	{
+		
+		enum { ItemIndex = Qt::UserRole, ItemVisible = Qt::UserRole+1 };
+		if ((parentItem == nullptr) && (model == nullptr))
+			return false;
+
+		const bool objIsGroup = isGroup(obj);
 		// Get the object name
 		auto fullPath = obj.getObjName();
 		auto name = std::filesystem::path(fullPath).filename().string();
@@ -82,32 +119,24 @@ namespace gemini
 		// Create a new item for the current object
 		QStandardItem* currentItem = new QStandardItem(qName);
 		currentItem->setCheckable(true);
-		currentItem->setData(idx, Qt::UserRole);
+		currentItem->setData(idx, ItemIndex);
+		currentItem->setData(true, ItemVisible);
 		
-		if (parentItem)
-		{
-			if (isGroup(obj))
-				parentItem->appendRow(currentItem);
-		}
-		else if (model)
-		{
-			model->appendRow(currentItem);
-		}
-		else
-		{
-			return;
-		}
+		
+		bool addObjectToHierarchy = isDataSet(obj);
+
+		QString currentItemIconName = "circle-question";
 
 		// Check if the object is a group
-		if (isGroup(obj)) 
+		
+		if (objIsGroup)
 		{
-
-
+			
 			H5::Group group(obj.getId());
 
 			// Iterate over the members of the group
 			hsize_t numObjs = group.getNumObjs();
-			for (hsize_t i = 0; i < numObjs; ++i) 
+			for (hsize_t i = 0; i < numObjs; ++i)
 			{
 				// Get the object by index
 				H5std_string objName = group.getObjnameByIdx(i);
@@ -115,19 +144,85 @@ namespace gemini
 				group.getObjinfo(objName, objInfo);
 
 				// Open the object based on its type
-				if (objInfo.type == H5O_TYPE_GROUP) 
+				if (objInfo.type == H5O_TYPE_GROUP)
 				{
 					H5::Group subGroup = group.openGroup(objName);
-					addHdf5ObjectToModel(subGroup,i, currentItem);
+					addObjectToHierarchy |= addHdf5ObjectToModel(subGroup, i, currentItem);
 				}
-				else if (objInfo.type == H5O_TYPE_DATASET) 
+				else if (objInfo.type == H5O_TYPE_DATASET)
 				{
 					H5::DataSet dataset = group.openDataSet(objName);
-					addHdf5ObjectToModel(dataset,i, currentItem);
+					addObjectToHierarchy |= addHdf5ObjectToModel(dataset, i, currentItem);
+				}
+			}
+
+			
+			if (numObjs >= 2)
+			{
+				// hide categories & codes
+				QSet<QString> childNames;
+				for (std::size_t i = 0; i < currentItem->rowCount(); ++i)
+				{
+					childNames.insert(currentItem->child(i, 0)->text());
+				}
+				if (childNames.size() == 2)
+				{
+					if (childNames.contains({ "codes","categories" }))
+					{
+						local::hideChildren(currentItem);
+
+						currentItemIconName = "table-cells-large"; // cluster dataset
+					}
+				}
+				else if (childNames.size() == 3)
+				{
+					if (childNames.contains({ "data","indices","indptr"}))
+					{
+						local::hideChildren(currentItem);
+					}
+					currentItemIconName = "database"; // point dataset
 				}
 			}
 		}
-		currentItem->setCheckState(qName.endsWith("obs") ? Qt::Checked : Qt::Unchecked);
+		else if (isDataSet(obj))
+		{
+			H5::DataSet dataset(obj.getId());
+			auto datatype = dataset.getDataType();
+			H5T_class_t class_type = datatype.getClass();
+			switch (class_type)
+			{
+				case H5T_INTEGER:
+				case H5T_FLOAT:
+				case H5T_ENUM: currentItemIconName = "database"; // point dataset
+					break;
+				case H5T_STRING: currentItemIconName = "table-cells-large"; // cluster dataset
+					break;
+			}
+		}
+
+		if (addObjectToHierarchy)
+		{
+			if (parentItem)
+			{
+				parentItem->appendRow(currentItem);
+			}
+			else if (model)
+			{
+				model->appendRow(currentItem);
+			}
+			if(objIsGroup)
+				currentItem->setIcon(util::StyledIcon("layer-group"));
+			else
+				currentItem->setIcon(util::StyledIcon(currentItemIconName));
+
+			currentItem->setCheckState(qName.endsWith("obs") ? Qt::Checked : Qt::Unchecked);
+			return true;
+		}
+		else
+		{
+			delete currentItem;
+			return false;
+		}
 	}
 
 	// Recursive function to check all children
@@ -517,9 +612,11 @@ bool HDF5_AD_Loader::load(int storageType)
 			QLineEdit* lineEdit = new QLineEdit(QFileInfo(_fileName).baseName());
 			layout->addWidget(new QLabel("Dataset Name: "), line, 0);
 			layout->addWidget(lineEdit, line++, 1);
-			layout->addWidget(new QLabel("Load:"), line++, 0, 1, 2);
+			layout->addWidget(new QLabel("Try to load:"), line++, 0, 1, 2);
 			QTreeView* h5View = new QTreeView;
-			h5View->setModel(&model);
+			FilterTreeModel filterModel(nullptr);
+			filterModel.setSourceModel(&model);
+			h5View->setModel(&filterModel);
 			h5View->header()->hide();
 			//h5View->expandAll();
 			//listView->setSelectionMode(QListView::MultiSelection);
