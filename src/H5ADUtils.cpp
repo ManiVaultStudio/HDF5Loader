@@ -9,10 +9,26 @@
 
 #include <filesystem>
 #include <set>
+#include <QStandardItem>
 
 namespace H5AD
 {
 	using namespace  mv;
+
+	bool isChecked(QStandardItem* item)
+	{
+		return (item && item->isCheckable() && (item->checkState() == Qt::Checked));
+	}
+
+	bool isUnchecked(QStandardItem* item)
+	{
+		return (item && item->isCheckable() && (item->checkState() == Qt::Unchecked));
+	}
+
+	bool isParticallyChecked(QStandardItem* item)
+	{
+		return (item && item->isCheckable() && (item->checkState() == Qt::PartiallyChecked));
+	}
 
 	struct compareStringsAsNumbers {
 		bool operator()(const std::string& a, const std::string& b) const
@@ -937,7 +953,15 @@ namespace H5AD
 			}
 
 			Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, loaderInfo._pointsDataset, h5datasetName.c_str());
-			numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			if (numericalMetaDataset.isValid())
+			{
+				numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			}
+			else
+			{
+				int breakPoint = 0;
+				breakPoint++;
+			}
 		}
 	}
 
@@ -946,12 +970,19 @@ namespace H5AD
 	void LoadSampleNamesAndMetaData(H5::Group& group, LoaderInfo& loaderInfo)
 	{
 		static_assert(std::is_same<numericalMetaDataType, float>::value, "");
-		auto nrOfObjects = group.getNumObjs();
+		//auto nrOfObjects = group.getNumObjs();
+
+
+		QStandardItem* currentItem = loaderInfo.currentItem;
+		if (isUnchecked(currentItem))
+			return;
+		const bool processThisGroup = isChecked(currentItem);
+		
 
 		std::filesystem::path path(group.getObjName());
 		std::string h5GroupName = path.filename().string();
 
-		if (ContainsSparseMatrix(group))
+		if (processThisGroup && ContainsSparseMatrix(group))
 		{
 			bool loadSparseSuccess = LoadSparseMatrix(group, loaderInfo);
 			return;
@@ -966,7 +997,7 @@ namespace H5AD
 		bool categoriesLoaded = LoadCategories(group, categories);
 
 		std::map<QString, std::vector<unsigned>> codedCategories;
-		if (LoadCodedCategories(group, codedCategories))
+		if (processThisGroup && LoadCodedCategories(group, codedCategories))
 		{
 			std::size_t count = 0;
 			for (auto it = codedCategories.cbegin(); it != codedCategories.cend(); ++it)
@@ -1098,13 +1129,25 @@ namespace H5AD
 		}
 		else
 		{
+			auto nrOfChildren = 0;
+			if (currentItem && currentItem->hasChildren())
+			{
+				nrOfChildren = currentItem->rowCount();
+			}
+			
 			// first do the basics
 			for (int load_colors = 0; load_colors < 2; ++load_colors)
 			{
-
-				for (auto go = 0; go < nrOfObjects; ++go)
+				
+				for (std::size_t i =0; i < nrOfChildren; ++i)
 				{
-					std::string objectName1 = group.getObjnameByIdx(go);
+					auto* child = currentItem->child(i, 0);
+					hsize_t child_idx = child->data(Qt::UserRole).toULongLong();
+					H5G_obj_t objectType1 = group.getObjTypeByIdx(child_idx);
+					std::string objectName1 = group.getObjnameByIdx(child_idx);
+
+					
+					
 					std::size_t posFound = objectName1.find("_color");
 					if (load_colors == 0)
 					{
@@ -1118,9 +1161,10 @@ namespace H5AD
 					}
 					if (objectName1[0] == '\\')
 						objectName1.erase(objectName1.begin());
-					H5G_obj_t objectType1 = group.getObjTypeByIdx(go);
+					
+					//bool processChild = isChecked(child);
 
-					if (objectType1 == H5G_DATASET)
+					if (isChecked(child) && (objectType1 == H5G_DATASET))
 					{
 						H5::DataSet dataSet = group.openDataSet(objectName1);
 						if (!((objectName1 == "index") || (objectName1 == "_index")))
@@ -1390,11 +1434,10 @@ namespace H5AD
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group group2 = group.openGroup(objectName1);
+						loaderInfo.currentItem = child;
 						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, loaderInfo);
 					}
 				}
-
-
 			}
 		}
 
@@ -1412,12 +1455,17 @@ namespace H5AD
 
 	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo)
 	{
-		 H5AD::LoadSampleNamesAndMetaData<float>(dataset, loaderInfo);
+		if (isChecked(loaderInfo.currentItem))
+		{
+			H5AD::LoadSampleNamesAndMetaData<float>(dataset, loaderInfo);
+		}
 	}
 
 	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo)
 	{
-		 H5AD::LoadSampleNamesAndMetaData<float>(group, loaderInfo);
+		if (isUnchecked(loaderInfo.currentItem))
+			return;
+		H5AD::LoadSampleNamesAndMetaData<float>(group, loaderInfo);
 	}
 	
 

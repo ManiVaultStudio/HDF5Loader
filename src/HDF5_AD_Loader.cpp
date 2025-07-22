@@ -7,7 +7,8 @@
 #include <QGuiApplication>
 #include <QInputDialog>
 #include <QFileDialog>
-#include <QListView>
+#include <QTreeView>
+#include <QHeaderView>
 #include <QDialogButtonBox>
 #include <QtGlobal>
 
@@ -20,6 +21,136 @@
 
 using namespace mv;
 
+namespace local
+{
+	void checkParent(QStandardItem* parent, Qt::CheckState checkState)
+	{
+		if (parent == nullptr)
+			return;
+		if (checkState == Qt::PartiallyChecked)
+			parent->setCheckState(Qt::PartiallyChecked);
+		else
+		{
+			Qt::CheckState stateToCheck = checkState;
+
+			auto rowCount = parent->rowCount();
+			bool allChildrenHaveTheSameCheckState = true;
+			for (std::size_t i = 0; i < rowCount; ++i)
+			{
+				if (parent->child(i, 0)->checkState() != stateToCheck)
+				{
+					parent->setCheckState(Qt::PartiallyChecked);
+					allChildrenHaveTheSameCheckState = false;
+					break;
+				}
+			}
+			if (allChildrenHaveTheSameCheckState)
+				parent->setCheckState(stateToCheck);
+		}
+	}
+}
+
+
+namespace gemini
+{
+	
+
+	bool isGroup(const H5::H5Object& obj) 
+	{
+		try 
+		{
+			// Try to cast the object to a Group
+			H5::Group group = dynamic_cast<const H5::Group&>(obj);
+			return true; // Successful cast means it is a Group
+		}
+		catch (std::bad_cast&) {
+			return false; // If cast fails, it's not a Group
+		}
+		return false;
+	}
+
+	// Function to recursively add HDF5 objects to the QStandardItemModel
+	void addHdf5ObjectToModel(const H5::H5Object& obj, hsize_t idx, QStandardItem* parentItem, QStandardItemModel *model = nullptr)
+	{
+		// Get the object name
+		auto fullPath = obj.getObjName();
+		auto name = std::filesystem::path(fullPath).filename().string();
+
+		QString qName = QString::fromStdString(name);
+
+		
+		// Create a new item for the current object
+		QStandardItem* currentItem = new QStandardItem(qName);
+		currentItem->setCheckable(true);
+		currentItem->setData(idx, Qt::UserRole);
+		
+		if (parentItem)
+		{
+			if (isGroup(obj))
+				parentItem->appendRow(currentItem);
+		}
+		else if (model)
+		{
+			model->appendRow(currentItem);
+		}
+		else
+		{
+			return;
+		}
+
+		// Check if the object is a group
+		if (isGroup(obj)) 
+		{
+
+
+			H5::Group group(obj.getId());
+
+			// Iterate over the members of the group
+			hsize_t numObjs = group.getNumObjs();
+			for (hsize_t i = 0; i < numObjs; ++i) 
+			{
+				// Get the object by index
+				H5std_string objName = group.getObjnameByIdx(i);
+				H5O_info_t objInfo;
+				group.getObjinfo(objName, objInfo);
+
+				// Open the object based on its type
+				if (objInfo.type == H5O_TYPE_GROUP) 
+				{
+					H5::Group subGroup = group.openGroup(objName);
+					addHdf5ObjectToModel(subGroup,i, currentItem);
+				}
+				else if (objInfo.type == H5O_TYPE_DATASET) 
+				{
+					H5::DataSet dataset = group.openDataSet(objName);
+					addHdf5ObjectToModel(dataset,i, currentItem);
+				}
+			}
+		}
+		currentItem->setCheckState(qName.endsWith("obs") ? Qt::Checked : Qt::Unchecked);
+	}
+
+	// Recursive function to check all children
+	void checkAllChildren(QStandardItem* parentItem, Qt::CheckState checkState) {
+		if (!parentItem) {
+			return;
+		}
+
+		// Set the check state for the current item (optional, depending on your logic)
+		// If you only want to set children, remove this line or add a condition.
+		// parentItem->setCheckState(checkState);
+
+		for (int i = 0; i < parentItem->rowCount(); ++i) {
+			QStandardItem* childItem = parentItem->child(i);
+			if (childItem) {
+				childItem->setCheckState(checkState); // Set the check state for the child
+				if (childItem->hasChildren()) {
+					checkAllChildren(childItem, checkState); // Recurse for grand-children
+				}
+			}
+		}
+	}
+}
 HDF5_AD_Loader::HDF5_AD_Loader(mv::CoreInterface *core)
 {
 	_core = core;
@@ -317,6 +448,9 @@ static void LoadDimensionProperties(H5::Group &group,  H5AD::LoaderInfo &loaderI
 	}
  }
 
+
+
+
 bool HDF5_AD_Loader::load(int storageType)
 {
 	
@@ -326,6 +460,23 @@ bool HDF5_AD_Loader::load(int storageType)
 	{
 		auto nrOfObjects = _file->getNumObjs();
 		QStandardItemModel model;
+		// Connect the itemChanged signal to handle checking
+		QObject::connect(&model, &QStandardItemModel::itemChanged, [&](QStandardItem* item) {
+			// When an item's check state changes, we want to update its children
+			if (item->isCheckable()) 
+			{
+				if(item->checkState() != Qt::PartiallyChecked)
+					gemini::checkAllChildren(item, item->checkState());
+		        
+				local::checkParent(item->parent(), item->checkState());
+			}
+			});
+
+		
+
+		//QStandardItem* rootItem = new QStandardItem("/");
+		//model.appendRow(rootItem);
+
 		std::set<std::string> ignoreItems = { "X", "uns", "var", "varm", "varp"};
 		std::map<std::string, std::size_t> objectNameIdx;
 		for (hsize_t fo = 0; fo < nrOfObjects; ++fo)
@@ -334,14 +485,28 @@ bool HDF5_AD_Loader::load(int storageType)
 			objectNameIdx[objectName1] = fo;
 			if(ignoreItems.count(objectName1)==0)
 			{
+				/*
 				QStandardItem* item = new QStandardItem(objectName1.c_str());
 				item->setCheckable(true);
 				item->setCheckState(objectName1.rfind("obs", 0) == 0 ? Qt::Checked : Qt::Unchecked);
 				model.appendRow(item);
+				*/
+				H5G_obj_t objectType1 = _file->getObjTypeByIdx(fo);
+
+				if (objectType1 == H5G_DATASET)
+				{
+					H5::DataSet h5Dataset = _file->openDataSet(objectName1);
+					gemini::addHdf5ObjectToModel(h5Dataset, fo, nullptr, &model);
+				}
+				else if (objectType1 == H5G_GROUP)
+				{
+					H5::Group h5Group = _file->openGroup(objectName1);
+					gemini::addHdf5ObjectToModel(h5Group, fo, nullptr, &model);
+				}
 			}
 		}
 
-		std::set<std::string> objectsToProcess;
+		//std::set<std::string> objectsToProcess;
 
 		QString pointDatasetLabel;
 		bool filterUniqueProperties = false;
@@ -353,10 +518,12 @@ bool HDF5_AD_Loader::load(int storageType)
 			layout->addWidget(new QLabel("Dataset Name: "), line, 0);
 			layout->addWidget(lineEdit, line++, 1);
 			layout->addWidget(new QLabel("Load:"), line++, 0, 1, 2);
-			QListView* listView = new QListView;
-			listView->setModel(&model);
-			listView->setSelectionMode(QListView::MultiSelection);
-			layout->addWidget(listView, line++, 0, 1, 2);
+			QTreeView* h5View = new QTreeView;
+			h5View->setModel(&model);
+			h5View->header()->hide();
+			//h5View->expandAll();
+			//listView->setSelectionMode(QListView::MultiSelection);
+			layout->addWidget(h5View, line++, 0, 1, 2);
 			layout->addWidget(new QLabel(), line++, 0, 1, 2);
 			QCheckBox* filterUniquePropertiesCheckBox = new QCheckBox("Filter Unique Properties");
 			layout->addWidget(filterUniquePropertiesCheckBox, line++, 0, 1, 2);
@@ -375,14 +542,15 @@ bool HDF5_AD_Loader::load(int storageType)
 				return false;
 
 			pointDatasetLabel = lineEdit->displayText();
-
+/*
 			for (hsize_t i = 0; i < model.rowCount(); ++i)
 			{
 				auto* item = model.item(i, 0);
 				if (item->checkState() == Qt::Checked)
+				{ }
 					objectsToProcess.insert(item->data(Qt::DisplayRole).toString().toLocal8Bit().data());
 			}
-
+*/
 			filterUniqueProperties = filterUniquePropertiesCheckBox->isChecked();
 		}
 		
@@ -412,6 +580,26 @@ bool HDF5_AD_Loader::load(int storageType)
 		// now we look for nice to have annotation for the observations in the main data matrix
 		try
 		{
+			for (hsize_t i = 0; i < model.rowCount(); ++i)
+			{
+				//auto* item = model.item(i, 0);
+				loaderInfo.currentItem = model.item(i, 0);
+				hsize_t idx = loaderInfo.currentItem->data(Qt::UserRole).toULongLong();
+				std::string objectName1 = _file->getObjnameByIdx(idx);
+				H5G_obj_t objectType1 = _file->getObjTypeByIdx(idx);
+
+				if (objectType1 == H5G_DATASET)
+				{
+					H5::DataSet h5Dataset = _file->openDataSet(objectName1);
+					H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo);
+				}
+				else if (objectType1 == H5G_GROUP)
+				{
+					H5::Group h5Group = _file->openGroup(objectName1);
+					H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo);
+				}
+			}
+			/*
 			auto nrOfObjects = _file->getNumObjs();
 			for (hsize_t fo = 0; fo < nrOfObjects; ++fo)
 			{
@@ -433,6 +621,7 @@ bool HDF5_AD_Loader::load(int storageType)
 					}
 				}
 			}
+			*/
 			// var can contain dimension specific information so for now we store it as properties.
 			auto varIdx = objectNameIdx.find("var");
 			if (varIdx != objectNameIdx.end())
