@@ -765,8 +765,8 @@ namespace H5AD
 
 	DataHierarchyItem* GetDerivedDataset(const QString& name, Dataset<Points>& pointsDataset)
 	{
-		const auto& children = pointsDataset->getDataHierarchyItem().getChildren();
-		for (auto it = children.begin(); it != children.end(); ++it)
+		const auto& childCount = pointsDataset->getDataHierarchyItem().getChildren();
+		for (auto it = childCount.begin(); it != childCount.end(); ++it)
 		{
 			if ((*it)->getId() == name)
 			{

@@ -21,7 +21,9 @@
 
 #include <PointData/PointData.h>
 #include <actions/StringAction.h>
-#include <util/StyledIcon.h>
+//#include <util/StyledIcon.h>
+
+#include "TreeModel.h"
 
 using namespace mv;
 
@@ -659,6 +661,10 @@ bool HDF5_AD_Loader::load(int storageType)
 	try
 	{
 		auto nrOfObjects = _file->getNumObjs();
+
+		auto  model = H5Utils::CreateTreeModel();
+		H5Utils::BuildTreeModel(model, _file.get());
+		/*
 		QStandardItemModel model;
 		model.setColumnCount(2);
 		model.setHorizontalHeaderLabels({ "Name", "Estimated Size" });
@@ -674,12 +680,12 @@ bool HDF5_AD_Loader::load(int storageType)
 				local::checkParent(item->parent(), item->checkState());
 			}
 			});
-
+			*/
 		
 
 		//QStandardItem* rootItem = new QStandardItem("/");
 		//model.appendRow(rootItem);
-
+		/*
 		std::set<std::string> ignoreItems = { "X", "uns", "var", "varm", "varp"};
 		std::map<std::string, std::size_t> objectNameIdx;
 		for (hsize_t fo = 0; fo < nrOfObjects; ++fo)
@@ -688,12 +694,7 @@ bool HDF5_AD_Loader::load(int storageType)
 			objectNameIdx[objectName1] = fo;
 			if(ignoreItems.count(objectName1)==0)
 			{
-				/*
-				QStandardItem* item = new QStandardItem(objectName1.c_str());
-				item->setCheckable(true);
-				item->setCheckState(objectName1.rfind("obs", 0) == 0 ? Qt::Checked : Qt::Unchecked);
-				model.appendRow(item);
-				*/
+				
 				H5G_obj_t objectType1 = _file->getObjTypeByIdx(fo);
 
 				if (objectType1 == H5G_DATASET)
@@ -710,14 +711,14 @@ bool HDF5_AD_Loader::load(int storageType)
 				}
 			}
 		}
-
+		*/
 		//std::set<std::string> objectsToProcess;
 
 		QString pointDatasetLabel;
 		bool filterUniqueProperties = false;
 		{
 			FilterTreeModel filterModel(nullptr);
-			filterModel.setSourceModel(&model);
+			filterModel.setSourceModel(model.get());
 			filterModel.setRecursiveFilteringEnabled(true);
 			filterModel.setSortRole(local::TreeItemRole::Sorting);
 
@@ -806,11 +807,11 @@ bool HDF5_AD_Loader::load(int storageType)
 		// now we look for nice to have annotation for the observations in the main data matrix
 		try
 		{
-			std::size_t x = model.rowCount();
-			for (hsize_t i = 0; i < model.rowCount(); ++i)
+			std::size_t x = model->rowCount();
+			for (hsize_t i = 0; i < model->rowCount(); ++i)
 			{
 				
-				loaderInfo.currentItem = model.item(i, 0);
+				loaderInfo.currentItem = model->item(i, 0);
 				if (loaderInfo.currentItem)
 				{
 					hsize_t idx = loaderInfo.currentItem->data(Qt::UserRole).toULongLong();
@@ -857,23 +858,31 @@ bool HDF5_AD_Loader::load(int storageType)
 			}
 			*/
 			// var can contain dimension specific information so for now we store it as properties.
-			auto varIdx = objectNameIdx.find("var");
-			if (varIdx != objectNameIdx.end())
+		//	auto varIdx = objectNameIdx.find("var");
+			auto nrOfObjects = _file->getNumObjs();
+			for (hsize_t fo = 0; fo < nrOfObjects; ++fo)
 			{
-				H5G_obj_t objectType1 = _file->getObjTypeByIdx(varIdx->second);
-
-				if (objectType1 == H5G_DATASET)
+				std::string objectName1 = _file->getObjnameByIdx(fo);
+				
+				if (objectName1 == "var")
 				{
-					H5::DataSet h5Dataset = _file->openDataSet("var");
-					LoadDimensionProperties(h5Dataset, loaderInfo);
+					H5G_obj_t objectType1 = _file->getObjTypeByIdx(fo);
 
-				}
-				else if (objectType1 == H5G_GROUP)
-				{
-					H5::Group h5Group = _file->openGroup("var");
-					LoadDimensionProperties(h5Group, loaderInfo);
+					if (objectType1 == H5G_DATASET)
+					{
+						H5::DataSet h5Dataset = _file->openDataSet("var");
+						LoadDimensionProperties(h5Dataset, loaderInfo);
+
+					}
+					else if (objectType1 == H5G_GROUP)
+					{
+						H5::Group h5Group = _file->openGroup("var");
+						LoadDimensionProperties(h5Group, loaderInfo);
+					}
+					break;
 				}
 			}
+			
 
 			events().notifyDatasetDataChanged(pointsDataset);
 
