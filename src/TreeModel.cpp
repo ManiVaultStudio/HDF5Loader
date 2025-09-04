@@ -5,11 +5,36 @@
 #include <QString>
 #include <util/StyledIcon.h>
 #include <tuple>
+#include <QString> // Include for QString
+#include <H5Cpp.h> // HDF5 C++ API header
+
 
 namespace H5Utils
 {
+
+	struct TooltipInfo
+	{
+		QString topText;
+		QString dataDescription;
+		std::vector<std::size_t> dimensions;
+		QString bottomText;
+
+		TooltipInfo() = default;
+
+		TooltipInfo(const std::vector<std::size_t>& dim, const QString& description, const QString top = "", const QString bottom = "")
+			: topText(top) 
+			, dataDescription(description)
+			, dimensions(dim)
+			, bottomText(bottom)
+		{
+			
+		}
+	};
+
 	// forward declaration
 	bool addHdf5ObjectTo(const H5::H5Object& obj, hsize_t idx, QStandardItem* parentItem, TreeModel* model = nullptr);
+	
+	
 
 	void checkParent(QStandardItem* parent, Qt::CheckState checkState)
 	{
@@ -132,7 +157,111 @@ namespace H5Utils
 		return dimensions;
 	}
 
-	
+	template<typename H5ObjectT>
+	QString getAttributeInfo(const H5ObjectT& object)
+	{
+		auto fullPath = object.getObjName();
+		//auto name = std::filesystem::path(fullPath).filename().string();
+
+		QString attributeInfo;
+		hsize_t numAttrs = object.getNumAttrs();
+		for (hsize_t idx = 0; idx < numAttrs; ++idx)
+		{
+			try
+			{
+				H5::Attribute attribute = object.openAttribute(idx);
+				auto attributeName = attribute.getName();
+				//std::cerr << fullPath << " -> " << attributeName;
+				attributeInfo += "\n- " + QString::fromStdString(attributeName);
+				// Get the data type of the attribute
+				auto attr_data_type = attribute.getDataType();
+				auto attr_data_space = attribute.getSpace();
+				// Check if it's a string type
+				if (attr_data_type.getClass() == H5T_STRING) {
+
+
+					
+					H5::StrType str_read_type = attribute.getStrType();
+					if (str_read_type.isVariableStr())
+					{
+						char** rdata = nullptr;
+						try
+						{
+
+							// Get the number of elements in the dataspace
+							hsize_t num_elements = attr_data_space.getSelectNpoints(); // Number of elements selected
+							// Allocate a C-style array of char pointers to hold the read strings
+							// HDF5 will allocate memory for each string, so we need to free it later.
+							rdata = new char* [num_elements];
+
+							// Read the attribute data
+							attribute.read(str_read_type, rdata);
+
+							std::vector<std::string> items;
+							// Convert the C-style char** array to std::vector<std::string>
+							for (hsize_t i = 0; i < num_elements; ++i) {
+								if (rdata[i] != nullptr) {
+									items.push_back(std::string(rdata[i]));
+									// IMPORTANT: Free the memory allocated by HDF5 for each string
+									H5free_memory(rdata[i]);
+								}
+								else {
+									items.push_back(""); // Or handle null pointers as needed
+								}
+							}
+							// IMPORTANT: Free the memory allocated for the array of pointers itself
+							delete[] rdata;
+
+							attributeInfo += ": {";
+							bool first = true;
+							for (const auto& item : items) {
+								if (!first)
+									attributeInfo += ", ";
+								attributeInfo += QString::fromStdString(item);
+							}
+							attributeInfo += "}";
+						}
+						catch (...)
+						{
+						}
+
+					}
+
+
+					else
+					{
+						// Read the string directly into an H5std_string
+						H5std_string h5_retrieved_string;
+						attribute.read(attr_data_type, h5_retrieved_string);
+
+						// Convert H5std_string to std::string
+						attributeInfo += ": [" + QString::fromStdString(h5_retrieved_string) + "]";
+
+					}
+				}
+				else
+				{ }
+				std::cerr << std::endl;
+				attribute.close();
+			}
+			catch (H5::AttributeIException& err) 
+			{
+				//std::cerr << "Error reading attribute: " << err.getMsg() << std::endl;
+				//return 1;
+			}
+			catch (H5::DataTypeIException& err)
+			{
+				//std::cerr << "Error getting data type of attribute: " << err.getMsg() << std::endl;
+				//return 1;
+			}
+			catch (...)
+			{
+
+			}
+			
+		}
+		return attributeInfo;
+	}
 
 	std::size_t getNumberOfElements(const std::vector<hsize_t> &dimensions)
 	{
@@ -226,9 +355,59 @@ namespace H5Utils
 			return _item;
 		}
 
-		void setToolTip(const QString& text)
+		void setToolTip(const TooltipInfo &tooltipInfo)
 		{
-			_item->setToolTip(text);
+
+			QString tooltip;
+
+			bool newLineNeed = false;
+			if (!tooltipInfo.topText.isEmpty())
+			{
+				tooltip += tooltipInfo.topText;
+				newLineNeed = true;
+			}
+
+			if (!tooltipInfo.dataDescription.isEmpty())
+			{
+				if (newLineNeed)
+					tooltip += "\n";
+				tooltip += QString("Data Type: ") + tooltipInfo.dataDescription;
+				newLineNeed = true;
+			}
+			
+
+			if (!tooltipInfo.dimensions.empty())
+			{
+				auto dimensions = tooltipInfo.dimensions;
+				if (dimensions.size() == 1)
+					dimensions.push_back(1);
+
+				QString dimensionString;
+				for (auto dim : dimensions)
+				{
+					if (!dimensionString.isEmpty())
+						dimensionString += " x ";
+					dimensionString += QString::number(dim);
+				}
+				if (!dimensionString.isEmpty())
+				{
+					if (newLineNeed)
+						tooltip += "\n";
+					tooltip += "Dimensions: (" + dimensionString + ")";
+					newLineNeed = true;
+				}
+			}
+
+			if (!tooltipInfo.bottomText.isEmpty())
+			{
+				if (newLineNeed)
+					tooltip += "\n";
+				tooltip  += tooltipInfo.bottomText;
+				newLineNeed = true;
+			}
+
+
+			_item->setToolTip(tooltip);
 		}
 
 		
@@ -320,33 +499,23 @@ namespace H5Utils
 	}
 
 
-	TreeItemType GetTreeItemType(const H5::H5Object& obj)
+	
+
+	hsize_t AccumulateSizeOfChildrenAndSetVisibility(TreeItem currentItem, bool visibility = false)
 	{
-		auto hdf5_type = H5::IdComponent::getHDFObjType(obj.getId());
-		switch (hdf5_type)
+
+		hsize_t sum = 0;
+		for (int i = 0; i < currentItem.childCount(); ++i)
 		{
-		case H5I_GROUP:		return  TreeItemType::Group;
-		case H5I_DATASET: {
-			H5::DataSet dataset(obj.getId());
-			auto datatype = dataset.getDataType();
-			H5T_class_t class_type = datatype.getClass();
-
-			switch (class_type)
-			{
-			case H5T_INTEGER:
-			case H5T_FLOAT:
-			case H5T_ENUM: return TreeItemType::PointDataset;
-
-			case H5T_STRING: return TreeItemType::ClusterDataset;
-			};
+			auto child = currentItem.child(i);
+			std::string childName = child.getText().toStdString();
+			auto size = child.getSize();
+			sum += size;
+			child.setVisible(visibility);
 		}
-		}
-		return TreeItemType::Unknown;
+		return sum;
 	}
 
-
-#include <QString> // Include for QString
-#include <H5Cpp.h> // HDF5 C++ API header
 
 	
 	hsize_t getSizeOfDataType(const H5::DataType& type, H5T_class_t type_class)
@@ -394,7 +563,7 @@ namespace H5Utils
 		return byte_size;
 	 }
 
-	QString getClassTypeDescription(H5T_class_t type_class, const H5::DataType& type)
+	QString getClassTypeDescription(H5T_class_t type_class, const H5::DataType& type, hsize_t byte_size =0 )
 	{
 		
 		QString description;
@@ -406,7 +575,7 @@ namespace H5Utils
 			description = "Integer";
 			break;
 		case H5T_FLOAT:
-			description = "Decimal";
+			description = "Floating Point";
 			break;
 		case H5T_TIME:
 			description = "Time/Date";
@@ -448,27 +617,44 @@ namespace H5Utils
 			description = "Unrecognized";
 			break;
 		}
+
+		if (byte_size)
+		{
+			description += QString(" (%1 bytes)").arg(byte_size); 
+		}
 		return description;
 	}
 
-	QString CreateToolTip(const std::vector<hsize_t>& dimensions, const QString &dataTypeDescription, const QString &text = QString())
+	QString CreateToolTip(std::vector<hsize_t> dimensions, const QString &dataTypeDescription, const QString &endText = QString(), const QString& topText = QString())
 	{
-		QString dimensionString;
-		for (auto dim : dimensions)
-		{
-			if (!dimensionString.isEmpty())
-				dimensionString += " x ";
-			dimensionString += QString::number(dim);
-		}
-		QString tooltip;
-		if (dimensions.size() > 1)
-			tooltip = "Dimensions: (" + dimensionString + ")";
-		else
-			tooltip = QString("Nr of ELements: ") + dimensionString;
 
-		tooltip += QString("\nData Type: ") + dataTypeDescription;
-		if(!text.isEmpty())
-			tooltip += "\n" + text;
+		QString tooltip;
+		
+		if (!topText.isEmpty())
+			tooltip += topText + "\n";
+
+		if(!dataTypeDescription.isEmpty())
+			tooltip += QString("Data Type: ") + dataTypeDescription;
+		
+		if (!dimensions.empty())
+		{
+			if (dimensions.size() == 1)
+				dimensions.push_back(1);
+
+			QString dimensionString;
+			for (auto dim : dimensions)
+			{
+				if (!dimensionString.isEmpty())
+					dimensionString += " x ";
+				dimensionString += QString::number(dim);
+			}
+			if (!dimensionString.isEmpty())
+				tooltip += "\nDimensions: (" + dimensionString + ")";
+		}
+		
+		
+		if(!endText.isEmpty())
+			tooltip += "\n" + endText;
 
 		return tooltip;
 	}
@@ -478,6 +664,7 @@ namespace H5Utils
 	{
 		switch (classType) {
 		case H5T_NO_CLASS:
+			currentItem.setTreeItemType(TreeItemType::Unknown);
 			// TODO
 			break;
 		case H5T_INTEGER:
@@ -507,7 +694,8 @@ namespace H5Utils
 			// TODO
 			break;
 		case H5T_ENUM:
-			// TODO
+			currentItem.setIcon("table-cells-large");
+			currentItem.setTreeItemType(TreeItemType::ClusterDataset);
 			break;
 		case H5T_VLEN:
 			// TODO
@@ -525,23 +713,21 @@ namespace H5Utils
 			break;
 		}
 
-		auto classTypeDescription = getClassTypeDescription(classType, dataType);
-
-		
-		
-
-		const std::size_t nrOfElements = getNumberOfElements(dimensions);
-		const auto byte_size =getSizeOfDataType(dataType, classType);
-
-		if (byte_size)
+		if (classType != H5T_COMPOUND)
 		{
-			classTypeDescription += QString(" (%1 bytes)").arg(byte_size); // For fixed string, size is char count
+			const auto byte_size = getSizeOfDataType(dataType, classType);
 
-			currentItem.setToolTip(CreateToolTip(dimensions, classTypeDescription));
-
+			const std::size_t nrOfElements = getNumberOfElements(dimensions);
 			if (nrOfElements)
-				currentItem.setSize(nrOfElements * byte_size);
+			{
+				const auto size = nrOfElements * byte_size;
+				if(size)
+					currentItem.setSize(size);
+			}
 		}
+
+		
+
 	}
 	void ProcessDataset(const H5::H5Object& obj, TreeItem currentItem)
 	{
@@ -553,10 +739,39 @@ namespace H5Utils
 		auto dataSpace = dataset.getSpace();
 		const auto dimensions = getDimensions(dataSpace);
 
-		InitializeDatasetTreeItem(dataType, dataType.getClass(), currentItem, dimensions);
+		InitializeDatasetTreeItem(dataType, classType, currentItem, dimensions);
 		
 		if (currentItem.getSize() == 0)
-			currentItem.setSize(dataset.getStorageSize());
+		{
+			
+			if(currentItem.getTreeItemType() != TreeItemType::CompoundDatset)
+				currentItem.setSize(dataset.getStorageSize());
+				
+		}
+
+		QString startText;
+#ifdef _DEBUG
+		startText = "H5::DataSet";
+#endif
+
+		QString endText;
+		if (dimensions.size() > 1)
+		{
+
+			if (currentItem.getTreeItemType() == TreeItemType::PointDataset)
+				endText += "Matrix";
+		}
+		const auto byte_size = getSizeOfDataType(dataType, classType);
+		auto classTypeDescription = getClassTypeDescription(classType, dataType, byte_size);
+		
+		QString attributeInfo = getAttributeInfo(obj);
+		
+		if (!attributeInfo.isEmpty())
+		{
+			endText += "\nAttributes:" + attributeInfo;
+		}
+		
+		currentItem.setToolTip(TooltipInfo(dimensions, classTypeDescription, startText, endText));
 		
 	}
 
@@ -632,20 +847,7 @@ namespace H5Utils
 
 	
 
-	hsize_t hideChildrenAndComputeSize(TreeItem currentItem)
-	{
-
-		hsize_t sum = 0;
-		for (int i = 0; i < currentItem.childCount(); ++i)
-		{
-			auto child = currentItem.child(i);
-			std::string childName = child.getText().toStdString();
-			auto size = child.getSize();
-			sum += size;
-			child.setVisible(false);
-		}
-		return sum;
-	}
+	
 
 	
 
@@ -677,7 +879,7 @@ namespace H5Utils
 		return std::vector<T>(); // return empty vector
 	}
 	
-	void ProcessCompound(const H5::H5Object& obj, TreeItem parentItem)
+	void ProcessCompound(const H5::H5Object& obj, TreeItem compoundItem)
 	{
 		H5::DataSet dataset(obj.getId());
 		H5::DataSpace datasetSpace = dataset.getSpace();
@@ -695,18 +897,25 @@ namespace H5Utils
 			
 			H5T_class_t componentClass = compType.getMemberClass(idx);
 			
+			TooltipInfo tooltipInfo;
+			tooltipInfo.dimensions = dimensions;
+			tooltipInfo.topText = "H5::CompType";
 			switch (componentClass)
 			{
 				case H5T_INTEGER:
 				{
 					H5::IntType memberType = compType.getMemberIntType(idx);
 					InitializeDatasetTreeItem(memberType, componentClass, newItem, dimensions);
+					tooltipInfo.dataDescription = getClassTypeDescription(componentClass, memberType);
+					tooltipInfo.topText += " --> H5T_INTEGER";
 					break;
 				}
 				case H5T_FLOAT:
 				{
 					H5::FloatType memberType = compType.getMemberFloatType(idx);
 					InitializeDatasetTreeItem(memberType, componentClass, newItem, dimensions);
+					tooltipInfo.dataDescription = getClassTypeDescription(componentClass, memberType);
+					tooltipInfo.topText += " --> H5T_FLOAT";
 					break;
 				}
 
@@ -714,6 +923,8 @@ namespace H5Utils
 				{
 					auto memberType = compType.getMemberStrType(idx);
 					InitializeDatasetTreeItem(memberType, componentClass, newItem, dimensions);
+					tooltipInfo.dataDescription = getClassTypeDescription(componentClass, memberType);
+					tooltipInfo.topText += " --> H5T_STRING";
 					break;
 				}
 
@@ -721,6 +932,8 @@ namespace H5Utils
 				{
 					auto memberType = compType.getMemberCompType(idx);
 					InitializeDatasetTreeItem(memberType, componentClass, newItem, dimensions);
+					tooltipInfo.dataDescription = getClassTypeDescription(componentClass, memberType);
+					tooltipInfo.topText += " --> H5T_COMPOUND";
 					break;
 				}
 
@@ -728,6 +941,8 @@ namespace H5Utils
 				{
 					auto memberType = compType.getMemberEnumType(idx);
 					InitializeDatasetTreeItem(memberType, componentClass, newItem, dimensions);
+					tooltipInfo.dataDescription = getClassTypeDescription(componentClass, memberType);
+					tooltipInfo.topText += " --> H5T_ENUM";
 					break;
 				}
 
@@ -735,6 +950,8 @@ namespace H5Utils
 				{
 					auto memberType = compType.getMemberVarLenType(idx);
 					InitializeDatasetTreeItem(memberType, componentClass, newItem, dimensions);
+					tooltipInfo.dataDescription = getClassTypeDescription(componentClass, memberType);
+					tooltipInfo.topText += " --> H5T_VLEN";
 					break;
 				}
 
@@ -754,6 +971,9 @@ namespace H5Utils
 					}
 					auto superType = memberType.getSuper();
 					InitializeDatasetTreeItem(superType, superType.getClass(), newItem, memberDimensions);
+					tooltipInfo.dataDescription = getClassTypeDescription(superType.getClass(), superType);
+					tooltipInfo.dimensions = memberDimensions;
+					tooltipInfo.topText += " --> H5T_ARRAY";
 					break;
 				}
 
@@ -761,17 +981,27 @@ namespace H5Utils
 				{
 					auto memberType = compType.getMemberDataType(idx);
 					InitializeDatasetTreeItem(memberType, memberType.getClass(), newItem, dimensions);
+					tooltipInfo.dataDescription = getClassTypeDescription(componentClass, memberType);
 					break;
 				}
 			}
 
-			
+			#ifndef _DEBUG
+				tooltipInfo.topText.clear();
+			#endif
 
+			newItem.setToolTip(tooltipInfo);
+			compoundItem.asParent()->appendRow(newItem);
+			/*
+			auto size= AccumulateSizeOfChildrenAndSetVisibility(compoundItem, true);
+			compoundItem.setSize(size);
+			*/
+			//dimensions.push_back(nrOfComponents);
 			
 			
-
-			parentItem.asParent()->appendRow(newItem);
 		}
+
+		compoundItem.setToolTip( TooltipInfo({}, getClassTypeDescription(compType.getClass(), compType), "H5::DataSet", QString("%1 components").arg(nrOfComponents)));
 		dataset.close();
 	}
 
@@ -779,8 +1009,16 @@ namespace H5Utils
 	{
 
 		H5::Group group(obj.getId());
-			// Iterate over the members of the group
+
+		TooltipInfo tooltipInfo;
+		
+#ifdef _DEBUG
+		tooltipInfo.topText = "H5::Group";
+#endif	
+
+		// Iterate over the object members of the group
 		hsize_t numObjs = group.getNumObjs();
+
 		QMap<H5std_string, hsize_t> childCount;
 		for (hsize_t idx = 0; idx < numObjs; ++idx)
 		{
@@ -814,6 +1052,10 @@ namespace H5Utils
 		}
 
 
+		
+		
+
+
 		const QList< H5std_string> matrix_datasets = { "data","indices","indptr" };
 		if (contains_only(childCount, matrix_datasets))
 		{
@@ -836,8 +1078,8 @@ namespace H5Utils
 			{
 				H5::Attribute shape = group.openAttribute(shapeAttributeName);
 				H5::DataSpace dataSpace = shape.getSpace();
-				const auto dimensions = read_attribute_vector_1D<hsize_t>(shape);
-				const auto totalNrOfElements = getNumberOfElements(dimensions);
+				tooltipInfo.dimensions = read_attribute_vector_1D<hsize_t>(shape);
+				const auto totalNrOfElements = getNumberOfElements(tooltipInfo.dimensions);
 
 
 				if (totalNrOfElements)
@@ -850,18 +1092,17 @@ namespace H5Utils
 						H5::DataType datatype = data.getDataType();
 						auto classType = datatype.getClass();
 						hsize_t byte_size = getSizeOfDataType(datatype,  classType);
-						
-						if (byte_size)
-							currentItem.setSize(totalNrOfElements * byte_size);
+						const auto size = totalNrOfElements * byte_size;
+						if (size)
+							currentItem.setSize(size);
 						else
 							currentItem.setSize(data.getStorageSize());
-						auto dummy = hideChildrenAndComputeSize(currentItem);
+						auto dummy = AccumulateSizeOfChildrenAndSetVisibility(currentItem, false);
 
 						currentItem.setIcon("database");
 
-						auto classTypeDescription = getClassTypeDescription(classType, datatype);
-
-						currentItem.setToolTip(CreateToolTip(dimensions, classTypeDescription, "Sparse Matrix"));
+						tooltipInfo.dataDescription = getClassTypeDescription(classType, datatype, byte_size);
+						tooltipInfo.bottomText = "Sparse Matrix";
 					}
 				}
 			}
@@ -871,11 +1112,20 @@ namespace H5Utils
 			const QList< H5std_string> coded_categories = { "codes","categories" };
 			if (contains_only(childCount, coded_categories))
 			{
-				currentItem.setSize(hideChildrenAndComputeSize(currentItem));
+				const auto size = AccumulateSizeOfChildrenAndSetVisibility(currentItem);
+				currentItem.setSize(size);
 				currentItem.setIcon("table-cells-large");
+				tooltipInfo.bottomText = "Coded Categories";
 			}
 		}
 
+		QString attributeInfo = getAttributeInfo(obj);
+		if (!attributeInfo.isEmpty())
+		{
+			tooltipInfo.bottomText += "\nAttributes:" + attributeInfo;
+		}
+
+		currentItem.setToolTip(tooltipInfo);
 
 		return (!childCount.empty());
 	}
@@ -911,7 +1161,9 @@ namespace H5Utils
 		// Create a new item for the current object
 		TreeItem currentItem = TreeItem::Create(obj, idx);
 
-		bool addObjectToHierarchy = (currentItem.getSize() > 0);
+		bool addObjectToHierarchy = false;  //(currentItem.childCount() || currentItem.getSize());
+
+		
 
 		// Check if the object is a group
 		if (currentItem.getTreeItemType() == TreeItemType::Group)
@@ -923,6 +1175,16 @@ namespace H5Utils
 		else if (currentItem.getTreeItemType() == TreeItemType::CompoundDatset)
 		{
 			ProcessCompound(obj, currentItem);
+		}
+
+		addObjectToHierarchy = (addObjectToHierarchy || currentItem.childCount() || currentItem.getSize());
+
+		if (!addObjectToHierarchy)
+		{
+			int bp = 0;
+			++bp;
+
+			addObjectToHierarchy = true;
 		}
 		
 		//if (currentItem.getTreeItemType() == TreeItemType::CompoundDatset)

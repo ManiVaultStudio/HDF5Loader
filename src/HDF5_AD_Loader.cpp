@@ -36,7 +36,7 @@ namespace local
 	};
 	
 
-	hsize_t hideChildrenAndComputeSize(QStandardItem* currentItem)
+	hsize_t AccumulateSizeOfChildrenAndSetVisibility(QStandardItem* currentItem, bool visibility=false)
 	{
 		
 		hsize_t sum = 0;
@@ -47,7 +47,7 @@ namespace local
 			{
 				auto size = currentItem->child(i, TreeItemRole::Size)->data(TreeItemRole::Value).toULongLong();
 				sum += size;
-				currentItem->child(i, TreeItemRole::Description)->setData(false, TreeItemRole::Visible);
+				currentItem->child(i, TreeItemRole::Description)->setData(visibility, TreeItemRole::Visible);
 				currentItem->child(i, TreeItemRole::Description)->setIcon(util::StyledIcon("user-ninja"));
 			}
 		}
@@ -259,7 +259,7 @@ namespace local
 						H5::DataSet data = group.openDataSet("data");
 						H5::DataType datatype = data.getDataType();
 						currentItemSize = totalNrOfElements * datatype.getSize();
-						auto dummy = local::hideChildrenAndComputeSize(currentItem);
+						auto dummy = local::AccumulateSizeOfChildrenAndSetVisibility(currentItem);
 						
 					}
 				}
@@ -279,7 +279,7 @@ namespace local
 					{
 						if (childNames.contains({ "codes","categories" }))
 						{
-							currentItemSize += local::hideChildrenAndComputeSize(currentItem);
+							currentItemSize += local::AccumulateSizeOfChildrenAndSetVisibility(currentItem);
 
 							currentItemIconName = ClustersIconName;
 						}
