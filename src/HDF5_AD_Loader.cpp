@@ -227,7 +227,7 @@ static void LoadProperties(H5::Group &group, H5AD::LoaderInfo &datasetInfo)
 									 label += " (label)";
 									 if (labels.size())
 									 {
-										 filterValues(labels, datasetInfo._selectedDimensionsLUT);
+										 // it shouldn't be needed to filter the labels since they are based on the values which where already filtered.
 										 propertyMap[label] = labels;
 									 }
 								 }
