@@ -12,7 +12,7 @@ On Linux you'll probably need to add a certificate for this to work: `sudo ./cma
 
 You can also install HDF5 with [vcpkg](https://github.com/microsoft/vcpkg) and use `-DCMAKE_TOOLCHAIN_FILE="[YOURPATHTO]/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md` to point to your vcpkg installation:
 ```bash
-./vcpkg install hdf5[cpp,zlib]:x64-windows-static-md
+./vcpkg install hdf5[cpp,zlib,hl]:x64-windows-static-md
 ```
 Depending on your OS the `VCPKG_TARGET_TRIPLET` might vary, e.g. for linux you probably don't need to specify any since it automatically builds static libraries.
 
