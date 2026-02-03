@@ -2,7 +2,6 @@
 
 #include <LoaderPlugin.h>
 
-#include <QObject>
 #include <QFileDialog>
 
 using namespace mv::plugin;
@@ -11,11 +10,11 @@ using namespace mv::plugin;
 // Loader
 // =============================================================================
 
-class TOMELoader :  public LoaderPlugin
+class H510XLoader :  public LoaderPlugin
 {
 public:
-    TOMELoader(PluginFactory* factory);
-    ~TOMELoader() Q_DECL_OVERRIDE;
+	H510XLoader(PluginFactory* factory);
+    ~H510XLoader() Q_DECL_OVERRIDE;
 
     void init() Q_DECL_OVERRIDE;
 
