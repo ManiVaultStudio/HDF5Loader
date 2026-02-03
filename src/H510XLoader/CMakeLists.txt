@@ -14,6 +14,8 @@ set(H510X_SOURCES
 )
 
 source_group(H510XLoader FILES ${H510X_SOURCES})
+source_group(HFD5_Common FILES ${SHARED_SOURCES} ${SHARED_HEADERS} ${DATATRANSFORM_SOURCES})
+
 add_library(${H510XPROJECT} SHARED ${H510X_SOURCES} ${SHARED_SOURCES} ${SHARED_HEADERS} ${DATATRANSFORM_SOURCES})
 
 # -----------------------------------------------------------------------------
