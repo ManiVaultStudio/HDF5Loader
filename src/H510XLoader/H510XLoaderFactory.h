@@ -13,7 +13,7 @@ class H510XLoaderFactory : public LoaderPluginFactory
 	Q_INTERFACES(mv::plugin::LoaderPluginFactory mv::plugin::PluginFactory)
 	Q_OBJECT
 	Q_PLUGIN_METADATA(	IID   "nl.lumc.H510XLoaderFactory"
-						FILE  "H510XLoader.json")
+						FILE  "PluginInfo.json")
 
 public:
 	H510XLoaderFactory(void) {}
