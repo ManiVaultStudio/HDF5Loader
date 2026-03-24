@@ -21,6 +21,8 @@
 #include <cassert>
 #include <numeric>
 #include <algorithm>
+#include <cassert>
+#include <utility>
 
 #if defined(_OPENMP)
 #include <omp.h>
@@ -30,6 +32,38 @@ using namespace mv;
 
 namespace local
 {
+	template<typename outType, typename inType>
+	constexpr outType safe_numeric_cast(const inType& in) {
+
+		static_assert(std::numeric_limits<inType>::is_specialized &&
+			std::numeric_limits<outType>::is_specialized);
+
+		if constexpr (!std::is_same_v<inType, outType>) {
+
+			// 1. Range Check for Integral Types
+			if constexpr (std::is_integral_v<inType> && std::is_integral_v<outType>) {
+				assert(std::cmp_greater_equal(in, std::numeric_limits<outType>::lowest()));
+				assert(std::cmp_less_equal(in, std::numeric_limits<outType>::max()));
+			}
+
+			// 2. Range Check for Floating Point (Inputs or Outputs)
+			else {
+				// We use lowest() here because min() on a float is the smallest POSITIVE number
+				assert(in >= static_cast<inType>(std::numeric_limits<outType>::lowest()));
+				assert(in <= static_cast<inType>(std::numeric_limits<outType>::max()));
+			}
+
+			// 3. Fraction Check (Floating Point -> Integer)
+			if constexpr (std::is_integral_v<outType> && std::is_floating_point_v<inType>) {
+				// Using epsilon to allow for tiny rounding errors (e.g., 4.99999999999999)
+				assert(std::abs(in - std::round(in)) < std::numeric_limits<inType>::epsilon());
+			}
+		}
+
+		return static_cast<outType>(in);
+	}
+		
+
 	class Progress
 	{
 		mv::DataHierarchyItem& dataHierarcyItem;
@@ -66,14 +100,14 @@ namespace local
 		static_assert(!std::is_same<T3, std::int64_t>::value, "");
 		static_assert(!std::is_same<T3, std::uint64_t>::value, "");
 
-		long long lrows = ((long long)m_data->getNumPoints());
+		std::int64_t lrows = local::safe_numeric_cast<std::int64_t>(m_data->getNumPoints());
 		auto columns = m_data->getNumDimensions();
 
 		local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
 		m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
 			{
 				#pragma omp parallel for schedule(dynamic,1)
-				for (long long row = 0; row < lrows; ++row)
+				for (std::int64_t row = 0; row < lrows; ++row)
 				{
 					uint64_t start = row_offset[row];
 					uint64_t end = row_offset[row + 1];
@@ -203,16 +237,17 @@ void DataContainerInterface::set_sparse_row_data(H5Utils::VectorHolder& column_i
 
 void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &column_index, std::vector<uint32_t> &row_offset, std::vector<float> &data, TRANSFORM::Type transformType)
 {
-	long long lrows = ((long long)m_data->getNumPoints());
+	
+	std::int64_t lrows = local::safe_numeric_cast<std::int64_t>(m_data->getNumPoints());
 	auto columns = m_data->getNumDimensions();
 	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", lrows);
 	m_data->visitFromBeginToEnd([&column_index, &row_offset, &data, transformType, lrows, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 #pragma omp parallel for
-			for (long long row = 0; row < lrows; ++row)
+			for (std::int64_t row = 0; row < lrows; ++row)
 			{
-				uint32_t start = row_offset[row];
-				uint32_t end = row_offset[row + 1];
+				uint64_t start = row_offset[row];
+				uint64_t end = row_offset[row + 1];
 				uint64_t points_offset = row * columns;
 
 				for (uint64_t i = start; i < end; ++i)
@@ -238,18 +273,18 @@ void DataContainerInterface::increase_sparse_row_data(std::vector<uint64_t> &col
 
 void DataContainerInterface::set_sparse_column_data(std::vector<uint64_t> &row_index, std::vector<uint32_t> &column_offset, std::vector<float> &data, TRANSFORM::Type transformType /*= TRANSFORM::NONE*/)
 {
-	auto columns = m_data->getNumDimensions();
+	const std::int64_t columns = local::safe_numeric_cast<std::int64_t>(m_data->getNumDimensions());
 	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", columns);
 	m_data->visitFromBeginToEnd([&column_offset, &row_index, &data, transformType, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 			#pragma  omp parallel for
-			for (long long column = 0; column < columns; ++column)
+			for (std::int64_t column = 0; column < columns; ++column)
 			{
-				uint32_t start = column_offset[column];
-				uint32_t end = column_offset[column + 1];
-				for (uint32_t i = start; i < end; ++i)
+				const auto start = column_offset[column];
+				const auto end = column_offset[column + 1];
+				for (auto i = start; i < end; ++i)
 				{
-					uint32_t r = row_index[i];
+					uint64_t r = row_index[i];
 					float value = data[i];
 					if (value != 0)
 					{
@@ -271,18 +306,18 @@ void DataContainerInterface::set_sparse_column_data(std::vector<uint64_t> &row_i
 void DataContainerInterface::increase_sparse_column_data(std::vector<uint64_t> &row_index, std::vector<uint32_t> &column_offset, std::vector<float> &data, TRANSFORM::Type transformType /*= TRANSFORM::NONE*/)
 
 {
-	auto columns = m_data->getNumDimensions();
+	const std::int64_t columns = local::safe_numeric_cast<std::int64_t>(m_data->getNumDimensions());
 	local::Progress progress(m_data->getDataHierarchyItem(), "Loading Data", columns);
 	m_data->visitFromBeginToEnd([&row_index, &column_offset, &data, transformType, columns, &progress](const auto beginOfData, const auto endOfData)
 		{
 		    #pragma  omp parallel for
-			for (long long column = 0; column < columns; ++column)
+			for (std::int64_t column = 0; column < columns; ++column)
 			{
-				uint32_t start = column_offset[column];
-				uint32_t end = column_offset[column + 1];
-				for (uint32_t i = start; i < end; ++i)
+				const auto start = column_offset[column];
+				const auto end = column_offset[column + 1];
+				for (auto i = start; i < end; ++i)
 				{
-					uint32_t r = row_index[i];
+					uint64_t r = row_index[i];
 					float value = data[i];
 					if (value != 0)
 					{
@@ -303,8 +338,8 @@ void DataContainerInterface::increase_sparse_column_data(std::vector<uint64_t> &
 
 void DataContainerInterface::applyTransform(TRANSFORM::Type transformType, bool normalized_and_cpm)
 {
-	const auto rows = m_data->getNumPoints();
-	const auto columns = m_data->getNumDimensions();
+	const std::int64_t rows = local::safe_numeric_cast<std::int64_t>(m_data->getNumPoints());
+	const std::int64_t columns = local::safe_numeric_cast<std::int64_t>(m_data->getNumDimensions());
 	if ((transformType.first == TRANSFORM::NONE) && !normalized_and_cpm)
 		return;
 	local::Progress progress(m_data->getDataHierarchyItem(), "Processing Data", rows);
@@ -345,7 +380,8 @@ mv::Dataset<Points> DataContainerInterface::points()
 
 void DataContainerInterface::set(RowID row, ColumnID column, const ValueType & value)
 {
-	m_data->setValueAt((row*m_data->getNumDimensions()) + column, value);
+	std::uint64_t index = static_cast<std::uint64_t>(row) * m_data->getNumDimensions() + column;
+	m_data->setValueAt(index, value);
 }
 
 void DataContainerInterface::addRow(RowID row, const std::vector<uint32_t> &columns, const std::vector<float> &data, TRANSFORM::Type transformType)
@@ -354,7 +390,7 @@ void DataContainerInterface::addRow(RowID row, const std::vector<uint32_t> &colu
 	if (dataSize != columns.size())
 		throw std::out_of_range("DataContainerInterface::addRow vectors have different sizes!");
 	
-	auto points_offset = row * m_data->getNumDimensions();
+	const std::uint64_t points_offset = row* m_data->getNumDimensions();
 	m_data->visitFromBeginToEnd([&columns, &data, transformType, points_offset](const auto beginOfData, const auto endOfData)
 		{
 			auto d = data.cbegin();
@@ -385,13 +421,13 @@ void DataContainerInterface::add(std::vector<uint32_t> *rows, std::vector<uint32
 		assert(false);
 		
 	}
-	long long lrows = ((long long)m_rows);
+	std::int64_t lrows = local::safe_numeric_cast<std::int64_t>(m_rows);
 	#pragma omp parallel for
-	for (long long row = 0; row < lrows; ++row)
+	for (std::int64_t row = 0; row < lrows; ++row)
 	{
 		uint32_t start = (*rows)[row];
 		uint32_t end = (*rows)[row + 1];
-		std::uint64_t points_offset = row * m_data->getNumDimensions();
+		const std::uint64_t points_offset = row * m_data->getNumDimensions();
 
 		m_data->visitFromBeginToEnd([columns, data, transformType, start, end, points_offset](const auto beginOfData, const auto endOfData)
 			{
