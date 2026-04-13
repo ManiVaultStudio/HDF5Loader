@@ -278,7 +278,7 @@ namespace H5Utils
 		std::size_t updateCounter = 0;
 		std::size_t updateFrequency = n;
 		if (updateFrequency > 1000)
-			updateFrequency = 100;
+			updateFrequency = 100000;
 		while (++cycle != last) {
 			if (visited[cycle - first])
 				continue;
@@ -288,11 +288,11 @@ namespace H5Utils
 				std::swap(*(first + a), *cycle);
 				visited[a] = 1;
 				++updateCounter;
-				if((updateCounter % updateFrequency) == 0)
+				if((updateCounter % updateFrequency) == 10000)
 				{
 					float progress = (1.0 * updateCounter) / (last - first);
 					progressItem.getDataset()->getTask().setProgress(progress);
-					QGuiApplication::instance()->processEvents();
+					//QGuiApplication::instance()->processEvents();
 				}
 				
 				
