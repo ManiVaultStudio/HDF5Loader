@@ -1054,7 +1054,7 @@ namespace H5Utils
 		return nullptr;
 	}
 
-	Dataset<Points> createPointsDataset(mv::CoreInterface* core, bool ask, QString suggestion)
+	mv::Dataset<Points> createPointsDataset(mv::CoreInterface* core, bool ask, QString suggestion)
 	{
 		QString dataSetName = suggestion;
 		
@@ -1128,7 +1128,7 @@ namespace H5Utils
 		}
 
 		QString datasetName = prefix.isEmpty() ? name : prefix + name;
-		Dataset<Clusters> clusterDataset = mv::data().createDataset("Cluster", datasetName, parent);
+		mv::Dataset<Clusters> clusterDataset = mv::data().createDataset("Cluster", datasetName, parent);
 
 		clusterDataset->getClusters().reserve(indices.size());
 
@@ -1146,7 +1146,7 @@ namespace H5Utils
 		}
 
 		// Notify others that the clusters have changed
-		events().notifyDatasetDataChanged(clusterDataset);
+		mv::events().notifyDatasetDataChanged(clusterDataset);
 	}
 		
 
