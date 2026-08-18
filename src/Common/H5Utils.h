@@ -288,6 +288,7 @@ namespace H5Utils
 				std::swap(*(first + a), *cycle);
 				visited[a] = 1;
 				++updateCounter;
+
 				if((updateCounter % 10000) == 0)
 				{
 					float progress = (1.0 * updateCounter) / (last - first);

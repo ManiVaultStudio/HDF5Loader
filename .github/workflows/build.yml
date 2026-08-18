@@ -5,15 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
-  BUILD_TYPE: Release
-  MACENABLED: ${{ inputs.forceMacBuild }}
-
 # for matrix check https://docs.github.com/en/actions/reference/specifications-for-github-hosted-runners
 jobs:
   prepare_matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       matrix: ${{ steps.matrix_setup.outputs.matrix }}
     steps:
@@ -35,13 +30,13 @@ jobs:
     steps:
       - name: Checkout the source
         if: ${{ github.event_name != 'pull_request'}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Checkout the source (pull_request version)
         if: ${{ github.event_name == 'pull_request'}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           submodules: recursive
@@ -53,9 +48,9 @@ jobs:
 
       # Self-hosted runners should have python and other software preconfigured
       - name: Setup python 3 version
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           architecture: x64
 
       - name: Start ssh key agent

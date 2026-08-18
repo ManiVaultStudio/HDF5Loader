@@ -10,7 +10,7 @@ namespace H5AD
 {
 	struct LoaderInfo
 	{
-		Dataset<Points> _pointsDataset;
+		mv::Dataset<Points> _pointsDataset;
 		std::vector<QString> _originalDimensionNames;
 		QVariantList _sampleNames;
 		std::vector<bool> _enabledDimensions;
@@ -33,7 +33,7 @@ namespace H5AD
 
 	bool LoadCategories(H5::Group& group, std::map<std::string, std::vector<QString>>& categories);
 
-	DataHierarchyItem* GetDerivedDataset(const QString& name, Dataset<Points>& pointsDataset);
+	mv::DataHierarchyItem* GetDerivedDataset(const QString& name, mv::Dataset<Points>& pointsDataset);
 
 	bool LoadCodedCategories(H5::Group& group, std::map<QString, std::vector<unsigned>>& result);
 
