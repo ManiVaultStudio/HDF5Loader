@@ -87,7 +87,7 @@ void TOMELoader::loadData()
 	};
 	LockGuard lockGuard(Hdf5Lock());
 	
-	QSettings settings(QString::fromLatin1("HDPS"), QString::fromLatin1("Plugins/TOMELoader"));
+	QSettings settings(QString::fromLatin1("ManiVault"), QString::fromLatin1("Plugins/TOMELoader"));
 	QGridLayout* fileDialogLayout = dynamic_cast<QGridLayout*>(_fileDialog.layout());
 
 	int rowCount = fileDialogLayout->rowCount();
