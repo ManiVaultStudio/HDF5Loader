@@ -11,6 +11,7 @@ namespace H5AD
 	struct LoaderInfo
 	{
 		mv::Dataset<Points> _pointsDataset;
+		QString _sourceFileName;
 		std::vector<QString> _originalDimensionNames;
 		QVariantList _sampleNames;
 		std::vector<bool> _enabledDimensions;

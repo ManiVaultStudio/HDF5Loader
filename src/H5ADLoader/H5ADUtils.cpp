@@ -6,13 +6,227 @@
 #include <QMainWindow>
 
 #include <PointData/DimensionsPickerAction.h>
-
+#include <cstring>
 #include <filesystem>
 #include <set>
 
 namespace H5AD
 {
 	using namespace  mv;
+
+	namespace
+	{
+		constexpr std::size_t tiledRowSize = 256;
+		constexpr std::size_t tiledColumnSize = 256;
+		constexpr std::size_t tiledCacheCapacity = 8;
+		constexpr std::size_t tiledCacheCapacityBytes = 64U * 1024U * 1024U;
+
+		PointData::ElementTypeSpecifier getTiledElementType(const H5::DataType& dataType, const int storageType)
+		{
+			if (storageType >= 0)
+				return static_cast<PointData::ElementTypeSpecifier>(storageType);
+
+			const auto dataClass = dataType.getClass();
+			if (dataClass == H5T_FLOAT)
+				return PointData::ElementTypeSpecifier::float32;
+
+			if (dataClass == H5T_INTEGER || dataClass == H5T_ENUM)
+			{
+				const bool isSigned = H5Tget_sign(dataType.getId()) == H5T_SGN_2;
+				switch (dataType.getSize())
+				{
+				case 1: return isSigned ? PointData::ElementTypeSpecifier::int8 : PointData::ElementTypeSpecifier::uint8;
+				case 2: return isSigned ? PointData::ElementTypeSpecifier::int16 : PointData::ElementTypeSpecifier::uint16;
+				default: return PointData::ElementTypeSpecifier::float32;
+				}
+			}
+
+			throw std::runtime_error("Unsupported dense H5AD X data type");
+		}
+
+		std::size_t getTiledElementSize(const PointData::ElementTypeSpecifier elementType)
+		{
+			switch (elementType)
+			{
+			case PointData::ElementTypeSpecifier::bfloat16:
+			case PointData::ElementTypeSpecifier::int16:
+			case PointData::ElementTypeSpecifier::uint16: return 2;
+			case PointData::ElementTypeSpecifier::int8:
+			case PointData::ElementTypeSpecifier::uint8: return 1;
+			default: return 4;
+			}
+		}
+
+		template<typename T>
+		void readTiledHyperslab(const H5::DataSet& dataset, const hsize_t* start, const hsize_t* count, const H5::DataType& readType, QByteArray& bytes)
+		{
+			const auto elementCount = static_cast<std::size_t>(count[0] * count[1]);
+			std::vector<T> values(elementCount);
+			H5::DataSpace fileSpace = dataset.getSpace();
+			fileSpace.selectHyperslab(H5S_SELECT_SET, count, start);
+			H5::DataSpace memorySpace(2, count);
+			dataset.read(values.data(), readType, memorySpace, fileSpace);
+			std::memcpy(bytes.data(), values.data(), static_cast<std::size_t>(bytes.size()));
+		}
+
+		H5::PredType getTiledReadType(const PointData::ElementTypeSpecifier elementType)
+		{
+			switch (elementType)
+			{
+			case PointData::ElementTypeSpecifier::float32:
+			case PointData::ElementTypeSpecifier::bfloat16: return H5::PredType::NATIVE_FLOAT;
+			case PointData::ElementTypeSpecifier::int32: return H5::PredType::NATIVE_INT32;
+			case PointData::ElementTypeSpecifier::uint32: return H5::PredType::NATIVE_UINT32;
+			case PointData::ElementTypeSpecifier::int16: return H5::PredType::NATIVE_INT16;
+			case PointData::ElementTypeSpecifier::uint16: return H5::PredType::NATIVE_UINT16;
+			case PointData::ElementTypeSpecifier::int8: return H5::PredType::NATIVE_INT8;
+			case PointData::ElementTypeSpecifier::uint8: return H5::PredType::NATIVE_UINT8;
+			}
+
+			throw std::runtime_error("Unsupported tiled H5AD element type");
+		}
+
+		QByteArray readH5ADTile(const QString& fileName, const std::string& datasetName, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns)
+		{
+			H5::H5File file(fileName.toLocal8Bit().constData(), H5F_ACC_RDONLY);
+			H5::DataSet dataset = file.openDataSet(datasetName);
+			const hsize_t start[] = { rowOffset, columnOffset };
+			const hsize_t count[] = { rows, columns };
+			QByteArray bytes(static_cast<qsizetype>(rows * columns * getTiledElementSize(elementType)), Qt::Uninitialized);
+
+			if (elementType == PointData::ElementTypeSpecifier::bfloat16)
+			{
+				std::vector<float> values(static_cast<std::size_t>(rows * columns));
+				H5::DataSpace fileSpace = dataset.getSpace();
+				fileSpace.selectHyperslab(H5S_SELECT_SET, count, start);
+				H5::DataSpace memorySpace(2, count);
+				dataset.read(values.data(), H5::PredType::NATIVE_FLOAT, memorySpace, fileSpace);
+				auto* destination = reinterpret_cast<biovault::bfloat16_t*>(bytes.data());
+				for (std::size_t index = 0; index < values.size(); ++index)
+					destination[index] = values[index];
+			}
+			else
+			{
+				const auto readType = getTiledReadType(elementType);
+				switch (elementType)
+				{
+				case PointData::ElementTypeSpecifier::float32: readTiledHyperslab<float>(dataset, start, count, readType, bytes); break;
+				case PointData::ElementTypeSpecifier::int32: readTiledHyperslab<std::int32_t>(dataset, start, count, readType, bytes); break;
+				case PointData::ElementTypeSpecifier::uint32: readTiledHyperslab<std::uint32_t>(dataset, start, count, readType, bytes); break;
+				case PointData::ElementTypeSpecifier::int16: readTiledHyperslab<std::int16_t>(dataset, start, count, readType, bytes); break;
+				case PointData::ElementTypeSpecifier::uint16: readTiledHyperslab<std::uint16_t>(dataset, start, count, readType, bytes); break;
+				case PointData::ElementTypeSpecifier::int8: readTiledHyperslab<std::int8_t>(dataset, start, count, readType, bytes); break;
+				case PointData::ElementTypeSpecifier::uint8: readTiledHyperslab<std::uint8_t>(dataset, start, count, readType, bytes); break;
+				default: throw std::runtime_error("Unsupported tiled H5AD element type");
+				}
+			}
+
+			return bytes;
+		}
+
+		template<typename T>
+		std::vector<T> readH5ADRange(const H5::DataSet& dataset, const std::uint64_t offset, const std::uint64_t count, const H5::DataType& readType)
+		{
+			std::vector<T> values(static_cast<std::size_t>(count));
+			const hsize_t start[] = { offset };
+			const hsize_t extent[] = { count };
+			H5::DataSpace fileSpace = dataset.getSpace();
+			fileSpace.selectHyperslab(H5S_SELECT_SET, extent, start);
+			H5::DataSpace memorySpace(1, extent);
+			dataset.read(values.data(), readType, memorySpace, fileSpace);
+			return values;
+		}
+
+		bool loadSparseDataAsTiled(H5::Group& group, LoaderInfo& loaderInfo)
+		{
+			if (!ContainsSparseMatrix(group) || !group.attrExists("shape"))
+				return false;
+
+			if (group.attrExists("encoding-type"))
+			{
+				std::string encodingType;
+				auto encodingAttribute = group.openAttribute("encoding-type");
+				encodingAttribute.read(encodingAttribute.getDataType(), encodingType);
+				if (encodingType != "csr_matrix")
+					return false;
+			}
+
+			H5::Attribute shapeAttribute = group.openAttribute("shape");
+			hsize_t shape[2] = {};
+			H5::DataSpace shapeSpace = shapeAttribute.getSpace();
+			if (shapeSpace.getSimpleExtentNdims() != 1 || shapeSpace.getSimpleExtentNpoints() != 2)
+				return false;
+			shapeAttribute.read(H5::PredType::NATIVE_HSIZE, shape);
+
+			const auto fileName = loaderInfo._sourceFileName;
+			const auto groupName = group.getObjName();
+			const auto rowCount = static_cast<std::uint64_t>(shape[0]);
+			const auto columnCount = static_cast<std::uint64_t>(shape[1]);
+			pointdata::storage::StorageBackendConfiguration configuration;
+			configuration.rowTileSize = tiledRowSize;
+			configuration.columnTileSize = tiledColumnSize;
+			configuration.cacheCapacity = tiledCacheCapacity;
+			configuration.cacheCapacityBytes = tiledCacheCapacityBytes;
+			Points::TiledTileGenerator generator = [fileName, groupName](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
+				H5::H5File file(fileName.toLocal8Bit().constData(), H5F_ACC_RDONLY);
+				H5::Group source = file.openGroup(groupName);
+				H5::DataSet dataSet = source.openDataSet("data");
+				H5::DataSet indicesSet = source.openDataSet("indices");
+				H5::DataSet indptrSet = source.openDataSet("indptr");
+				const auto indptr = readH5ADRange<std::uint64_t>(indptrSet, rowOffset, rows + 1, H5::PredType::NATIVE_UINT64);
+				const auto valueCount = indptr.back() - indptr.front();
+				const auto indices = readH5ADRange<std::uint64_t>(indicesSet, indptr.front(), valueCount, H5::PredType::NATIVE_UINT64);
+				const auto values = readH5ADRange<float>(dataSet, indptr.front(), valueCount, H5::PredType::NATIVE_FLOAT);
+				QByteArray bytes(static_cast<qsizetype>(rows * columns * sizeof(float)), Qt::Uninitialized);
+				std::memset(bytes.data(), 0, static_cast<std::size_t>(bytes.size()));
+				auto* destination = reinterpret_cast<float*>(bytes.data());
+				for (std::uint64_t row = 0; row < rows; ++row)
+				{
+					for (std::uint64_t index = indptr[row] - indptr.front(); index < indptr[row + 1] - indptr.front(); ++index)
+					{
+						const auto column = indices[static_cast<std::size_t>(index)];
+						if (column >= columnOffset && column < columnOffset + columns)
+							destination[row * columns + column - columnOffset] = values[static_cast<std::size_t>(index)];
+					}
+				}
+				return bytes;
+			};
+
+			loaderInfo._pointsDataset->initializeTiledStorage(rowCount, columnCount, PointData::ElementTypeSpecifier::float32, configuration, std::move(generator));
+			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			return true;
+		}
+
+		bool loadDenseDataAsTiled(const H5::DataSet& dataset, LoaderInfo& loaderInfo, const int storageType)
+		{
+			const auto dataSpace = dataset.getSpace();
+			if (dataSpace.getSimpleExtentNdims() != 2)
+				return false;
+
+			hsize_t dimensions[2] = {};
+			dataSpace.getSimpleExtentDims(dimensions);
+			if (dimensions[0] == 0 || dimensions[1] == 0 || loaderInfo._sourceFileName.isEmpty())
+				return false;
+
+			const auto elementType = getTiledElementType(dataset.getDataType(), storageType);
+			pointdata::storage::StorageBackendConfiguration configuration;
+			configuration.rowTileSize = tiledRowSize;
+			configuration.columnTileSize = tiledColumnSize;
+			configuration.cacheCapacity = tiledCacheCapacity;
+			configuration.cacheCapacityBytes = tiledCacheCapacityBytes;
+			const auto fileName = loaderInfo._sourceFileName;
+			const auto datasetName = dataset.getObjName();
+			Points::TiledTileGenerator generator = [fileName, datasetName, elementType](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
+				return readH5ADTile(fileName, datasetName, elementType, rowOffset, columnOffset, rows, columns);
+			};
+
+			loaderInfo._pointsDataset->initializeTiledStorage(dimensions[0], dimensions[1], elementType, configuration, std::move(generator));
+			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			return true;
+		}
+	}
 
 	struct compareStringsAsNumbers {
 		bool operator()(const std::string& a, const std::string& b) const
@@ -826,7 +1040,8 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::DataSet dataset = h5fILE->openDataSet(objectName1);
-						H5AD::LoadData(dataset, loaderInfo, storageType);
+						if (!loadDenseDataAsTiled(dataset, loaderInfo, storageType))
+							H5AD::LoadData(dataset, loaderInfo, storageType);
 						break;
 
 					}
@@ -836,7 +1051,8 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						H5AD::LoadData(group, loaderInfo, storageType);
+						if (!loadSparseDataAsTiled(group, loaderInfo))
+							H5AD::LoadData(group, loaderInfo, storageType);
 						break;
 					}
 				}

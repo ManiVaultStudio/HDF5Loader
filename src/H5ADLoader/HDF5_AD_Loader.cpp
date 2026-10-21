@@ -373,6 +373,7 @@ bool HDF5_AD_Loader::load(int storageType)
 		H5AD::LoaderInfo loaderInfo;
 		
 		loaderInfo._pointsDataset = pointsDataset;
+		loaderInfo._sourceFileName = _fileName;
 		loaderInfo._originalDimensionNames = _dimensionNames;
 		loaderInfo._sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 
