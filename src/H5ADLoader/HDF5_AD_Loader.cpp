@@ -4,11 +4,15 @@
 
 #include "H5Utils.h"
 
+#include <Application.h>
+#include <workflow/WorkflowOptions.h>
+#include <workflow/WorkflowPlan.h>
+
+#include <QDialogButtonBox>
+#include <QFileDialog>
 #include <QGuiApplication>
 #include <QInputDialog>
-#include <QFileDialog>
 #include <QListView>
-#include <QDialogButtonBox>
 #include <QtGlobal>
 
 #include <cassert>
@@ -20,9 +24,11 @@
 
 using namespace mv;
 
-HDF5_AD_Loader::HDF5_AD_Loader(mv::CoreInterface *core)
+HDF5_AD_Loader::HDF5_AD_Loader(mv::CoreInterface* core, QObject* workflowReceiver, const QString& stagingDirectory)
 {
 	_core = core;
+	_workflowReceiver = workflowReceiver;
+	_stagingDirectory = stagingDirectory;
 }
 
 bool HDF5_AD_Loader::open(const QString& fileName)
@@ -369,77 +375,114 @@ bool HDF5_AD_Loader::load(int storageType)
 		Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, false,  pointDatasetLabel);
 		pointsDataset->getDataHierarchyItem().setVisible(false);
 	
-		// first load the main data matrix
-		H5AD::LoaderInfo loaderInfo;
-		
-		loaderInfo._pointsDataset = pointsDataset;
-		loaderInfo._sourceFileName = _fileName;
-		loaderInfo._originalDimensionNames = _dimensionNames;
-		loaderInfo._sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
+		const auto loaderInfo = std::make_shared<H5AD::LoaderInfo>();
+		loaderInfo->_pointsDataset = pointsDataset;
+		loaderInfo->_sourceFileName = _fileName;
+		loaderInfo->_stagingDirectory = _stagingDirectory;
+		loaderInfo->_originalDimensionNames = _dimensionNames;
+		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
+		const auto loader = shared_from_this();
+		auto workflow = std::make_unique<mv::workflow::WorkflowPlan>(QObject::tr("Load H5AD point data"));
 
-		if (!H5AD::load_X(_file, loaderInfo, storageType))
-		{
-			mv::data().removeDataset(pointsDataset);
-			_dimensionNames.clear();
-			_sampleNames.clear();
-			return false;
-		}
-		
-		//_dimensionNames = pointsDataset->getDimensionNames();
-		
-		// now we look for nice to have annotation for the observations in the main data matrix
-		try
-		{
-			auto nrOfObjects = _file->getNumObjs();
+		workflow->addSequentialStage(QObject::tr("Stage HDF5 point data"), [loader, loaderInfo, storageType](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
+			const H5AD::ProgressCallback progress = [executionContext](const float value) {
+				executionContext->setProgress(value);
+			};
+
+			if (!H5AD::load_X(loader->_file, *loaderInfo, storageType, progress))
+				throw std::runtime_error("Unable to stage H5AD point data");
+		}, mv::workflow::WorkflowPlan::JobThreadAffinity::CurrentWorkerThread, 80);
+
+		workflow->addNestedWorkflowStage(QObject::tr("Create point-data metadata"), [loader, loaderInfo, objectsToProcess, objectNameIdx](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
+			auto metadataWorkflow = std::make_unique<mv::workflow::WorkflowPlan>(QObject::tr("Load optional H5AD metadata"));
+			mv::workflow::WorkflowPlan::Jobs metadataJobs;
+
+			const auto addMetadataJob = [&metadataJobs](const QString& name, mv::workflow::WorkflowPlan::JobFunction function) {
+				metadataJobs.emplace_back(name, std::move(function), mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread);
+			};
+
+			const auto nrOfObjects = loader->_file->getNumObjs();
 			for (hsize_t fo = 0; fo < nrOfObjects; ++fo)
 			{
-				std::string objectName1 = _file->getObjnameByIdx(fo);
-			
-				if (objectsToProcess.count(objectName1) == 1)
-				{
-					H5G_obj_t objectType1 = _file->getObjTypeByIdx(fo);
+				const auto objectName = loader->_file->getObjnameByIdx(fo);
+				if (objectsToProcess.count(objectName) != 1)
+					continue;
 
-					if (objectType1 == H5G_DATASET)
+				const auto objectType = loader->_file->getObjTypeByIdx(fo);
+				const auto jobName = QObject::tr("Load sample names and metadata: %1").arg(QString::fromLocal8Bit(objectName.c_str()));
+				addMetadataJob(jobName, [loader, loaderInfo, objectName, objectType](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
+					const H5AD::MetadataProgressCallback progress = [executionContext](const float value, const QString&) {
+						executionContext->setProgress(value);
+					};
+
+					try
 					{
-						H5::DataSet h5Dataset = _file->openDataSet(objectName1);
-						H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, loaderInfo);
+						if (objectType == H5G_DATASET)
+						{
+							auto h5Dataset = loader->_file->openDataSet(objectName);
+							H5AD::LoadSampleNamesAndMetaDataFloat(h5Dataset, *loaderInfo, progress);
+						}
+						else if (objectType == H5G_GROUP)
+						{
+							auto h5Group = loader->_file->openGroup(objectName);
+							H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, *loaderInfo, progress);
+						}
 					}
-					else if (objectType1 == H5G_GROUP)
+					catch (const std::exception& exception)
 					{
-						H5::Group h5Group = _file->openGroup(objectName1);
-						H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, loaderInfo);
+						std::cerr << "H5AD Loader: Optional metadata loading failed for " << objectName << ": " << exception.what() << std::endl;
 					}
-				}
+				});
 			}
-			// var can contain dimension specific information so for now we store it as properties.
-			auto varIdx = objectNameIdx.find("var");
-			if (varIdx != objectNameIdx.end())
+
+			const auto varIndex = objectNameIdx.find("var");
+			if (varIndex != objectNameIdx.end())
 			{
-				H5G_obj_t objectType1 = _file->getObjTypeByIdx(varIdx->second);
-
-				if (objectType1 == H5G_DATASET)
-				{
-					H5::DataSet h5Dataset = _file->openDataSet("var");
-					LoadProperties(h5Dataset, loaderInfo);
-
-				}
-				else if (objectType1 == H5G_GROUP)
-				{
-					H5::Group h5Group = _file->openGroup("var");
-					LoadProperties(h5Group, loaderInfo);
-				}
+				const auto objectType = loader->_file->getObjTypeByIdx(varIndex->second);
+				addMetadataJob(QObject::tr("Load properties: var"), [loader, loaderInfo, objectType](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
+					try
+					{
+						if (objectType == H5G_DATASET)
+						{
+							auto h5Dataset = loader->_file->openDataSet("var");
+							LoadProperties(h5Dataset, *loaderInfo);
+						}
+						else if (objectType == H5G_GROUP)
+						{
+							auto h5Group = loader->_file->openGroup("var");
+							LoadProperties(h5Group, *loaderInfo);
+						}
+					}
+					catch (const std::exception& exception)
+					{
+						std::cerr << "H5AD Loader: Optional property loading failed for var: " << exception.what() << std::endl;
+					}
+				});
 			}
 
-			events().notifyDatasetDataChanged(pointsDataset);
+			if (metadataJobs.empty())
+				addMetadataJob(QObject::tr("No optional metadata selected"), [](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {});
 
-			pointsDataset->getDataHierarchyItem().setVisible(true);
-			return true;
+			metadataWorkflow->addSequentialStage(QObject::tr("Load discovered metadata"), std::move(metadataJobs), 1.0);
+			return metadataWorkflow;
+		}, mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread, 19);
 
-		}
-		catch(const std::exception &e)
-		{
-			mv::data().removeDataset(pointsDataset);
-		}
+		workflow->addSequentialStage(QObject::tr("Publish point-data metadata"), [loaderInfo](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
+			events().notifyDatasetDataChanged(loaderInfo->_pointsDataset);
+			loaderInfo->_pointsDataset->getDataHierarchyItem().setVisible(true);
+		}, mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread, 1);
+
+		mv::workflow::WorkflowOptions options;
+		options.cancellation.enabled = true;
+		options.reporting.progress = true;
+		options.reporting.finishedNotification = true;
+		auto future = mv::Application::getWorkflowPlanExecutor().execute(std::move(workflow), nullptr, options);
+		future.onFinished(_workflowReceiver, [pointsDataset](const mv::workflow::SharedWorkflowResult& result) {
+			if (!result || result->getStatus() != mv::workflow::WorkflowResultBase::Status::Success)
+				mv::data().removeDataset(pointsDataset);
+		});
+
+		return true;
 	}
 	catch (std::exception &e)
 	{

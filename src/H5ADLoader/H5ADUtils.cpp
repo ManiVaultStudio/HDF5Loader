@@ -2,22 +2,33 @@
 
 #include "DataContainerInterface.h"
 
+#include <CoreInterface.h>
+
 #include <QDialogButtonBox>
+#include <QFile>
 #include <QMainWindow>
+#include <QStandardPaths>
+#include <QTextStream>
+#include <QUuid>
 
 #include <PointData/DimensionsPickerAction.h>
+#include <util/Serialization.h>
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <set>
+#include <unordered_map>
 
 namespace H5AD
 {
-	using namespace  mv;
+	using namespace mv;
 
 	namespace
 	{
 		constexpr std::size_t tiledRowSize = 256;
 		constexpr std::size_t tiledColumnSize = 256;
+		constexpr std::size_t stagedSuperTileRows = 4;
+		constexpr std::size_t stagedSuperTileColumns = 4;
 		constexpr std::size_t tiledCacheCapacity = 8;
 		constexpr std::size_t tiledCacheCapacityBytes = 64U * 1024U * 1024U;
 
@@ -35,9 +46,14 @@ namespace H5AD
 				const bool isSigned = H5Tget_sign(dataType.getId()) == H5T_SGN_2;
 				switch (dataType.getSize())
 				{
-				case 1: return isSigned ? PointData::ElementTypeSpecifier::int8 : PointData::ElementTypeSpecifier::uint8;
-				case 2: return isSigned ? PointData::ElementTypeSpecifier::int16 : PointData::ElementTypeSpecifier::uint16;
-				default: return PointData::ElementTypeSpecifier::float32;
+					case 1:
+						return isSigned ? PointData::ElementTypeSpecifier::int8 : PointData::ElementTypeSpecifier::uint8;
+
+					case 2:
+						return isSigned ? PointData::ElementTypeSpecifier::int16 : PointData::ElementTypeSpecifier::uint16;
+
+					default:
+						return PointData::ElementTypeSpecifier::float32;
 				}
 			}
 
@@ -48,12 +64,17 @@ namespace H5AD
 		{
 			switch (elementType)
 			{
-			case PointData::ElementTypeSpecifier::bfloat16:
-			case PointData::ElementTypeSpecifier::int16:
-			case PointData::ElementTypeSpecifier::uint16: return 2;
-			case PointData::ElementTypeSpecifier::int8:
-			case PointData::ElementTypeSpecifier::uint8: return 1;
-			default: return 4;
+				case PointData::ElementTypeSpecifier::bfloat16:
+				case PointData::ElementTypeSpecifier::int16:
+				case PointData::ElementTypeSpecifier::uint16:
+					return 2;
+
+				case PointData::ElementTypeSpecifier::int8:
+				case PointData::ElementTypeSpecifier::uint8:
+					return 1;
+
+				default:
+					return 4;
 			}
 		}
 
@@ -86,10 +107,8 @@ namespace H5AD
 			throw std::runtime_error("Unsupported tiled H5AD element type");
 		}
 
-		QByteArray readH5ADTile(const QString& fileName, const std::string& datasetName, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns)
+		QByteArray readH5ADTile(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns)
 		{
-			H5::H5File file(fileName.toLocal8Bit().constData(), H5F_ACC_RDONLY);
-			H5::DataSet dataset = file.openDataSet(datasetName);
 			const hsize_t start[] = { rowOffset, columnOffset };
 			const hsize_t count[] = { rows, columns };
 			QByteArray bytes(static_cast<qsizetype>(rows * columns * getTiledElementSize(elementType)), Qt::Uninitialized);
@@ -124,6 +143,176 @@ namespace H5AD
 			return bytes;
 		}
 
+		struct StagedPackedTile
+		{
+			std::uint64_t rowOffset = 0;
+			std::uint64_t columnOffset = 0;
+			std::uint64_t rows = 0;
+			std::uint64_t columns = 0;
+			std::size_t superTileIndex = 0;
+			mv::util::PackedBlobBlock block;
+		};
+
+		struct StagedPackedSuperTile
+		{
+			QString path;
+		};
+
+		struct StagedPointData
+		{
+			std::uint64_t rows = 0;
+			std::uint64_t columns = 0;
+			std::size_t elementSize = 0;
+			std::uint64_t tileRows = 0;
+			std::uint64_t tileColumns = 0;
+			std::size_t superTileRows = stagedSuperTileRows;
+			std::size_t superTileColumns = stagedSuperTileColumns;
+			mv::util::SharedCodec codec;
+			std::vector<StagedPackedSuperTile> superTiles;
+			std::vector<StagedPackedTile> tiles;
+		};
+
+		struct StagedReadCache
+		{
+			std::unordered_map<std::size_t, std::unique_ptr<mv::util::PackedBlobFileReader>> readers;
+		};
+
+		QString createStagingDirectory(const QString& stagingRoot, const std::uint64_t rows, const std::uint64_t columns, const std::size_t elementSize, const mv::util::SharedCodec& codec)
+		{
+			const auto root = stagingRoot.isEmpty() ? QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).filePath(QStringLiteral("ManiVault/H5ADStaging")) : stagingRoot;
+			const auto stagingDirectory = QDir(root).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces));
+
+			if (!QDir().mkpath(stagingDirectory))
+				throw std::runtime_error(QString("Unable to create H5AD staging directory: %1").arg(stagingDirectory).toStdString());
+
+			QFile manifest(QDir(stagingDirectory).filePath(QStringLiteral("manifest.txt")));
+			if (!manifest.open(QIODevice::WriteOnly | QIODevice::Text))
+				throw std::runtime_error(QString("Unable to create H5AD staging manifest: %1").arg(manifest.fileName()).toStdString());
+
+			QTextStream stream(&manifest);
+			stream << "Rows=" << rows << "\n";
+			stream << "Columns=" << columns << "\n";
+			stream << "ElementSize=" << elementSize << "\n";
+			stream << "RowTileSize=" << tiledRowSize << "\n";
+			stream << "ColumnTileSize=" << tiledColumnSize << "\n";
+			stream << "SuperTileRows=" << stagedSuperTileRows << "\n";
+			stream << "SuperTileColumns=" << stagedSuperTileColumns << "\n";
+			stream << "Storage=PackedTileFiles\n";
+			stream << "Codec=" << codec->getName() << "\n";
+			return stagingDirectory;
+		}
+
+		mv::util::SharedCodec createStagingCodec()
+		{
+			const auto* currentProject = mv::projects().getCurrentProject();
+			if (!currentProject)
+				throw std::runtime_error("Unable to create H5AD staging codec without an active project");
+
+			return currentProject->getCompressionAction().createCodec(nullptr);
+		}
+
+		std::shared_ptr<StagedPointData> stageDenseData(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const H5AD::ProgressCallback& progress)
+		{
+			const auto elementSize = getTiledElementSize(elementType);
+			const auto staging = std::make_shared<StagedPointData>();
+			staging->rows = rows;
+			staging->columns = columns;
+			staging->elementSize = elementSize;
+			staging->tileRows = (rows + tiledRowSize - 1) / tiledRowSize;
+			staging->tileColumns = (columns + tiledColumnSize - 1) / tiledColumnSize;
+			staging->codec = createStagingCodec();
+			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, staging->codec);
+			const auto tileCount = staging->tileRows * staging->tileColumns;
+			staging->tiles.resize(static_cast<std::size_t>(tileCount));
+			std::uint64_t completedTileCount = 0;
+			if (progress)
+				progress(0.0f);
+
+			for (std::uint64_t superTileRow = 0; superTileRow < staging->tileRows; superTileRow += staging->superTileRows)
+			{
+				for (std::uint64_t superTileColumn = 0; superTileColumn < staging->tileColumns; superTileColumn += staging->superTileColumns)
+				{
+					const auto superTileIndex = staging->superTiles.size();
+					const auto fileName = QStringLiteral("supertile_%1.ptpack").arg(superTileIndex, 8, 10, QLatin1Char('0'));
+					const auto filePath = QDir(stagingDirectory).filePath(fileName);
+					mv::util::PackedBlobFileWriter writer(filePath, staging->codec);
+
+					for (std::uint64_t tileRow = superTileRow; tileRow < std::min<std::uint64_t>(staging->tileRows, superTileRow + staging->superTileRows); ++tileRow)
+					{
+						for (std::uint64_t tileColumn = superTileColumn; tileColumn < std::min<std::uint64_t>(staging->tileColumns, superTileColumn + staging->superTileColumns); ++tileColumn)
+						{
+							const auto rowOffset = tileRow * tiledRowSize;
+							const auto columnOffset = tileColumn * tiledColumnSize;
+							const auto tileRows = std::min<std::uint64_t>(tiledRowSize, rows - rowOffset);
+							const auto tileColumns = std::min<std::uint64_t>(tiledColumnSize, columns - columnOffset);
+							const auto bytes = readH5ADTile(dataset, elementType, rowOffset, columnOffset, tileRows, tileColumns);
+							const auto block = writer.append(bytes);
+
+							const auto tileIndex = static_cast<std::size_t>(tileRow * staging->tileColumns + tileColumn);
+							staging->tiles[tileIndex] = { rowOffset, columnOffset, tileRows, tileColumns, superTileIndex, block };
+							if (progress)
+								progress(static_cast<float>(++completedTileCount) / static_cast<float>(tileCount));
+						}
+					}
+
+					writer.close();
+					staging->superTiles.push_back({ filePath });
+				}
+			}
+
+			return staging;
+		}
+
+		QByteArray readStagedTile(const StagedPointData& staging, const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns)
+		{
+			thread_local std::unordered_map<const StagedPointData*, std::unique_ptr<StagedReadCache>> caches;
+			auto& cache = caches[&staging];
+			const auto tileRow = rowOffset / tiledRowSize;
+			const auto tileColumn = columnOffset / tiledColumnSize;
+			const auto tileIndex = static_cast<std::size_t>(tileRow * staging.tileColumns + tileColumn);
+			if (tileIndex >= staging.tiles.size())
+				throw std::out_of_range("Requested tile is not present in H5AD packed staging");
+
+			const auto& tile = staging.tiles[tileIndex];
+			if (tile.rowOffset != rowOffset || tile.columnOffset != columnOffset || tile.rows != rows || tile.columns != columns)
+				throw std::out_of_range("Requested tile does not match H5AD packed staging geometry");
+
+			auto reader = cache->readers.find(tile.superTileIndex);
+			if (reader == cache->readers.end())
+			{
+				const auto& superTile = staging.superTiles[tile.superTileIndex];
+				reader = cache->readers.emplace(tile.superTileIndex, std::make_unique<mv::util::PackedBlobFileReader>(superTile.path, staging.codec)).first;
+			}
+
+			return reader->second->read(tile.block);
+		}
+
+		void attachPackedTileSource(const std::shared_ptr<StagedPointData>& staging, Dataset<Points>& pointsDataset)
+		{
+			QStringList filePaths;
+			filePaths.reserve(static_cast<qsizetype>(staging->superTiles.size()));
+			for (const auto& superTile : staging->superTiles)
+				filePaths.push_back(superTile.path);
+
+			std::vector<std::uint64_t> offsets;
+			std::vector<std::uint64_t> compressedSizes;
+			std::vector<std::uint64_t> uncompressedSizes;
+			std::vector<std::size_t> superTileIndices;
+			offsets.reserve(staging->tiles.size());
+			compressedSizes.reserve(staging->tiles.size());
+			uncompressedSizes.reserve(staging->tiles.size());
+			superTileIndices.reserve(staging->tiles.size());
+			for (const auto& tile : staging->tiles)
+			{
+				offsets.push_back(tile.block.offset);
+				compressedSizes.push_back(tile.block.compressedSize);
+				uncompressedSizes.push_back(tile.block.uncompressedSize);
+				superTileIndices.push_back(tile.superTileIndex);
+			}
+
+			pointsDataset->attachPackedTileSource(filePaths, staging->codec->getName(), offsets, compressedSizes, uncompressedSizes, superTileIndices);
+		}
+
 		template<typename T>
 		std::vector<T> readH5ADRange(const H5::DataSet& dataset, const std::uint64_t offset, const std::uint64_t count, const H5::DataType& readType)
 		{
@@ -137,7 +326,83 @@ namespace H5AD
 			return values;
 		}
 
-		bool loadSparseDataAsTiled(H5::Group& group, LoaderInfo& loaderInfo)
+		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const H5AD::ProgressCallback& progress)
+		{
+			constexpr std::size_t elementSize = sizeof(float);
+			const auto staging = std::make_shared<StagedPointData>();
+			staging->rows = rows;
+			staging->columns = columns;
+			staging->elementSize = elementSize;
+			staging->tileRows = (rows + tiledRowSize - 1) / tiledRowSize;
+			staging->tileColumns = (columns + tiledColumnSize - 1) / tiledColumnSize;
+			staging->codec = createStagingCodec();
+			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, staging->codec);
+			const auto tileCount = staging->tileRows * staging->tileColumns;
+			staging->tiles.resize(static_cast<std::size_t>(tileCount));
+			std::uint64_t completedTileCount = 0;
+			if (progress)
+				progress(0.0f);
+
+			for (std::uint64_t superTileRow = 0; superTileRow < staging->tileRows; superTileRow += staging->superTileRows)
+			{
+				const auto superTileRowCount = std::min<std::uint64_t>(staging->superTileRows * tiledRowSize, rows - superTileRow * tiledRowSize);
+				const auto sourceRowOffset = superTileRow * tiledRowSize;
+				const auto indptr = readH5ADRange<std::uint64_t>(indptrSet, sourceRowOffset, superTileRowCount + 1, H5::PredType::NATIVE_UINT64);
+				const auto valueCount = indptr.back() - indptr.front();
+				const auto indices = valueCount > 0 ? readH5ADRange<std::uint64_t>(indicesSet, indptr.front(), valueCount, H5::PredType::NATIVE_UINT64) : std::vector<std::uint64_t>();
+				const auto values = valueCount > 0 ? readH5ADRange<float>(dataSet, indptr.front(), valueCount, H5::PredType::NATIVE_FLOAT) : std::vector<float>();
+
+				for (std::uint64_t superTileColumn = 0; superTileColumn < staging->tileColumns; superTileColumn += staging->superTileColumns)
+				{
+					const auto superTileIndex = staging->superTiles.size();
+					const auto fileName = QStringLiteral("supertile_%1.ptpack").arg(superTileIndex, 8, 10, QLatin1Char('0'));
+					const auto filePath = QDir(stagingDirectory).filePath(fileName);
+					mv::util::PackedBlobFileWriter writer(filePath, staging->codec);
+
+					for (std::uint64_t tileRow = superTileRow; tileRow < std::min<std::uint64_t>(staging->tileRows, superTileRow + staging->superTileRows); ++tileRow)
+					{
+						const auto tileRowOffset = tileRow * tiledRowSize;
+						const auto tileRowCount = std::min<std::uint64_t>(tiledRowSize, rows - tileRowOffset);
+
+						for (std::uint64_t tileColumn = superTileColumn; tileColumn < std::min<std::uint64_t>(staging->tileColumns, superTileColumn + staging->superTileColumns); ++tileColumn)
+						{
+							const auto tileColumnOffset = tileColumn * tiledColumnSize;
+							const auto tileColumnCount = std::min<std::uint64_t>(tiledColumnSize, columns - tileColumnOffset);
+							QByteArray bytes(static_cast<qsizetype>(tileRowCount * tileColumnCount * elementSize), Qt::Uninitialized);
+							std::memset(bytes.data(), 0, static_cast<std::size_t>(bytes.size()));
+							auto* destination = reinterpret_cast<float*>(bytes.data());
+
+							for (std::uint64_t rowIndex = 0; rowIndex < tileRowCount; ++rowIndex)
+							{
+								const auto sourceRow = tileRowOffset + rowIndex;
+								const auto begin = indptr[static_cast<std::size_t>(sourceRow - sourceRowOffset)] - indptr.front();
+								const auto end = indptr[static_cast<std::size_t>(sourceRow - sourceRowOffset + 1)] - indptr.front();
+
+								for (std::uint64_t index = begin; index < end; ++index)
+								{
+									const auto column = indices[static_cast<std::size_t>(index)];
+									if (column >= tileColumnOffset && column < tileColumnOffset + tileColumnCount)
+										destination[rowIndex * tileColumnCount + column - tileColumnOffset] = values[static_cast<std::size_t>(index)];
+								}
+							}
+
+							const auto block = writer.append(bytes);
+							const auto tileIndex = static_cast<std::size_t>(tileRow * staging->tileColumns + tileColumn);
+							staging->tiles[tileIndex] = { tileRowOffset, tileColumnOffset, tileRowCount, tileColumnCount, superTileIndex, block };
+							if (progress)
+								progress(static_cast<float>(++completedTileCount) / static_cast<float>(tileCount));
+						}
+					}
+
+					writer.close();
+					staging->superTiles.push_back({ filePath });
+				}
+			}
+
+			return staging;
+		}
+
+		bool loadSparseDataAsTiled(H5::Group& group, LoaderInfo& loaderInfo, const H5AD::ProgressCallback& progress)
 		{
 			if (!ContainsSparseMatrix(group) || !group.attrExists("shape"))
 				return false;
@@ -158,47 +423,33 @@ namespace H5AD
 				return false;
 			shapeAttribute.read(H5::PredType::NATIVE_HSIZE, shape);
 
-			const auto fileName = loaderInfo._sourceFileName;
-			const auto groupName = group.getObjName();
 			const auto rowCount = static_cast<std::uint64_t>(shape[0]);
 			const auto columnCount = static_cast<std::uint64_t>(shape[1]);
+			const auto dataSet = group.openDataSet("data");
+			const auto indicesSet = group.openDataSet("indices");
+			const auto indptrSet = group.openDataSet("indptr");
 			pointdata::storage::StorageBackendConfiguration configuration;
 			configuration.rowTileSize = tiledRowSize;
 			configuration.columnTileSize = tiledColumnSize;
+			configuration.packedTiles = true;
+			configuration.superTileRows = stagedSuperTileRows;
+			configuration.superTileColumns = stagedSuperTileColumns;
 			configuration.cacheCapacity = tiledCacheCapacity;
 			configuration.cacheCapacityBytes = tiledCacheCapacityBytes;
-			Points::TiledTileGenerator generator = [fileName, groupName](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
-				H5::H5File file(fileName.toLocal8Bit().constData(), H5F_ACC_RDONLY);
-				H5::Group source = file.openGroup(groupName);
-				H5::DataSet dataSet = source.openDataSet("data");
-				H5::DataSet indicesSet = source.openDataSet("indices");
-				H5::DataSet indptrSet = source.openDataSet("indptr");
-				const auto indptr = readH5ADRange<std::uint64_t>(indptrSet, rowOffset, rows + 1, H5::PredType::NATIVE_UINT64);
-				const auto valueCount = indptr.back() - indptr.front();
-				const auto indices = readH5ADRange<std::uint64_t>(indicesSet, indptr.front(), valueCount, H5::PredType::NATIVE_UINT64);
-				const auto values = readH5ADRange<float>(dataSet, indptr.front(), valueCount, H5::PredType::NATIVE_FLOAT);
-				QByteArray bytes(static_cast<qsizetype>(rows * columns * sizeof(float)), Qt::Uninitialized);
-				std::memset(bytes.data(), 0, static_cast<std::size_t>(bytes.size()));
-				auto* destination = reinterpret_cast<float*>(bytes.data());
-				for (std::uint64_t row = 0; row < rows; ++row)
-				{
-					for (std::uint64_t index = indptr[row] - indptr.front(); index < indptr[row + 1] - indptr.front(); ++index)
-					{
-						const auto column = indices[static_cast<std::size_t>(index)];
-						if (column >= columnOffset && column < columnOffset + columns)
-							destination[row * columns + column - columnOffset] = values[static_cast<std::size_t>(index)];
-					}
-				}
-				return bytes;
+			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, progress);
+			Points::TiledTileGenerator generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
+				return readStagedTile(*staging, rowOffset, columnOffset, rows, columns);
 			};
 
 			loaderInfo._pointsDataset->initializeTiledStorage(rowCount, columnCount, PointData::ElementTypeSpecifier::float32, configuration, std::move(generator));
+			attachPackedTileSource(staging, loaderInfo._pointsDataset);
+			loaderInfo._pointsDataset->setTiledLoaderThreadSafe(true);
 			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 			return true;
 		}
 
-		bool loadDenseDataAsTiled(const H5::DataSet& dataset, LoaderInfo& loaderInfo, const int storageType)
+		bool loadDenseDataAsTiled(const H5::DataSet& dataset, LoaderInfo& loaderInfo, const int storageType, const H5AD::ProgressCallback& progress)
 		{
 			const auto dataSpace = dataset.getSpace();
 			if (dataSpace.getSimpleExtentNdims() != 2)
@@ -213,15 +464,22 @@ namespace H5AD
 			pointdata::storage::StorageBackendConfiguration configuration;
 			configuration.rowTileSize = tiledRowSize;
 			configuration.columnTileSize = tiledColumnSize;
+			configuration.packedTiles = true;
+			configuration.superTileRows = stagedSuperTileRows;
+			configuration.superTileColumns = stagedSuperTileColumns;
 			configuration.cacheCapacity = tiledCacheCapacity;
 			configuration.cacheCapacityBytes = tiledCacheCapacityBytes;
-			const auto fileName = loaderInfo._sourceFileName;
-			const auto datasetName = dataset.getObjName();
-			Points::TiledTileGenerator generator = [fileName, datasetName, elementType](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
-				return readH5ADTile(fileName, datasetName, elementType, rowOffset, columnOffset, rows, columns);
+			const auto sourceDataset = dataset;
+			const auto totalRows = static_cast<std::uint64_t>(dimensions[0]);
+			const auto totalColumns = static_cast<std::uint64_t>(dimensions[1]);
+			const auto staging = stageDenseData(sourceDataset, elementType, totalRows, totalColumns, loaderInfo._stagingDirectory, progress);
+			Points::TiledTileGenerator generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
+				return readStagedTile(*staging, rowOffset, columnOffset, rows, columns);
 			};
 
 			loaderInfo._pointsDataset->initializeTiledStorage(dimensions[0], dimensions[1], elementType, configuration, std::move(generator));
+			attachPackedTileSource(staging, loaderInfo._pointsDataset);
+			loaderInfo._pointsDataset->setTiledLoaderThreadSafe(true);
 			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 			return true;
@@ -1022,7 +1280,7 @@ namespace H5AD
 
 
 
-	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, LoaderInfo &loaderInfo, int storageType)
+	bool load_X(std::unique_ptr<H5::H5File>& h5fILE, LoaderInfo &loaderInfo, int storageType, ProgressCallback progress)
 	{
 		try
 		{
@@ -1040,7 +1298,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::DataSet dataset = h5fILE->openDataSet(objectName1);
-						if (!loadDenseDataAsTiled(dataset, loaderInfo, storageType))
+						if (!loadDenseDataAsTiled(dataset, loaderInfo, storageType, progress))
 							H5AD::LoadData(dataset, loaderInfo, storageType);
 						break;
 
@@ -1051,7 +1309,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						if (!loadSparseDataAsTiled(group, loaderInfo))
+						if (!loadSparseDataAsTiled(group, loaderInfo, progress))
 							H5AD::LoadData(group, loaderInfo, storageType);
 						break;
 					}
@@ -1061,13 +1319,11 @@ namespace H5AD
 			{
 				return false;
 			}
+
 		}
 		catch (const std::exception& e)
 		{
-			std::string mesg = e.what();
-			int bp = 0;
-			++bp;
-			return false;
+			throw std::runtime_error(std::string("H5AD point-data staging failed: ") + e.what());
 		}
 
 		// set sample names
@@ -1083,7 +1339,7 @@ namespace H5AD
 
 
 	template<typename numericMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, LoaderInfo &loaderInfo)
+	void LoadSampleNamesAndMetaData(H5::DataSet& dataset, LoaderInfo &loaderInfo, const MetadataProgressCallback& progress)
 	{
 		static_assert(std::is_same<numericMetaDataType, float>::value, "");
 		std::string h5datasetName = dataset.getObjName();
@@ -1097,6 +1353,7 @@ namespace H5AD
 			std::vector<numericMetaDataType> numericalMetaData;
 			std::vector<QString> numericalMetaDataDimensionNames;
 
+			std::size_t componentIndex = 0;
 			for (auto component = compoundMap.cbegin(); component != compoundMap.cend(); ++component)
 			{
 				const std::size_t nrOfSamples = component->second.size();
@@ -1150,6 +1407,9 @@ namespace H5AD
 					}
 				}
 
+				if (progress)
+					progress(static_cast<float>(++componentIndex) / static_cast<float>(std::max<std::size_t>(1, nrOfComponents)), QString::fromStdString(component->first));
+
 			}
 
 			Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, loaderInfo._pointsDataset, h5datasetName.c_str());
@@ -1159,7 +1419,7 @@ namespace H5AD
 
 
 	template<typename numericalMetaDataType>
-	void LoadSampleNamesAndMetaData(H5::Group& group, LoaderInfo& loaderInfo)
+	void LoadSampleNamesAndMetaData(H5::Group& group, LoaderInfo& loaderInfo, const MetadataProgressCallback& progress)
 	{
 		static_assert(std::is_same<numericalMetaDataType, float>::value, "");
 		auto nrOfObjects = group.getNumObjs();
@@ -1170,6 +1430,8 @@ namespace H5AD
 		if (ContainsSparseMatrix(group))
 		{
 			bool loadSparseSuccess = LoadSparseMatrix(group, loaderInfo);
+			if (progress)
+				progress(1.0f, QString::fromStdString(h5GroupName));
 			return;
 		}
 			
@@ -1606,8 +1868,11 @@ namespace H5AD
 					else if (objectType1 == H5G_GROUP)
 					{
 						H5::Group group2 = group.openGroup(objectName1);
-						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, loaderInfo);
+						LoadSampleNamesAndMetaData<numericalMetaDataType>(group2, loaderInfo, progress);
 					}
+
+					if (progress)
+						progress(static_cast<float>(load_colors * nrOfObjects + go + 1) / static_cast<float>(std::max<hsize_t>(1, nrOfObjects * 2)), QString::fromStdString(objectName1));
 				}
 
 
@@ -1626,14 +1891,14 @@ namespace H5AD
 		}
 	}
 
-	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo)
+	void LoadSampleNamesAndMetaDataFloat(H5::DataSet& dataset, LoaderInfo &loaderInfo, MetadataProgressCallback progress)
 	{
-		 H5AD::LoadSampleNamesAndMetaData<float>(dataset, loaderInfo);
+		 H5AD::LoadSampleNamesAndMetaData<float>(dataset, loaderInfo, progress);
 	}
 
-	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo)
+	void LoadSampleNamesAndMetaDataFloat(H5::Group& group, LoaderInfo& loaderInfo, MetadataProgressCallback progress)
 	{
-		 H5AD::LoadSampleNamesAndMetaData<float>(group, loaderInfo);
+		 H5AD::LoadSampleNamesAndMetaData<float>(group, loaderInfo, progress);
 	}
 	
 
