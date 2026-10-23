@@ -311,7 +311,7 @@ static void LoadProperties(H5::Group &group, H5AD::LoaderInfo &datasetInfo)
 	
  }
 
-bool HDF5_AD_Loader::load(int storageType)
+bool HDF5_AD_Loader::load(int storageType, const bool useTiledStorage, const pointdata::storage::StorageBackendConfiguration& tiledStorageConfiguration)
 {
 	
 	if (_file == nullptr)
@@ -379,6 +379,8 @@ bool HDF5_AD_Loader::load(int storageType)
 		loaderInfo->_pointsDataset = pointsDataset;
 		loaderInfo->_sourceFileName = _fileName;
 		loaderInfo->_stagingDirectory = _stagingDirectory;
+		loaderInfo->_useTiledStorage = useTiledStorage;
+		loaderInfo->_tiledStorageConfiguration = tiledStorageConfiguration;
 		loaderInfo->_originalDimensionNames = _dimensionNames;
 		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 		const auto loader = shared_from_this();

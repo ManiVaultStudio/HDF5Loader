@@ -29,10 +29,6 @@ namespace H5AD
 	{
 		constexpr std::size_t tiledRowSize = 256;
 		constexpr std::size_t tiledColumnSize = 256;
-		constexpr std::size_t stagedSuperTileRows = 4;
-		constexpr std::size_t stagedSuperTileColumns = 4;
-		constexpr std::size_t tiledCacheCapacity = 8;
-		constexpr std::size_t tiledCacheCapacityBytes = 64U * 1024U * 1024U;
 
 		PointData::ElementTypeSpecifier getTiledElementType(const H5::DataType& dataType, const int storageType)
 		{
@@ -165,10 +161,12 @@ namespace H5AD
 			std::uint64_t rows = 0;
 			std::uint64_t columns = 0;
 			std::size_t elementSize = 0;
+		std::size_t rowTileSize = tiledRowSize;
+		std::size_t columnTileSize = tiledColumnSize;
 			std::uint64_t tileRows = 0;
 			std::uint64_t tileColumns = 0;
-			std::size_t superTileRows = stagedSuperTileRows;
-			std::size_t superTileColumns = stagedSuperTileColumns;
+			std::size_t superTileRows = 4;
+			std::size_t superTileColumns = 4;
 			mv::util::SharedCodec codec;
 			QString stagingDirectory;
 			std::vector<StagedPackedSuperTile> superTiles;
@@ -186,7 +184,7 @@ namespace H5AD
 			std::unordered_map<std::size_t, std::unique_ptr<mv::util::PackedBlobFileReader>> readers;
 		};
 
-		QString createStagingDirectory(const QString& stagingRoot, const std::uint64_t rows, const std::uint64_t columns, const std::size_t elementSize, const mv::util::SharedCodec& codec)
+		QString createStagingDirectory(const QString& stagingRoot, const std::uint64_t rows, const std::uint64_t columns, const std::size_t elementSize, const pointdata::storage::StorageBackendConfiguration& configuration, const mv::util::SharedCodec& codec)
 		{
 			if (stagingRoot.isEmpty())
 				throw std::invalid_argument("H5AD staging requires an application-managed staging directory");
@@ -205,10 +203,10 @@ namespace H5AD
 			stream << "Rows=" << rows << "\n";
 			stream << "Columns=" << columns << "\n";
 			stream << "ElementSize=" << elementSize << "\n";
-			stream << "RowTileSize=" << tiledRowSize << "\n";
-			stream << "ColumnTileSize=" << tiledColumnSize << "\n";
-			stream << "SuperTileRows=" << stagedSuperTileRows << "\n";
-			stream << "SuperTileColumns=" << stagedSuperTileColumns << "\n";
+			stream << "RowTileSize=" << configuration.rowTileSize << "\n";
+			stream << "ColumnTileSize=" << configuration.columnTileSize << "\n";
+			stream << "SuperTileRows=" << configuration.superTileRows << "\n";
+			stream << "SuperTileColumns=" << configuration.superTileColumns << "\n";
 			stream << "Storage=PackedTileFiles\n";
 			stream << "Codec=" << codec->getName() << "\n";
 			return stagingDirectory;
@@ -223,17 +221,21 @@ namespace H5AD
 			return currentProject->getCompressionAction().createCodec(nullptr);
 		}
 
-		std::shared_ptr<StagedPointData> stageDenseData(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const H5AD::ProgressCallback& progress)
+		std::shared_ptr<StagedPointData> stageDenseData(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress)
 		{
 			const auto elementSize = getTiledElementSize(elementType);
 			const auto staging = std::make_shared<StagedPointData>();
 			staging->rows = rows;
 			staging->columns = columns;
 			staging->elementSize = elementSize;
-			staging->tileRows = (rows + tiledRowSize - 1) / tiledRowSize;
-			staging->tileColumns = (columns + tiledColumnSize - 1) / tiledColumnSize;
+			staging->rowTileSize = configuration.rowTileSize;
+			staging->columnTileSize = configuration.columnTileSize;
+			staging->superTileRows = configuration.superTileRows;
+			staging->superTileColumns = configuration.superTileColumns;
+			staging->tileRows = (rows + staging->rowTileSize - 1) / staging->rowTileSize;
+			staging->tileColumns = (columns + staging->columnTileSize - 1) / staging->columnTileSize;
 			staging->codec = createStagingCodec();
-			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, staging->codec);
+			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, configuration, staging->codec);
 			staging->stagingDirectory = stagingDirectory;
 			const auto tileCount = staging->tileRows * staging->tileColumns;
 			staging->tiles.resize(static_cast<std::size_t>(tileCount));
@@ -254,10 +256,10 @@ namespace H5AD
 					{
 						for (std::uint64_t tileColumn = superTileColumn; tileColumn < std::min<std::uint64_t>(staging->tileColumns, superTileColumn + staging->superTileColumns); ++tileColumn)
 						{
-							const auto rowOffset = tileRow * tiledRowSize;
-							const auto columnOffset = tileColumn * tiledColumnSize;
-							const auto tileRows = std::min<std::uint64_t>(tiledRowSize, rows - rowOffset);
-							const auto tileColumns = std::min<std::uint64_t>(tiledColumnSize, columns - columnOffset);
+							const auto rowOffset = tileRow * staging->rowTileSize;
+							const auto columnOffset = tileColumn * staging->columnTileSize;
+							const auto tileRows = std::min<std::uint64_t>(staging->rowTileSize, rows - rowOffset);
+							const auto tileColumns = std::min<std::uint64_t>(staging->columnTileSize, columns - columnOffset);
 							const auto bytes = readH5ADTile(dataset, elementType, rowOffset, columnOffset, tileRows, tileColumns);
 							const auto block = writer.append(bytes);
 
@@ -280,8 +282,8 @@ namespace H5AD
 		{
 			thread_local std::unordered_map<const StagedPointData*, std::unique_ptr<StagedReadCache>> caches;
 			auto& cache = caches[&staging];
-			const auto tileRow = rowOffset / tiledRowSize;
-			const auto tileColumn = columnOffset / tiledColumnSize;
+			const auto tileRow = rowOffset / staging.rowTileSize;
+			const auto tileColumn = columnOffset / staging.columnTileSize;
 			const auto tileIndex = static_cast<std::size_t>(tileRow * staging.tileColumns + tileColumn);
 			if (tileIndex >= staging.tiles.size())
 				throw std::out_of_range("Requested tile is not present in H5AD packed staging");
@@ -339,17 +341,21 @@ namespace H5AD
 			return values;
 		}
 
-		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const H5AD::ProgressCallback& progress)
+		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress)
 		{
 			constexpr std::size_t elementSize = sizeof(float);
 			const auto staging = std::make_shared<StagedPointData>();
 			staging->rows = rows;
 			staging->columns = columns;
 			staging->elementSize = elementSize;
-			staging->tileRows = (rows + tiledRowSize - 1) / tiledRowSize;
-			staging->tileColumns = (columns + tiledColumnSize - 1) / tiledColumnSize;
+			staging->rowTileSize = configuration.rowTileSize;
+			staging->columnTileSize = configuration.columnTileSize;
+			staging->superTileRows = configuration.superTileRows;
+			staging->superTileColumns = configuration.superTileColumns;
+			staging->tileRows = (rows + staging->rowTileSize - 1) / staging->rowTileSize;
+			staging->tileColumns = (columns + staging->columnTileSize - 1) / staging->columnTileSize;
 			staging->codec = createStagingCodec();
-			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, staging->codec);
+			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, configuration, staging->codec);
 			staging->stagingDirectory = stagingDirectory;
 			const auto tileCount = staging->tileRows * staging->tileColumns;
 			staging->tiles.resize(static_cast<std::size_t>(tileCount));
@@ -359,8 +365,8 @@ namespace H5AD
 
 			for (std::uint64_t superTileRow = 0; superTileRow < staging->tileRows; superTileRow += staging->superTileRows)
 			{
-				const auto superTileRowCount = std::min<std::uint64_t>(staging->superTileRows * tiledRowSize, rows - superTileRow * tiledRowSize);
-				const auto sourceRowOffset = superTileRow * tiledRowSize;
+				const auto superTileRowCount = std::min<std::uint64_t>(staging->superTileRows * staging->rowTileSize, rows - superTileRow * staging->rowTileSize);
+				const auto sourceRowOffset = superTileRow * staging->rowTileSize;
 				const auto indptr = readH5ADRange<std::uint64_t>(indptrSet, sourceRowOffset, superTileRowCount + 1, H5::PredType::NATIVE_UINT64);
 				const auto valueCount = indptr.back() - indptr.front();
 				const auto indices = valueCount > 0 ? readH5ADRange<std::uint64_t>(indicesSet, indptr.front(), valueCount, H5::PredType::NATIVE_UINT64) : std::vector<std::uint64_t>();
@@ -375,13 +381,13 @@ namespace H5AD
 
 					for (std::uint64_t tileRow = superTileRow; tileRow < std::min<std::uint64_t>(staging->tileRows, superTileRow + staging->superTileRows); ++tileRow)
 					{
-						const auto tileRowOffset = tileRow * tiledRowSize;
-						const auto tileRowCount = std::min<std::uint64_t>(tiledRowSize, rows - tileRowOffset);
+						const auto tileRowOffset = tileRow * staging->rowTileSize;
+						const auto tileRowCount = std::min<std::uint64_t>(staging->rowTileSize, rows - tileRowOffset);
 
 						for (std::uint64_t tileColumn = superTileColumn; tileColumn < std::min<std::uint64_t>(staging->tileColumns, superTileColumn + staging->superTileColumns); ++tileColumn)
 						{
-							const auto tileColumnOffset = tileColumn * tiledColumnSize;
-							const auto tileColumnCount = std::min<std::uint64_t>(tiledColumnSize, columns - tileColumnOffset);
+							const auto tileColumnOffset = tileColumn * staging->columnTileSize;
+							const auto tileColumnCount = std::min<std::uint64_t>(staging->columnTileSize, columns - tileColumnOffset);
 							QByteArray bytes(static_cast<qsizetype>(tileRowCount * tileColumnCount * elementSize), Qt::Uninitialized);
 							std::memset(bytes.data(), 0, static_cast<std::size_t>(bytes.size()));
 							auto* destination = reinterpret_cast<float*>(bytes.data());
@@ -442,15 +448,8 @@ namespace H5AD
 			const auto dataSet = group.openDataSet("data");
 			const auto indicesSet = group.openDataSet("indices");
 			const auto indptrSet = group.openDataSet("indptr");
-			pointdata::storage::StorageBackendConfiguration configuration;
-			configuration.rowTileSize = tiledRowSize;
-			configuration.columnTileSize = tiledColumnSize;
-			configuration.packedTiles = true;
-			configuration.superTileRows = stagedSuperTileRows;
-			configuration.superTileColumns = stagedSuperTileColumns;
-			configuration.cacheCapacity = tiledCacheCapacity;
-			configuration.cacheCapacityBytes = tiledCacheCapacityBytes;
-			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, progress);
+			const auto& configuration = loaderInfo._tiledStorageConfiguration;
+			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, configuration, progress);
 			Points::TiledTileGenerator generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
 				return readStagedTile(*staging, rowOffset, columnOffset, rows, columns);
 			};
@@ -475,18 +474,11 @@ namespace H5AD
 				return false;
 
 			const auto elementType = getTiledElementType(dataset.getDataType(), storageType);
-			pointdata::storage::StorageBackendConfiguration configuration;
-			configuration.rowTileSize = tiledRowSize;
-			configuration.columnTileSize = tiledColumnSize;
-			configuration.packedTiles = true;
-			configuration.superTileRows = stagedSuperTileRows;
-			configuration.superTileColumns = stagedSuperTileColumns;
-			configuration.cacheCapacity = tiledCacheCapacity;
-			configuration.cacheCapacityBytes = tiledCacheCapacityBytes;
+			const auto& configuration = loaderInfo._tiledStorageConfiguration;
 			const auto sourceDataset = dataset;
 			const auto totalRows = static_cast<std::uint64_t>(dimensions[0]);
 			const auto totalColumns = static_cast<std::uint64_t>(dimensions[1]);
-			const auto staging = stageDenseData(sourceDataset, elementType, totalRows, totalColumns, loaderInfo._stagingDirectory, progress);
+			const auto staging = stageDenseData(sourceDataset, elementType, totalRows, totalColumns, loaderInfo._stagingDirectory, configuration, progress);
 			Points::TiledTileGenerator generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
 				return readStagedTile(*staging, rowOffset, columnOffset, rows, columns);
 			};
@@ -1312,7 +1304,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::DataSet dataset = h5fILE->openDataSet(objectName1);
-						if (!loadDenseDataAsTiled(dataset, loaderInfo, storageType, progress))
+						if (!loaderInfo._useTiledStorage || !loadDenseDataAsTiled(dataset, loaderInfo, storageType, progress))
 							H5AD::LoadData(dataset, loaderInfo, storageType);
 						break;
 
@@ -1323,7 +1315,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						if (!loadSparseDataAsTiled(group, loaderInfo, progress))
+						if (!loaderInfo._useTiledStorage || !loadSparseDataAsTiled(group, loaderInfo, progress))
 							H5AD::LoadData(group, loaderInfo, storageType);
 						break;
 					}

@@ -57,10 +57,12 @@ public:
 	 * workflow executor. A failed workflow removes the dataset it created.
 	 *
 	 * @param storageType Requested point-data element/storage type.
+	 * @param useTiledStorage Whether to stage X in tiled storage; false selects the eager loader.
+	 * @param tiledStorageConfiguration Tiled storage geometry and cache configuration used when tiled loading is enabled.
 	 * @return True when the import workflow was submitted; false when the loader
 	 *         has no usable file contents or scheduling fails synchronously.
 	 */
-	bool load(int storageType);
+	bool load(int storageType, bool useTiledStorage = true, const mv::pointdata::storage::StorageBackendConfiguration& tiledStorageConfiguration = {});
 	
 private:
 	mv::CoreInterface* _core = nullptr;

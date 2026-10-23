@@ -2,6 +2,9 @@
 
 #include <LoaderPlugin.h>
 
+#include <PointData/StorageBackendConfiguratorAction.h>
+#include <PointData/storage/interface/PointsStorageBackendTypes.h>
+
 #include <QFileDialog>
 
 using namespace mv::plugin;
@@ -36,4 +39,6 @@ public:
 
 private:
 	QFileDialog _fileDialog = QFileDialog{};
+	StorageBackendConfiguratorAction _storageBackendSelector; /**< Shared backend choice and configuration controls embedded in the file dialog. */
+	mv::pointdata::storage::StorageBackendConfiguration _tiledStorageConfiguration; /**< Persisted defaults passed to tiled X staging. */
 };
