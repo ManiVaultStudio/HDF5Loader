@@ -9,15 +9,11 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDebug>
-#include <QDir>
 #include <QFileDialog>
 #include <QGridLayout>
-#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
-#include <QLineEdit>
 #include <QMessageBox>
-#include <QPushButton>
 #include <QString>
 #include <QStringList>
 
@@ -58,7 +54,6 @@ namespace
 		const QString storageValueKey("storageValue");
 		const QString fileNameKey("fileName");
 		const QString selectedNameFilterKey("selectedNameFilter");
-		const QString stagingDirectoryKey("stagingDirectory");
 	}
 
 }	// Unnamed namespace
@@ -119,22 +114,6 @@ void H5ADLoader::loadData()
 	fileDialogLayout->addWidget(storageTypeLabel, rowCount, 0);
 	fileDialogLayout->addWidget(storageTypeComboBox, rowCount, 1);
 
-	const auto defaultStagingDirectory = projects().ensureTemporaryDirPath(AbstractProjectManager::TemporaryDirType::Staging);
-	auto* stagingDirectoryLabel = new QLabel("Staging directory");
-	auto* stagingDirectoryEdit = new QLineEdit(getSetting(Keys::stagingDirectoryKey, defaultStagingDirectory).toString());
-	auto* stagingDirectoryButton = new QPushButton("Browse...");
-	auto* stagingDirectoryLayout = new QHBoxLayout;
-	stagingDirectoryLayout->setContentsMargins(0, 0, 0, 0);
-	stagingDirectoryLayout->addWidget(stagingDirectoryEdit);
-	stagingDirectoryLayout->addWidget(stagingDirectoryButton);
-	fileDialogLayout->addWidget(stagingDirectoryLabel, rowCount + 1, 0);
-	fileDialogLayout->addLayout(stagingDirectoryLayout, rowCount + 1, 1);
-	connect(stagingDirectoryButton, &QPushButton::clicked, stagingDirectoryButton, [stagingDirectoryEdit] {
-		const auto directory = QFileDialog::getExistingDirectory(nullptr, "Select H5AD staging directory", stagingDirectoryEdit->text());
-		if (!directory.isEmpty())
-			stagingDirectoryEdit->setText(directory);
-	});
-
 	const auto selectedNameFilterSetting = getSetting(Keys::selectedNameFilterKey, QVariant());
 	if (selectedNameFilterSetting.isValid())
 		_fileDialog.selectNameFilter(selectedNameFilterSetting.toString());
@@ -145,10 +124,6 @@ void H5ADLoader::loadData()
 
 	storageTypeComboBox->setVisible(true);
 	storageTypeLabel->setVisible(true);
-	stagingDirectoryLabel->setVisible(true);
-	stagingDirectoryEdit->setVisible(true);
-	stagingDirectoryButton->setVisible(true);
-
 	if (_fileDialog.exec())
 	{
 		QStringList fileNames = _fileDialog.selectedFiles();
@@ -165,13 +140,7 @@ void H5ADLoader::loadData()
 		setSetting(Keys::storageValueKey, storageTypeComboBox->currentIndex());
 		setSetting(Keys::fileNameKey, firstFileName);
 		setSetting(Keys::selectedNameFilterKey, selectedNameFilter);
-		const auto stagingDirectory = QDir::cleanPath(stagingDirectoryEdit->text());
-		if (stagingDirectory.isEmpty() || !QDir().mkpath(stagingDirectory))
-		{
-			QMessageBox::critical(nullptr, "Error loading file(s)", "The selected H5AD staging directory could not be created.");
-			return;
-		}
-		setSetting(Keys::stagingDirectoryKey, stagingDirectory);
+		const auto stagingDirectory = projects().ensureTemporaryDirPath(AbstractProjectManager::TemporaryDirType::Staging);
 		
 		for (const auto& fileName : fileNames)
 		{

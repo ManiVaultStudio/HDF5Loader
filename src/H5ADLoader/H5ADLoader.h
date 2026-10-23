@@ -13,10 +13,11 @@ using namespace mv::plugin;
 /**
  * @brief ManiVault plugin for importing H5AD point data.
  *
- * The plugin presents file, storage-type, and staging-directory controls.
- * Each selected file is opened by an HDF5_AD_Loader, which schedules the
- * import workflow and keeps staged packed tiles available for later project
- * serialization.
+ * The plugin presents file and storage-type controls. Staging uses the core
+ * application-managed staging directory. Each selected file is opened by an
+ * HDF5_AD_Loader, which schedules the import workflow and keeps staged packed
+ * tiles available for later project serialization. The staged files are
+ * removed when their source-backed point-data storage is released.
  */
 class H5ADLoader :  public LoaderPlugin
 {

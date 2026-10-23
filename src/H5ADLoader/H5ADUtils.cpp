@@ -5,9 +5,10 @@
 #include <CoreInterface.h>
 
 #include <QDialogButtonBox>
+#include <QDebug>
+#include <QDir>
 #include <QFile>
 #include <QMainWindow>
-#include <QStandardPaths>
 #include <QTextStream>
 #include <QUuid>
 
@@ -17,6 +18,7 @@
 #include <filesystem>
 #include <mutex>
 #include <set>
+#include <stdexcept>
 #include <unordered_map>
 
 namespace H5AD
@@ -168,8 +170,15 @@ namespace H5AD
 			std::size_t superTileRows = stagedSuperTileRows;
 			std::size_t superTileColumns = stagedSuperTileColumns;
 			mv::util::SharedCodec codec;
+			QString stagingDirectory;
 			std::vector<StagedPackedSuperTile> superTiles;
 			std::vector<StagedPackedTile> tiles;
+
+			~StagedPointData()
+			{
+				if (!stagingDirectory.isEmpty() && !QDir(stagingDirectory).removeRecursively())
+					qWarning() << "Unable to remove H5AD staging directory:" << stagingDirectory;
+			}
 		};
 
 		struct StagedReadCache
@@ -179,7 +188,10 @@ namespace H5AD
 
 		QString createStagingDirectory(const QString& stagingRoot, const std::uint64_t rows, const std::uint64_t columns, const std::size_t elementSize, const mv::util::SharedCodec& codec)
 		{
-			const auto root = stagingRoot.isEmpty() ? QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).filePath(QStringLiteral("ManiVault/H5ADStaging")) : stagingRoot;
+			if (stagingRoot.isEmpty())
+				throw std::invalid_argument("H5AD staging requires an application-managed staging directory");
+
+			const auto root = stagingRoot;
 			const auto stagingDirectory = QDir(root).filePath(QUuid::createUuid().toString(QUuid::WithoutBraces));
 
 			if (!QDir().mkpath(stagingDirectory))
@@ -222,6 +234,7 @@ namespace H5AD
 			staging->tileColumns = (columns + tiledColumnSize - 1) / tiledColumnSize;
 			staging->codec = createStagingCodec();
 			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, staging->codec);
+			staging->stagingDirectory = stagingDirectory;
 			const auto tileCount = staging->tileRows * staging->tileColumns;
 			staging->tiles.resize(static_cast<std::size_t>(tileCount));
 			std::uint64_t completedTileCount = 0;
@@ -310,7 +323,7 @@ namespace H5AD
 				superTileIndices.push_back(tile.superTileIndex);
 			}
 
-			pointsDataset->attachPackedTileSource(filePaths, staging->codec->getName(), offsets, compressedSizes, uncompressedSizes, superTileIndices);
+			pointsDataset->attachPackedTileSource(filePaths, staging->codec->getName(), offsets, compressedSizes, uncompressedSizes, superTileIndices, staging);
 		}
 
 		template<typename T>
@@ -337,6 +350,7 @@ namespace H5AD
 			staging->tileColumns = (columns + tiledColumnSize - 1) / tiledColumnSize;
 			staging->codec = createStagingCodec();
 			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, staging->codec);
+			staging->stagingDirectory = stagingDirectory;
 			const auto tileCount = staging->tileRows * staging->tileColumns;
 			staging->tiles.resize(static_cast<std::size_t>(tileCount));
 			std::uint64_t completedTileCount = 0;

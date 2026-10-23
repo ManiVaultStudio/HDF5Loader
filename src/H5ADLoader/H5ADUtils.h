@@ -19,15 +19,17 @@ namespace H5AD
 	 * @brief Shared state passed through H5AD staging and metadata operations.
 	 *
 	 * The point dataset is owned by the ManiVault data model. The source file
-	 * name, staging directory, and discovered names are copied into this state;
-	 * the staging directory itself remains externally owned and must stay valid
-	 * until consumers no longer need the staged tiles.
+	 * name, staging directory, and discovered names are copied into this state.
+	 * Each staged point-data state owns one per-import staging directory and
+	 * remains available while the point-data storage uses its packed files. The
+	 * directory is removed when the source-backed storage releases its lifetime
+	 * owner.
 	 */
 	struct LoaderInfo
 	{
 		mv::Dataset<Points>          _pointsDataset;             /**< Point dataset being populated. */
 		QString                      _sourceFileName;            /**< Source H5AD file path. */
-		QString                      _stagingDirectory;         /**< Externally owned packed-tile staging directory. */
+		QString                      _stagingDirectory;         /**< Application-managed staging root used for this import. */
 		std::vector<QString>         _originalDimensionNames;    /**< Dimension names discovered from var. */
 		QVariantList                 _sampleNames;               /**< Sample names discovered from obs. */
 		std::vector<bool>            _enabledDimensions;         /**< Optional dimension-selection mask. */
