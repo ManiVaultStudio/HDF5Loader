@@ -36,6 +36,7 @@ struct H5ADImportOptions
 {
     QString datasetName;
     QStringList optionalObjects;
+    QString stagingDirectory;
     int storageType = -3;
     bool useTiledStorage = true;
     mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration;

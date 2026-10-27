@@ -408,7 +408,7 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		const auto loaderInfo = std::make_shared<H5AD::LoaderInfo>();
 		loaderInfo->_pointsDataset = pointsDataset;
 		loaderInfo->_sourceFileName = _fileName;
-		loaderInfo->_stagingDirectory = _stagingDirectory;
+		loaderInfo->_stagingDirectory = options.stagingDirectory.isEmpty() ? _stagingDirectory : options.stagingDirectory;
 		loaderInfo->_useTiledStorage = options.useTiledStorage;
 		loaderInfo->_tiledStorageConfiguration = options.tiledStorageConfiguration;
 		loaderInfo->_originalDimensionNames = _dimensionNames;
