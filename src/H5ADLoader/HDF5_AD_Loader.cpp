@@ -363,7 +363,6 @@ H5ADMatrixScanResult HDF5_AD_Loader::analyzeTargetElementType(const bool fullSca
 
 	if (sampledValues == 0)
 		result.recommendedTypeIndex = static_cast<int>(PointData::ElementTypeSpecifier::uint8) + 3;
-
 	else if (allIntegral && (dataClass == H5T_FLOAT || dataType.getSize() <= 4))
 	{
 		if (minimum < 0)

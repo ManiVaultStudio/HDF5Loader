@@ -373,7 +373,7 @@ int H5ADImportDialog::storageTypeIndex() const
 
 void H5ADImportDialog::estimateTargetElementType()
 {
-	analyzeTargetElementType(false);
+    analyzeTargetElementType(false);
 }
 
 void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
