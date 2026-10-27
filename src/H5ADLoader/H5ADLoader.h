@@ -2,7 +2,6 @@
 
 #include <LoaderPlugin.h>
 
-#include <PointData/StorageBackendConfiguratorAction.h>
 #include <PointData/storage/interface/PointsStorageBackendTypes.h>
 
 #include <QFileDialog>
@@ -16,7 +15,7 @@ using namespace mv::plugin;
 /**
  * @brief ManiVault plugin for importing H5AD point data.
  *
- * The plugin presents file and storage-type controls. Staging uses the core
+ * The plugin presents file selection followed by import options. Staging uses the core
  * application-managed staging directory. Each selected file is opened by an
  * HDF5_AD_Loader, which schedules the import workflow and keeps staged packed
  * tiles available for later project serialization. The staged files are
@@ -39,6 +38,5 @@ public:
 
 private:
 	QFileDialog _fileDialog = QFileDialog{};
-	StorageBackendConfiguratorAction _storageBackendSelector; /**< Shared backend choice and configuration controls embedded in the file dialog. */
 	mv::pointdata::storage::StorageBackendConfiguration _tiledStorageConfiguration; /**< Persisted defaults passed to tiled X staging. */
 };

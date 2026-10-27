@@ -1,14 +1,18 @@
 #pragma once
 
 #include <memory>
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <QString>
+#include <QStringList>
 
 class QObject;
 
 #include "H5Utils.h"
+#include <PointData/storage/interface/PointsStorageBackendTypes.h>
 
 namespace mv
 {
@@ -28,6 +32,15 @@ namespace mv
  * The workflow receiver is not owned by this class. It is used as the
  * receiver for completion handling and must outlive the scheduled workflow.
  */
+struct H5ADImportOptions
+{
+    QString datasetName;
+    QStringList optionalObjects;
+    int storageType = -3;
+    bool useTiledStorage = true;
+    mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration;
+};
+
 class HDF5_AD_Loader : public std::enable_shared_from_this<HDF5_AD_Loader>
 {
 public:
@@ -49,6 +62,12 @@ public:
 	/** @return Dimension names discovered from the file's var index. */
 	const std::vector<QString> &getDimensionNames() const;
 
+	/** Returns importable optional top-level objects, excluding X, uns, var, varm, and varp. */
+	QStringList getOptionalObjects() const;
+
+	/** Returns the logical rows and columns of X, or zeroes when its shape is unavailable. */
+	std::pair<std::uint64_t, std::uint64_t> getMatrixShape() const;
+
 	/**
 	 * @brief Schedules import of the opened file.
 	 *
@@ -56,13 +75,11 @@ public:
 	 * tile staging, metadata loading, and hierarchy publication happen on the
 	 * workflow executor. A failed workflow removes the dataset it created.
 	 *
-	 * @param storageType Requested point-data element/storage type.
-	 * @param useTiledStorage Whether to stage X in tiled storage; false selects the eager loader.
-	 * @param tiledStorageConfiguration Tiled storage geometry and cache configuration used when tiled loading is enabled.
+	 * @param options Dataset name, selected metadata, element type, and storage settings.
 	 * @return True when the import workflow was submitted; false when the loader
 	 *         has no usable file contents or scheduling fails synchronously.
 	 */
-	bool load(int storageType, bool useTiledStorage = true, const mv::pointdata::storage::StorageBackendConfiguration& tiledStorageConfiguration = {});
+	bool load(const H5ADImportOptions& options);
 	
 private:
 	mv::CoreInterface* _core = nullptr;

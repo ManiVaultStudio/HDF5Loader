@@ -8,11 +8,7 @@
 #include <workflow/WorkflowOptions.h>
 #include <workflow/WorkflowPlan.h>
 
-#include <QDialogButtonBox>
-#include <QFileDialog>
 #include <QGuiApplication>
-#include <QInputDialog>
-#include <QListView>
 #include <QtGlobal>
 
 #include <cassert>
@@ -97,6 +93,82 @@ bool HDF5_AD_Loader::open(const QString& fileName)
  const std::vector<QString>& HDF5_AD_Loader::getDimensionNames() const
 {
 	return _dimensionNames;
+}
+
+QStringList HDF5_AD_Loader::getOptionalObjects() const
+{
+	QStringList names;
+	if (!_file)
+		return names;
+
+	const std::set<std::string> ignoredObjects = { "X", "uns", "var", "varm", "varp" };
+	for (hsize_t index = 0; index < _file->getNumObjs(); ++index)
+	{
+		const auto name = _file->getObjnameByIdx(index);
+		if (ignoredObjects.count(name) == 0)
+			names.append(QString::fromStdString(name));
+	}
+	return names;
+}
+
+std::pair<std::uint64_t, std::uint64_t> HDF5_AD_Loader::getMatrixShape() const
+{
+	if (!_file)
+		return { 0, 0 };
+
+	H5G_obj_t objectType = H5G_UNKNOWN;
+	try
+	{
+		for (hsize_t index = 0; index < _file->getNumObjs(); ++index)
+		{
+			if (_file->getObjnameByIdx(index) == "X")
+			{
+				objectType = _file->getObjTypeByIdx(index);
+				break;
+			}
+		}
+	}
+	catch (const H5::Exception&)
+	{
+		return { 0, 0 };
+	}
+
+	try
+	{
+		if (objectType == H5G_DATASET)
+		{
+			const auto dataSet = _file->openDataSet("X");
+			const auto space = dataSet.getSpace();
+			if (space.getSimpleExtentNdims() != 2)
+				return { 0, 0 };
+
+			hsize_t dimensions[2] = {};
+			space.getSimpleExtentDims(dimensions);
+			return { dimensions[0], dimensions[1] };
+		}
+
+		if (objectType == H5G_GROUP)
+		{
+			const auto group = _file->openGroup("X");
+			if (!group.attrExists("shape"))
+				return { 0, 0 };
+
+			const auto attribute = group.openAttribute("shape");
+			const auto space = attribute.getSpace();
+			if (space.getSimpleExtentNdims() != 1 || space.getSimpleExtentNpoints() != 2)
+				return { 0, 0 };
+
+			hsize_t dimensions[2] = {};
+			attribute.read(H5::PredType::NATIVE_HSIZE, dimensions);
+			return { dimensions[0], dimensions[1] };
+		}
+	}
+	catch (const H5::Exception&)
+	{
+		return { 0, 0 };
+	}
+
+	return { 0, 0 };
 }
 
  template<typename T>
@@ -311,7 +383,7 @@ static void LoadProperties(H5::Group &group, H5AD::LoaderInfo &datasetInfo)
 	
  }
 
-bool HDF5_AD_Loader::load(int storageType, const bool useTiledStorage, const pointdata::storage::StorageBackendConfiguration& tiledStorageConfiguration)
+bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 {
 	
 	if (_file == nullptr)
@@ -319,74 +391,32 @@ bool HDF5_AD_Loader::load(int storageType, const bool useTiledStorage, const poi
 	try
 	{
 		auto nrOfObjects = _file->getNumObjs();
-		QStandardItemModel model;
-		std::set<std::string> ignoreItems = { "X", "uns", "var", "varm", "varp"};
 		std::map<std::string, std::size_t> objectNameIdx;
 		for (hsize_t fo = 0; fo < nrOfObjects; ++fo)
 		{
 			std::string objectName1 = _file->getObjnameByIdx(fo);
 			objectNameIdx[objectName1] = fo;
-			if(ignoreItems.count(objectName1)==0)
-			{
-				QStandardItem* item = new QStandardItem(objectName1.c_str());
-				item->setCheckable(true);
-				item->setCheckState(objectName1.rfind("obs", 0) == 0 ? Qt::Checked : Qt::Unchecked);
-				model.appendRow(item);
-			}
 		}
 
 		std::set<std::string> objectsToProcess;
+		for (const auto& name : options.optionalObjects)
+			objectsToProcess.insert(name.toStdString());
 
-		QString pointDatasetLabel;
-		{
-			QDialog dialog(nullptr);
-			QGridLayout* layout = new QGridLayout;
-			QLineEdit* lineEdit = new QLineEdit(QFileInfo(_fileName).baseName());
-			layout->addWidget(new QLabel("Dataset Name: "), 0, 0);
-			layout->addWidget(lineEdit, 0, 1);
-			layout->addWidget(new QLabel("Load:"), 1, 0, 1, 2);
-			QListView* listView = new QListView;
-			listView->setModel(&model);
-			listView->setSelectionMode(QListView::MultiSelection);
-			layout->addWidget(listView, 2, 0, 1, 2);
-			auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok);
-			buttonBox->connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-			layout->addWidget(buttonBox, 3, 0, 1, 2);
-
-			dialog.setLayout(layout);
-
-			auto result = dialog.exec();
-
-			if (result == 0)
-				return false;
-
-			pointDatasetLabel = lineEdit->displayText();
-
-			for (hsize_t i = 0; i < model.rowCount(); ++i)
-			{
-				auto* item = model.item(i, 0);
-				if (item->checkState() == Qt::Checked)
-					objectsToProcess.insert(item->data(Qt::DisplayRole).toString().toLocal8Bit().data());
-			}
-		}
-		
-		// create and setup the pointsDataset here since we have access to _core, _filename and storageType here.
-		
-		Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, false,  pointDatasetLabel);
+		Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, false, options.datasetName);
 		pointsDataset->getDataHierarchyItem().setVisible(false);
 	
 		const auto loaderInfo = std::make_shared<H5AD::LoaderInfo>();
 		loaderInfo->_pointsDataset = pointsDataset;
 		loaderInfo->_sourceFileName = _fileName;
 		loaderInfo->_stagingDirectory = _stagingDirectory;
-		loaderInfo->_useTiledStorage = useTiledStorage;
-		loaderInfo->_tiledStorageConfiguration = tiledStorageConfiguration;
+		loaderInfo->_useTiledStorage = options.useTiledStorage;
+		loaderInfo->_tiledStorageConfiguration = options.tiledStorageConfiguration;
 		loaderInfo->_originalDimensionNames = _dimensionNames;
 		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 		const auto loader = shared_from_this();
 		auto workflow = std::make_unique<mv::workflow::WorkflowPlan>(QObject::tr("Load H5AD point data"));
 
-		workflow->addSequentialStage(QObject::tr("Stage HDF5 point data"), [loader, loaderInfo, storageType](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
+		workflow->addSequentialStage(QObject::tr("Stage HDF5 point data"), [loader, loaderInfo, storageType = options.storageType](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
 			const H5AD::ProgressCallback progress = [executionContext](const float value) {
 				executionContext->setProgress(value);
 			};

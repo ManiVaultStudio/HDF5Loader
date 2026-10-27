@@ -4,6 +4,8 @@
 set(H5AD_SOURCES
 	H5ADUtils.h
 	H5ADUtils.cpp
+	H5ADImportDialog.h
+	H5ADImportDialog.cpp
 	HDF5_AD_Loader.h
 	HDF5_AD_Loader.cpp
 
