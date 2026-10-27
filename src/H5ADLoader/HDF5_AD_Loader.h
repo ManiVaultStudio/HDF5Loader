@@ -1,8 +1,8 @@
 #pragma once
 
-#include <memory>
-#include <functional>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -20,45 +20,47 @@ namespace mv
 	class CoreInterface;
 }
 
+/** Options collected by the H5AD import dialog and consumed by the import workflow. */
+struct H5ADImportOptions
+{
+	QString datasetName; /**< Name assigned to the imported point dataset. */
+	QStringList optionalObjects; /**< Optional top-level metadata objects selected for import. */
+	QString stagingDirectory; /**< Directory used for staged matrix data; it must remain available while source-backed tiles are used. */
+	int storageType = -3; /**< X type choice: -3 optimized lossless, -2 optimized with bfloat16, -1 source type, or a PointData element-type index. */
+	bool useTiledStorage = true; /**< Whether X is staged in tiled storage rather than eager storage. */
+	mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration; /**< Tile geometry and cache configuration used when tiled storage is selected. */
+};
+
+/** Summary of target type, range, and sparsity calculated from sampled or complete matrix values. */
+struct H5ADMatrixScanResult
+{
+	int recommendedTypeIndex = -1; /**< PointData element-type option index, or -1 when no recommendation is available. */
+	std::uint64_t elementCount = 0; /**< Total logical matrix entries, including implicit sparse zeros. */
+	std::uint64_t zeroCount = 0; /**< Number of zeros represented by the analyzed values. */
+	std::uint64_t storedEntryCount = 0; /**< Number of explicitly stored entries for sparse input. */
+	std::uint64_t analyzedValueCount = 0; /**< Number of values inspected; smaller than elementCount for a bounded estimate. */
+	double zeroFraction = 0.0; /**< Fraction of logical entries that are zero, when sparsityAvailable is true. */
+	double minimum = 0.0; /**< Minimum analyzed finite value, when rangeAvailable is true. */
+	double maximum = 0.0; /**< Maximum analyzed finite value, when rangeAvailable is true. */
+	bool sparsityAvailable = false; /**< Whether zeroFraction and the related counts describe available input data. */
+	bool rangeAvailable = false; /**< Whether minimum and maximum describe at least one finite value. */
+	bool sparseInput = false; /**< Whether X uses a sparse HDF5 representation. */
+};
+
 /**
  * @brief Opens an H5AD file and imports its point data through a workflow.
  *
  * The loader owns the open HDF5 file and creates a concrete point dataset for
  * the import. Loading is scheduled asynchronously: the initial stage reads
- * dense or sparse X data into packed, tiled staging files, followed by a
- * metadata stage and a final publication stage. The staging directory is
- * externally owned and must remain available while the resulting dataset may
- * read its staged tiles or until project serialization copies them.
+ * dense or sparse X data into the selected staging directory when tiled
+ * storage is selected, followed by metadata loading and dataset publication.
+ * The staging directory is externally owned and must remain available while
+ * the resulting dataset may read its staged tiles or until project
+ * serialization copies them.
  *
  * The workflow receiver is not owned by this class. It is used as the
  * receiver for completion handling and must outlive the scheduled workflow.
  */
-struct H5ADImportOptions
-{
-    QString datasetName;
-    QStringList optionalObjects;
-    QString stagingDirectory;
-    int storageType = -3;
-    bool useTiledStorage = true;
-    mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration;
-};
-
-/** Type and sparsity summary produced by a bounded estimate or complete matrix scan. */
-struct H5ADMatrixScanResult
-{
-	int recommendedTypeIndex = -1;
-	std::uint64_t elementCount = 0;
-	std::uint64_t zeroCount = 0;
-	std::uint64_t storedEntryCount = 0;
-	std::uint64_t analyzedValueCount = 0;
-	double zeroFraction = 0.0;
-	double minimum = 0.0;
-	double maximum = 0.0;
-	bool sparsityAvailable = false;
-	bool rangeAvailable = false;
-	bool sparseInput = false;
-};
-
 class HDF5_AD_Loader : public std::enable_shared_from_this<HDF5_AD_Loader>
 {
 public:
@@ -75,7 +77,7 @@ public:
 	 * @param fileName H5AD file to open.
 	 * @return True when the file can be opened and contains a supported data object; false otherwise.
 	 */
-	bool open(const QString &);
+	bool open(const QString& fileName);
 
 	/** @return Dimension names discovered from the file's var index. */
 	const std::vector<QString> &getDimensionNames() const;
@@ -88,7 +90,12 @@ public:
 
 	/** Estimates target element type and sparsity from a bounded sample of X. */
 	H5ADMatrixScanResult estimateTargetElementType() const;
-	/** Determines target element type, range, and sparsity by scanning every stored value in X. */
+	/**
+	 * Determines target type, range, and sparsity by scanning X and reports
+	 * normalized progress in the range [0, 1]. Sparse implicit zeros are included
+	 * in logical counts; progress may be empty.
+	 * @param progress Optional callback for normalized scan progress.
+	 */
 	H5ADMatrixScanResult determineTargetElementType(const std::function<void(double)>& progress) const;
 
 	/** Reports whether the source HDF5 type may lose precision in the supported point-data types. */

@@ -18,7 +18,12 @@
 
 #include <memory>
 
-/** Displays one severity-coded import observation and an optional corrective action. */
+/**
+ * @brief Displays one severity-coded observation and up to two corrective actions.
+ *
+ * The action keeps the observation state and updates every widget it has
+ * created, so it can be used in action groups that create widgets on demand.
+ */
 class H5ADImportCheckAction : public mv::gui::WidgetAction
 {
     Q_OBJECT
@@ -26,9 +31,11 @@ class H5ADImportCheckAction : public mv::gui::WidgetAction
 public:
     H5ADImportCheckAction(QObject* parent, const QString& category);
 
+    /** Sets the displayed severity, description, and optional buttons in action-index order. */
     void setObservation(mv::util::SeverityLevel severity, const QString& description, const QString& actionText = {}, const QString& secondaryActionText = {});
 
 signals:
+    /** Emitted with index 0 or 1 when the corresponding visible corrective button is pressed. */
     void actionTriggered(int actionIndex);
 
 protected:
@@ -43,7 +50,12 @@ private:
     QList<QPointer<QWidget>> _widgets;
 };
 
-/** Combines target element type selection with a data-driven recommendation request. */
+/**
+ * @brief Combines element-type selection with an estimate request.
+ *
+ * Estimation is performed by the dialog's workflow; this action only exposes
+ * the controls and emits a request signal.
+ */
 class TargetElementTypeAction : public mv::gui::HorizontalGroupAction
 {
     Q_OBJECT
@@ -53,10 +65,13 @@ public:
 
     mv::gui::OptionAction& getTypeAction();
     const mv::gui::OptionAction& getTypeAction() const;
+    /** Disables the controls during analysis and updates the estimate-button label. */
     void setAnalysisRunning(bool running, bool estimating = false);
+    /** Selects the recommended option when index is within the available choices. */
     void setRecommendedTypeIndex(int index);
 
 signals:
+    /** Emitted when the user requests a bounded estimate; the dialog owns the scan workflow. */
     void estimateRequested();
 
 private:
@@ -64,13 +79,20 @@ private:
     mv::gui::TriggerAction _estimateAction;
 };
 
-/** Collects H5AD import choices after a file has been selected and opened. */
+/**
+ * @brief Collects import settings and data checks for an opened H5AD file.
+ *
+ * The dialog shares the loader so it can estimate or fully scan matrix values
+ * in a workflow. Accepting the dialog returns choices to the caller; the
+ * loader schedules the actual import separately.
+ */
 class H5ADImportDialog : public QDialog
 {
 public:
+    /** Creates the dialog with file metadata, restored choices, and a shared loader. */
     H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
 
-    /** Returns the selected import options after the dialog is accepted. */
+    /** Returns current import choices; callers should use them after acceptance. */
     H5ADImportOptions options();
 
     /** Returns the selected index for restoring the data-type control. */
@@ -79,7 +101,7 @@ public:
     /** Returns the selected backend name for restoring the backend control. */
     QString backendType();
 
-    /** Returns the staging directory selected for this import. */
+    /** Returns the staging directory selected for this import, including for eager staging. */
     QString stagingDirectory() const;
 
 private:
