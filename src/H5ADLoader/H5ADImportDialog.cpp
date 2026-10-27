@@ -1,7 +1,7 @@
 #include "H5ADImportDialog.h"
 
 #include <PointData/PointData.h>
-#include <PointData/storage/actions/TiledStorageBackendConversionAction.h>
+#include <PointData/storage/actions/TiledStorageBackendConfigurationAction.h>
 #include <PointData/storage/widgets/StorageBackendConfigurationDialog.h>
 #include <util/HardwareSpec.h>
 #include <util/Miscellaneous.h>
@@ -179,7 +179,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _matrixAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
     _datasetNameAction.setDefaultWidgetFlags(mv::gui::StringAction::LineEdit);
     _storageTypeAction.setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
-    _optionalObjectsAction.setDefaultWidgetFlags(mv::gui::OptionsAction::ListView);
+    _optionalObjectsAction.setDefaultWidgetFlags(mv::gui::OptionsAction::Tags);
     _stagingDirectoryAction.setConfigurationFlag(mv::gui::WidgetAction::ConfigurationFlag::NoLabelInGroup);
     _checksAction.setShowLabels(false);
     _checksAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
@@ -233,6 +233,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     layout->addWidget(_buttonsAction.createWidget(this));
 
     _backendSelector.getBackendTypeAction().setCurrentText(backendType);
+    _backendSelector.getConfigureAction().setIconByName("gear");
     _backendSelector.setConfigureEnabled(backendType == "Tiled");
     connect(&_backendSelector, &StorageBackendConfiguratorAction::backendTypeChanged, this, [this](const QString& type) {
         _backendSelector.setConfigureEnabled(type == "Tiled");
@@ -240,21 +241,14 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         updateImportChecks();
     });
     connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, [this] {
-        auto conversionAction = std::make_unique<mv::gui::TiledStorageBackendConversionAction>(nullptr, _rows, _columns, sizeof(float), _tiledConfiguration, true);
-        StorageBackendConfigurationDialog dialog(std::move(conversionAction), false, this);
+        auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, sizeof(float), _tiledConfiguration, true);
+        auto* configurationActionPtr = configurationAction.get();
+        StorageBackendConfigurationDialog dialog(std::move(configurationAction), false, this);
         if (dialog.exec() != QDialog::Accepted)
             return;
 
-        const auto configuration = std::dynamic_pointer_cast<const mv::pointdata::storage::StorageBackendConfiguration>(dialog.getConversionOptions());
-        if (!configuration)
-            return;
-
-        _tiledConfiguration.rowTileSize = configuration->rowTileSize;
-        _tiledConfiguration.columnTileSize = configuration->columnTileSize;
-        _tiledConfiguration.cacheCapacity = configuration->cacheCapacity;
-        _tiledConfiguration.packedTiles = configuration->packedTiles;
-        _tiledConfiguration.superTileRows = configuration->superTileRows;
-        _tiledConfiguration.superTileColumns = configuration->superTileColumns;
+        _tiledConfiguration = configurationActionPtr->getConfiguration();
+        updateImportChecks();
     });
     connect(&_datasetNameAction, &mv::gui::StringAction::stringChanged, this, [this](const QString& name) {
         _importAction.setEnabled(!name.trimmed().isEmpty());
