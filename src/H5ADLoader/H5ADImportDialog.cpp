@@ -243,7 +243,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, [this] {
         auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, sizeof(float), _tiledConfiguration, true);
         auto* configurationActionPtr = configurationAction.get();
-        StorageBackendConfigurationDialog dialog(std::move(configurationAction), false, this);
+        StorageBackendConfigurationDialog dialog(std::move(configurationAction), StorageBackendConfigurationDialog::Purpose::Import, this);
         if (dialog.exec() != QDialog::Accepted)
             return;
 
