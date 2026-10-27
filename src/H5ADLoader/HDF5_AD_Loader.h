@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <functional>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -42,6 +43,22 @@ struct H5ADImportOptions
     mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration;
 };
 
+/** Type and sparsity summary produced by a bounded estimate or complete matrix scan. */
+struct H5ADMatrixScanResult
+{
+	int recommendedTypeIndex = -1;
+	std::uint64_t elementCount = 0;
+	std::uint64_t zeroCount = 0;
+	std::uint64_t storedEntryCount = 0;
+	std::uint64_t analyzedValueCount = 0;
+	double zeroFraction = 0.0;
+	double minimum = 0.0;
+	double maximum = 0.0;
+	bool sparsityAvailable = false;
+	bool rangeAvailable = false;
+	bool sparseInput = false;
+};
+
 class HDF5_AD_Loader : public std::enable_shared_from_this<HDF5_AD_Loader>
 {
 public:
@@ -69,6 +86,14 @@ public:
 	/** Returns the logical rows and columns of X, or zeroes when its shape is unavailable. */
 	std::pair<std::uint64_t, std::uint64_t> getMatrixShape() const;
 
+	/** Estimates target element type and sparsity from a bounded sample of X. */
+	H5ADMatrixScanResult estimateTargetElementType() const;
+	/** Determines target element type, range, and sparsity by scanning every stored value in X. */
+	H5ADMatrixScanResult determineTargetElementType(const std::function<void(double)>& progress) const;
+
+	/** Reports whether the source HDF5 type may lose precision in the supported point-data types. */
+	bool sourceMayLosePrecision() const;
+
 	/**
 	 * @brief Schedules import of the opened file.
 	 *
@@ -83,6 +108,8 @@ public:
 	bool load(const H5ADImportOptions& options);
 	
 private:
+	H5ADMatrixScanResult analyzeTargetElementType(bool fullScan, const std::function<void(double)>& progress) const;
+
 	mv::CoreInterface* _core = nullptr;
 	QObject* _workflowReceiver = nullptr;
 	QString _stagingDirectory = {};

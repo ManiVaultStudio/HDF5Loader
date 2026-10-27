@@ -19,11 +19,17 @@
 #include <QSizePolicy>
 #include <QStorageInfo>
 #include <QTableView>
+#include <QTimer>
 #include <QVBoxLayout>
+
+#include <Application.h>
+#include <workflow/WorkflowOptions.h>
+#include <workflow/WorkflowPlan.h>
 
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <utility>
 
 namespace
 {
@@ -37,6 +43,16 @@ QColor getSeverityColor(const mv::util::SeverityLevel severity)
         case mv::util::SeverityLevel::Fatal: return QColor(150, 0, 0);
         default: return QColor(80, 130, 190);
     }
+}
+
+bool isPotentiallyLossyStorageType(const int storageType, const bool sourceMayLosePrecision)
+{
+    return sourceMayLosePrecision || storageType == -2 ||
+        storageType == static_cast<int>(PointData::ElementTypeSpecifier::bfloat16) ||
+        storageType == static_cast<int>(PointData::ElementTypeSpecifier::int8) ||
+        storageType == static_cast<int>(PointData::ElementTypeSpecifier::uint8) ||
+        storageType == static_cast<int>(PointData::ElementTypeSpecifier::int16) ||
+        storageType == static_cast<int>(PointData::ElementTypeSpecifier::uint16);
 }
 
 }
@@ -145,7 +161,44 @@ void H5ADImportCheckAction::updateWidget(QWidget* widget) const
     widget->setAccessibleDescription(QStringLiteral("%1: %2").arg(severityName, _description));
 }
 
-H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, QWidget* parent) :
+TargetElementTypeAction::TargetElementTypeAction(QObject* parent, const QString& title) :
+    mv::gui::HorizontalGroupAction(parent, title),
+    _typeAction(this, "Type"),
+    _estimateAction(this, "Estimate")
+{
+    setShowLabels(false);
+    _typeAction.setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
+    _estimateAction.setIconByName("wand-magic-sparkles");
+    _estimateAction.setToolTip(tr("Estimate a compact target type from a bounded sample of the matrix"));
+    addAction(&_typeAction);
+    addAction(&_estimateAction, mv::gui::TriggerAction::Text);
+    connect(&_estimateAction, &mv::gui::TriggerAction::triggered, this, &TargetElementTypeAction::estimateRequested);
+}
+
+mv::gui::OptionAction& TargetElementTypeAction::getTypeAction()
+{
+    return _typeAction;
+}
+
+const mv::gui::OptionAction& TargetElementTypeAction::getTypeAction() const
+{
+    return _typeAction;
+}
+
+void TargetElementTypeAction::setAnalysisRunning(const bool running, const bool estimating)
+{
+    _typeAction.setEnabled(!running);
+    _estimateAction.setEnabled(!running);
+    _estimateAction.setText(running && estimating ? tr("Estimating...") : tr("Estimate"));
+}
+
+void TargetElementTypeAction::setRecommendedTypeIndex(const int index)
+{
+    if (index >= 0 && index < static_cast<int>(_typeAction.getNumberOfOptions()))
+        _typeAction.setCurrentIndex(index);
+}
+
+H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
     QDialog(parent),
     _settingsAction(this, "Import settings"),
     _fileAction(&_settingsAction, "File", QFileInfo(fileName).fileName()),
@@ -159,11 +212,15 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _checksAction(&_settingsAction, "Import checks", true),
     _memoryCheckAction(&_checksAction, "Memory"),
     _stagingCheckAction(&_checksAction, "Disk space"),
+    _precisionCheckAction(&_checksAction, "Precision"),
+    _dataSummaryCheckAction(&_checksAction, "Data summary"),
     _optionalObjectsAction(&_settingsAction, "Optional metadata", optionalObjects),
     _buttonsAction(this, "Import controls"),
     _cancelAction(&_buttonsAction, "Cancel"),
     _importAction(&_buttonsAction, "Import"),
     _tiledConfiguration(tiledConfiguration),
+    _sourceMayLosePrecision(loader && loader->sourceMayLosePrecision()),
+    _loader(std::move(loader)),
     _rows(rows),
     _columns(columns)
 {
@@ -178,7 +235,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _fileAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
     _matrixAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
     _datasetNameAction.setDefaultWidgetFlags(mv::gui::StringAction::LineEdit);
-    _storageTypeAction.setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
+    _storageTypeAction.getTypeAction().setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
     _optionalObjectsAction.setDefaultWidgetFlags(mv::gui::OptionsAction::Tags);
     _stagingDirectoryAction.setConfigurationFlag(mv::gui::WidgetAction::ConfigurationFlag::NoLabelInGroup);
     _checksAction.setShowLabels(false);
@@ -190,7 +247,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     const auto elementTypeNames = PointData::getElementTypeNames();
     for (const auto* name : elementTypeNames)
         storageTypeNames.append(QString::fromLatin1(name));
-    _storageTypeAction.initialize(storageTypeNames, storageTypeNames[qBound(0, storageTypeIndex, storageTypeNames.size() - 1)]);
+    _storageTypeAction.getTypeAction().initialize(storageTypeNames, storageTypeNames[qBound(0, storageTypeIndex, storageTypeNames.size() - 1)]);
 
     QStringList selectedObjects;
     for (const auto& name : optionalObjects)
@@ -223,6 +280,8 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _settingsAction.addAction(&_checksAction);
     _checksAction.addAction(&_memoryCheckAction);
     _checksAction.addAction(&_stagingCheckAction);
+    _checksAction.addAction(&_precisionCheckAction);
+    _checksAction.addAction(&_dataSummaryCheckAction);
     _buttonsAction.addStretch(1);
     _buttonsAction.addAction(&_cancelAction, mv::gui::TriggerAction::Text);
     _buttonsAction.addAction(&_importAction, mv::gui::TriggerAction::Text);
@@ -253,7 +312,18 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     connect(&_datasetNameAction, &mv::gui::StringAction::stringChanged, this, [this](const QString& name) {
         _importAction.setEnabled(!name.trimmed().isEmpty());
     });
-    connect(&_storageTypeAction, &mv::gui::OptionAction::currentIndexChanged, this, [this] { updateImportChecks(); });
+    connect(&_storageTypeAction.getTypeAction(), &mv::gui::OptionAction::currentIndexChanged, this, [this] {
+        updateImportChecks();
+    });
+    connect(&_storageTypeAction, &TargetElementTypeAction::estimateRequested, this, &H5ADImportDialog::estimateTargetElementType);
+    connect(&_precisionCheckAction, &H5ADImportCheckAction::actionTriggered, this, [this](int actionIndex) {
+        if (actionIndex == 0 && _recommendedTypeIndex >= 0)
+            _storageTypeAction.setRecommendedTypeIndex(_recommendedTypeIndex);
+    });
+    connect(&_dataSummaryCheckAction, &H5ADImportCheckAction::actionTriggered, this, [this](int actionIndex) {
+        if (actionIndex == 0)
+            analyzeTargetElementType(true);
+    });
     connect(&_stagingDirectoryAction, &mv::gui::DirectoryPickerAction::directoryChanged, this, [this](const QString&) {
         updateImportChecks();
     });
@@ -277,14 +347,18 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     connect(&_cancelAction, &mv::gui::TriggerAction::triggered, this, &QDialog::reject);
 
     _stagingDirectoryAction.setEnabled(backendType == "Tiled");
+    _dataSummarySeverity = mv::util::SeverityLevel::Warning;
+    _dataSummaryDescription = tr("Estimating target type and sparsity from a bounded sample...");
+    updateDataSummaryCard();
     updateImportChecks();
+    QTimer::singleShot(0, this, [this] { estimateTargetElementType(); });
 }
 
 H5ADImportOptions H5ADImportDialog::options()
 {
     H5ADImportOptions result;
     result.datasetName = _datasetNameAction.getString().trimmed();
-    result.storageType = _storageTypeAction.getCurrentIndex() - 3;
+    result.storageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
     result.useTiledStorage = backendType() == "Tiled";
     result.tiledStorageConfiguration = _tiledConfiguration;
     result.optionalObjects = _optionalObjectsAction.getSelectedOptions();
@@ -294,7 +368,109 @@ H5ADImportOptions H5ADImportDialog::options()
 
 int H5ADImportDialog::storageTypeIndex() const
 {
-    return _storageTypeAction.getCurrentIndex();
+    return _storageTypeAction.getTypeAction().getCurrentIndex();
+}
+
+void H5ADImportDialog::estimateTargetElementType()
+{
+	analyzeTargetElementType(false);
+}
+
+void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
+{
+    if (!_loader)
+        return;
+
+    _storageTypeAction.setAnalysisRunning(true, !fullScan);
+    _importAction.setEnabled(false);
+    _precisionCheckAction.setObservation(mv::util::SeverityLevel::Info, fullScan ? tr("Scanning every matrix value to determine a compact target type. This may take some time.") : tr("Analyzing a bounded sample of the matrix to estimate a compact target type."));
+    _analysisRunning = true;
+    if (!fullScan)
+        _fullScanComplete = false;
+    _dataSummarySeverity = fullScan ? mv::util::SeverityLevel::Info : mv::util::SeverityLevel::Warning;
+    _dataSummaryDescription = fullScan ? tr("Scanning every matrix value. This may take some time.") : tr("Estimating target type and sparsity from a bounded sample...");
+    updateDataSummaryCard();
+
+    const QPointer<H5ADImportDialog> guardedDialog(this);
+    const auto loader = _loader;
+    const auto scanResult = std::make_shared<H5ADMatrixScanResult>();
+    auto workflow = std::make_unique<mv::workflow::WorkflowPlan>(fullScan ? tr("Scan H5AD data") : tr("Estimate H5AD element type"));
+    workflow->addSequentialStage(fullScan ? tr("Scan matrix values") : tr("Sample matrix values"), [loader, scanResult, fullScan](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& context) {
+        if (fullScan)
+            *scanResult = loader->determineTargetElementType([context](const double progress) { context->setProgress(progress); });
+        else
+            *scanResult = loader->estimateTargetElementType();
+    }, mv::workflow::WorkflowPlan::JobThreadAffinity::CurrentWorkerThread, 1);
+
+    mv::workflow::WorkflowOptions options;
+    options.cancellation.enabled = true;
+    options.reporting.progress = true;
+    options.reporting.finishedNotification = false;
+    auto future = mv::Application::getWorkflowPlanExecutor().execute(std::move(workflow), nullptr, options);
+    future.onFinished(this, [guardedDialog, scanResult, fullScan](const mv::workflow::SharedWorkflowResult& result) {
+        if (!guardedDialog)
+            return;
+
+        guardedDialog->_storageTypeAction.setAnalysisRunning(false);
+        guardedDialog->_analysisRunning = false;
+        guardedDialog->_importAction.setEnabled(!guardedDialog->_datasetNameAction.getString().trimmed().isEmpty());
+        if (!result || result->getStatus() != mv::workflow::WorkflowResultBase::Status::Success || scanResult->recommendedTypeIndex < 0)
+        {
+            guardedDialog->_precisionCheckAction.setObservation(mv::util::SeverityLevel::Warning, guardedDialog->tr("The target element type could not be analyzed from this file."));
+            guardedDialog->_dataSummarySeverity = mv::util::SeverityLevel::Warning;
+            guardedDialog->_dataSummaryDescription = guardedDialog->tr("The data summary could not be determined.");
+            guardedDialog->updateDataSummaryCard();
+            return;
+        }
+
+        guardedDialog->_recommendedTypeIndex = scanResult->recommendedTypeIndex;
+        guardedDialog->_fullScanComplete = fullScan;
+        guardedDialog->_storageTypeAction.setRecommendedTypeIndex(scanResult->recommendedTypeIndex);
+        guardedDialog->updateImportChecks();
+        const auto selectedType = scanResult->recommendedTypeIndex - 3;
+        if (!fullScan && scanResult->sparsityAvailable)
+        {
+            const auto zeroPercent = 100.0 * scanResult->zeroFraction;
+            const auto typeName = guardedDialog->_storageTypeAction.getTypeAction().getCurrentText();
+            const auto description = scanResult->sparseInput ?
+                guardedDialog->tr("Estimated type: %1. About %2% zeros; sample: %3 stored values (%4 total entries).")
+                    .arg(typeName, QString::number(zeroPercent, 'f', 2)).arg(scanResult->analyzedValueCount).arg(scanResult->storedEntryCount) :
+                guardedDialog->tr("Estimated type: %1. About %2% zeros from a sample of %3 values.")
+                    .arg(typeName, QString::number(zeroPercent, 'f', 2)).arg(scanResult->analyzedValueCount);
+            guardedDialog->_dataSummarySeverity = mv::util::SeverityLevel::Warning;
+            guardedDialog->_dataSummaryDescription = description;
+            guardedDialog->updateDataSummaryCard();
+        }
+        else if (fullScan)
+        {
+            QString summary = guardedDialog->tr("Type: %1.").arg(guardedDialog->_storageTypeAction.getTypeAction().getCurrentText());
+            if (scanResult->rangeAvailable)
+                summary += guardedDialog->tr(" Finite range: %1 to %2.").arg(QString::number(scanResult->minimum, 'g', 8), QString::number(scanResult->maximum, 'g', 8));
+            if (scanResult->sparsityAvailable)
+                summary += guardedDialog->tr("\nZero positions: %1%.").arg(QString::number(100.0 * scanResult->zeroFraction, 'f', 2));
+            if (scanResult->sparseInput)
+                summary += guardedDialog->tr(" Stored entries: %1 of %2.").arg(scanResult->storedEntryCount).arg(scanResult->elementCount);
+            guardedDialog->_dataSummarySeverity = mv::util::SeverityLevel::Info;
+            guardedDialog->_dataSummaryDescription = summary;
+            guardedDialog->updateDataSummaryCard();
+        }
+        else
+        {
+            guardedDialog->_dataSummarySeverity = mv::util::SeverityLevel::Warning;
+            guardedDialog->_dataSummaryDescription = guardedDialog->tr("The bounded sample could not estimate sparsity.");
+            guardedDialog->updateDataSummaryCard();
+        }
+        if (fullScan)
+            guardedDialog->_precisionCheckAction.setObservation(isPotentiallyLossyStorageType(selectedType, guardedDialog->_sourceMayLosePrecision) ? mv::util::SeverityLevel::Warning : mv::util::SeverityLevel::Info, guardedDialog->tr("The recommendation was determined by scanning all matrix values. Selecting a narrower type may still discard precision or truncate values."));
+        else
+            guardedDialog->_precisionCheckAction.setObservation(isPotentiallyLossyStorageType(selectedType, guardedDialog->_sourceMayLosePrecision) ? mv::util::SeverityLevel::Warning : mv::util::SeverityLevel::Info, guardedDialog->tr("The recommendation is based on a bounded sample. Values outside the sample may require a wider type."));
+    });
+}
+
+void H5ADImportDialog::updateDataSummaryCard()
+{
+    const auto fullScanActionText = !_analysisRunning && !_fullScanComplete ? tr("Full scan") : QString();
+    _dataSummaryCheckAction.setObservation(_dataSummarySeverity, _dataSummaryDescription, fullScanActionText);
 }
 
 QString H5ADImportDialog::backendType()
@@ -310,15 +486,22 @@ QString H5ADImportDialog::stagingDirectory() const
 void H5ADImportDialog::updateImportChecks()
 {
     std::size_t elementSize = sizeof(float);
-    switch (_storageTypeAction.getCurrentIndex())
+    switch (_storageTypeAction.getTypeAction().getCurrentIndex() - 3)
     {
-        case 4: elementSize = 2; break; // bfloat16
-        case 7: elementSize = 2; break; // int16
-        case 8: elementSize = 2; break; // uint16
-        case 9: elementSize = 1; break; // int8
-        case 10: elementSize = 1; break; // uint8
+        case 1: elementSize = 2; break; // bfloat16
+        case 2: elementSize = 2; break; // int16
+        case 3: elementSize = 2; break; // uint16
+        case 4: elementSize = 1; break; // int8
+        case 5: elementSize = 1; break; // uint8
         default: break; // Optimized, original, and 32-bit types use a conservative four-byte estimate.
     }
+
+    const auto selectedStorageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
+    const auto resetTypeActionText = _recommendedTypeIndex >= 0 && _storageTypeAction.getTypeAction().getCurrentIndex() != _recommendedTypeIndex ? tr("Reset type") : QString();
+    if (isPotentiallyLossyStorageType(selectedStorageType, _sourceMayLosePrecision))
+        _precisionCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("The selected type or source format may discard precision or truncate values. This can be irreversible; choose a wider type to preserve more information."), resetTypeActionText);
+    else
+        _precisionCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("The selected element type does not introduce a known precision reduction for this source format."), resetTypeActionText);
 
     bool hasMatrixEstimate = _rows > 0 && _columns > 0;
     std::uint64_t matrixBytes = 0;

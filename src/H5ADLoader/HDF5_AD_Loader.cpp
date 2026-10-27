@@ -12,7 +12,9 @@
 #include <QtGlobal>
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <set>
 
@@ -169,6 +171,253 @@ std::pair<std::uint64_t, std::uint64_t> HDF5_AD_Loader::getMatrixShape() const
 	}
 
 	return { 0, 0 };
+}
+
+H5ADMatrixScanResult HDF5_AD_Loader::estimateTargetElementType() const
+{
+	return analyzeTargetElementType(false, {});
+}
+
+H5ADMatrixScanResult HDF5_AD_Loader::determineTargetElementType(const std::function<void(double)>& progress) const
+{
+	return analyzeTargetElementType(true, progress);
+}
+
+H5ADMatrixScanResult HDF5_AD_Loader::analyzeTargetElementType(const bool fullScan, const std::function<void(double)>& progress) const
+{
+	H5ADMatrixScanResult result;
+	if (!_file)
+		return result;
+
+	H5::DataSet dataSet;
+	bool sparseData = false;
+	for (hsize_t index = 0; index < _file->getNumObjs(); ++index)
+	{
+		if (_file->getObjnameByIdx(index) != "X")
+			continue;
+
+		if (_file->getObjTypeByIdx(index) == H5G_DATASET)
+			dataSet = _file->openDataSet("X");
+		else if (_file->getObjTypeByIdx(index) == H5G_GROUP)
+		{
+			auto group = _file->openGroup("X");
+			if (H5Utils::contains_name(group, "data") && H5Utils::contains_name(group, "indices") && H5Utils::contains_name(group, "indptr"))
+			{
+				dataSet = group.openDataSet("data");
+				sparseData = true;
+			}
+		}
+		break;
+	}
+
+	if (dataSet.getId() < 0)
+		return result;
+
+	const auto dataType = dataSet.getDataType();
+	const auto dataClass = dataType.getClass();
+	if (dataClass != H5T_FLOAT && dataClass != H5T_INTEGER && dataClass != H5T_ENUM)
+		return result;
+
+	double minimum = std::numeric_limits<double>::infinity();
+	double maximum = -std::numeric_limits<double>::infinity();
+	bool allIntegral = true;
+	std::uint64_t sampledValues = 0;
+	std::uint64_t zeroValues = 0;
+	const auto analyzeValues = [&](const std::vector<double>& values) {
+		for (const auto value : values)
+		{
+			if (value == 0.0)
+				++zeroValues;
+
+			if (!std::isfinite(value))
+			{
+				allIntegral = false;
+				++sampledValues;
+				continue;
+			}
+
+			minimum = std::min(minimum, value);
+			maximum = std::max(maximum, value);
+			allIntegral = allIntegral && std::trunc(value) == value;
+			++sampledValues;
+		}
+	};
+
+	if (sparseData)
+	{
+		result.sparseInput = true;
+		const auto dataSpace = dataSet.getSpace();
+		const auto valueCount = static_cast<std::uint64_t>(dataSpace.getSimpleExtentNpoints());
+		result.storedEntryCount = valueCount;
+		const auto blockSize = fullScan ? std::uint64_t { 1024 * 1024 } : std::uint64_t { 1024 };
+		const auto segmentCount = valueCount == 0 ? 0 : fullScan ? (valueCount - 1) / blockSize + 1 : std::min<std::uint64_t>(64, (valueCount - 1) / blockSize + 1);
+		for (std::uint64_t segment = 0; segment < segmentCount; ++segment)
+		{
+			const auto currentBlockSize = fullScan ? std::min(blockSize, valueCount - segment * blockSize) : blockSize;
+			const auto startOffset = fullScan ? segment * blockSize : segment * (valueCount - blockSize) / std::max<std::uint64_t>(1, segmentCount - 1);
+			const hsize_t start[] = { startOffset };
+			const hsize_t count[] = { currentBlockSize };
+			auto fileSpace = dataSet.getSpace();
+			fileSpace.selectHyperslab(H5S_SELECT_SET, count, start);
+			H5::DataSpace memorySpace(1, count);
+			std::vector<double> values(static_cast<std::size_t>(currentBlockSize));
+			dataSet.read(values.data(), H5::PredType::NATIVE_DOUBLE, memorySpace, fileSpace);
+			analyzeValues(values);
+			if (fullScan && progress)
+				progress(static_cast<double>(segment + 1) / static_cast<double>(segmentCount));
+		}
+		if (fullScan)
+		{
+			const auto shape = getMatrixShape();
+			if (shape.first > 0 && shape.second > 0 && shape.first <= std::numeric_limits<std::uint64_t>::max() / shape.second)
+			{
+				result.elementCount = shape.first * shape.second;
+				if (result.elementCount >= valueCount)
+				{
+					result.zeroCount = std::min(result.elementCount, result.elementCount - valueCount + zeroValues);
+					result.zeroFraction = static_cast<double>(result.zeroCount) / static_cast<double>(result.elementCount);
+					result.sparsityAvailable = true;
+				}
+			}
+		}
+		else
+		{
+			const auto shape = getMatrixShape();
+			if (shape.first > 0 && shape.second > 0 && shape.first <= std::numeric_limits<std::uint64_t>::max() / shape.second)
+			{
+				result.elementCount = shape.first * shape.second;
+				if (result.elementCount >= valueCount)
+				{
+					const auto sampledZeroFraction = sampledValues > 0 ? static_cast<double>(zeroValues) / static_cast<double>(sampledValues) : 0.0;
+					result.zeroFraction = static_cast<double>(result.elementCount - valueCount) / static_cast<double>(result.elementCount) +
+						static_cast<double>(valueCount) / static_cast<double>(result.elementCount) * sampledZeroFraction;
+					result.sparsityAvailable = true;
+				}
+			}
+		}
+	}
+	else
+	{
+		const auto dataSpace = dataSet.getSpace();
+		if (dataSpace.getSimpleExtentNdims() != 2)
+			return result;
+
+		hsize_t dimensions[2] = {};
+		dataSpace.getSimpleExtentDims(dimensions);
+		if (dimensions[0] == 0 || dimensions[1] == 0)
+			return result;
+		if (fullScan && dimensions[0] <= std::numeric_limits<std::uint64_t>::max() / dimensions[1])
+			result.elementCount = dimensions[0] * dimensions[1];
+		const auto scanRowCount = fullScan ? dimensions[0] : std::min<std::uint64_t>(128, dimensions[0]);
+		const auto sampleColumnCount = std::min<std::uint64_t>(fullScan ? 1024 * 1024 : 512, dimensions[1]);
+		for (std::uint64_t sampleRow = 0; sampleRow < scanRowCount; ++sampleRow)
+		{
+			const auto row = fullScan ? sampleRow : sampleRow * (dimensions[0] - 1) / std::max<std::uint64_t>(1, scanRowCount - 1);
+			const auto column = fullScan ? 0 : sampleRow * (dimensions[1] - sampleColumnCount) / std::max<std::uint64_t>(1, scanRowCount - 1);
+			const auto rowColumnCount = fullScan ? dimensions[1] : sampleColumnCount;
+			for (std::uint64_t columnOffset = 0; columnOffset < rowColumnCount; columnOffset += sampleColumnCount)
+			{
+				const auto countColumns = std::min(sampleColumnCount, rowColumnCount - columnOffset);
+				const hsize_t start[] = { row, column + columnOffset };
+				const hsize_t count[] = { 1, countColumns };
+				auto fileSpace = dataSet.getSpace();
+				fileSpace.selectHyperslab(H5S_SELECT_SET, count, start);
+				H5::DataSpace memorySpace(2, count);
+				std::vector<double> values(static_cast<std::size_t>(countColumns));
+				dataSet.read(values.data(), H5::PredType::NATIVE_DOUBLE, memorySpace, fileSpace);
+				analyzeValues(values);
+				if (fullScan && progress)
+					progress((static_cast<double>(sampleRow) + static_cast<double>(columnOffset + countColumns) / static_cast<double>(rowColumnCount)) / static_cast<double>(dimensions[0]));
+			}
+		}
+		if (fullScan && result.elementCount == sampledValues)
+		{
+			result.zeroCount = zeroValues;
+			result.zeroFraction = static_cast<double>(zeroValues) / static_cast<double>(result.elementCount);
+			result.sparsityAvailable = true;
+		}
+		else if (!fullScan && dimensions[0] <= std::numeric_limits<std::uint64_t>::max() / dimensions[1])
+		{
+			result.elementCount = dimensions[0] * dimensions[1];
+			result.zeroFraction = sampledValues > 0 ? static_cast<double>(zeroValues) / static_cast<double>(sampledValues) : 0.0;
+			result.sparsityAvailable = sampledValues > 0;
+		}
+	}
+	result.analyzedValueCount = sampledValues;
+
+	if (fullScan)
+	{
+		if (sparseData && result.sparsityAvailable && result.zeroCount > 0)
+		{
+			minimum = std::min(minimum, 0.0);
+			maximum = std::max(maximum, 0.0);
+		}
+
+		result.rangeAvailable = std::isfinite(minimum) && std::isfinite(maximum);
+		if (result.rangeAvailable)
+		{
+			result.minimum = minimum;
+			result.maximum = maximum;
+		}
+	}
+
+	if (sampledValues == 0)
+		result.recommendedTypeIndex = static_cast<int>(PointData::ElementTypeSpecifier::uint8) + 3;
+
+	else if (allIntegral && (dataClass == H5T_FLOAT || dataType.getSize() <= 4))
+	{
+		if (minimum < 0)
+		{
+			if (minimum >= std::numeric_limits<std::int8_t>::min() && maximum <= std::numeric_limits<std::int8_t>::max())
+				result.recommendedTypeIndex = static_cast<int>(PointData::ElementTypeSpecifier::int8) + 3;
+			else if (minimum >= std::numeric_limits<std::int16_t>::min() && maximum <= std::numeric_limits<std::int16_t>::max())
+				result.recommendedTypeIndex = static_cast<int>(PointData::ElementTypeSpecifier::int16) + 3;
+		}
+		else
+		{
+			if (maximum <= std::numeric_limits<std::uint8_t>::max())
+				result.recommendedTypeIndex = static_cast<int>(PointData::ElementTypeSpecifier::uint8) + 3;
+			else if (maximum <= std::numeric_limits<std::uint16_t>::max())
+				result.recommendedTypeIndex = static_cast<int>(PointData::ElementTypeSpecifier::uint16) + 3;
+		}
+	}
+
+	if (result.recommendedTypeIndex < 0)
+		result.recommendedTypeIndex = static_cast<int>(PointData::ElementTypeSpecifier::float32) + 3;
+
+	return result;
+}
+
+bool HDF5_AD_Loader::sourceMayLosePrecision() const
+{
+	if (!_file)
+		return false;
+
+	try
+	{
+		for (hsize_t index = 0; index < _file->getNumObjs(); ++index)
+		{
+			if (_file->getObjnameByIdx(index) != "X")
+				continue;
+
+			H5::DataType dataType;
+			if (_file->getObjTypeByIdx(index) == H5G_DATASET)
+				dataType = _file->openDataSet("X").getDataType();
+			else if (_file->getObjTypeByIdx(index) == H5G_GROUP)
+				dataType = _file->openGroup("X").openDataSet("data").getDataType();
+			else
+				return false;
+
+			return (dataType.getClass() == H5T_FLOAT && dataType.getSize() > sizeof(float)) ||
+				(dataType.getClass() == H5T_INTEGER && dataType.getSize() > sizeof(std::uint16_t));
+		}
+	}
+	catch (const H5::Exception&)
+	{
+		return true;
+	}
+
+	return false;
 }
 
  template<typename T>

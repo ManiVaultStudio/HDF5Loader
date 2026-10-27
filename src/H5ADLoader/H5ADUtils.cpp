@@ -15,6 +15,7 @@
 #include <PointData/DimensionsPickerAction.h>
 #include <util/Serialization.h>
 #include <cstring>
+#include <cmath>
 #include <filesystem>
 #include <mutex>
 #include <set>
@@ -36,6 +37,9 @@ namespace H5AD
 				return static_cast<PointData::ElementTypeSpecifier>(storageType);
 
 			const auto dataClass = dataType.getClass();
+			if (storageType == -2 && dataClass == H5T_FLOAT)
+				return PointData::ElementTypeSpecifier::bfloat16;
+
 			if (dataClass == H5T_FLOAT)
 				return PointData::ElementTypeSpecifier::float32;
 
@@ -73,6 +77,47 @@ namespace H5AD
 
 				default:
 					return 4;
+			}
+		}
+
+		template<typename T>
+		T convertSparseValue(const float value)
+		{
+			if (!std::isfinite(value))
+				return T {};
+
+			const auto truncatedValue = std::trunc(static_cast<double>(value));
+			const auto boundedValue = std::clamp(truncatedValue, static_cast<double>(std::numeric_limits<T>::lowest()), static_cast<double>(std::numeric_limits<T>::max()));
+			return static_cast<T>(boundedValue);
+		}
+
+		void writeSparseTileValue(QByteArray& bytes, const std::size_t index, const PointData::ElementTypeSpecifier elementType, const float value)
+		{
+			switch (elementType)
+			{
+				case PointData::ElementTypeSpecifier::bfloat16:
+					reinterpret_cast<biovault::bfloat16_t*>(bytes.data())[index] = value;
+					break;
+
+				case PointData::ElementTypeSpecifier::int16:
+					reinterpret_cast<std::int16_t*>(bytes.data())[index] = convertSparseValue<std::int16_t>(value);
+					break;
+
+				case PointData::ElementTypeSpecifier::uint16:
+					reinterpret_cast<std::uint16_t*>(bytes.data())[index] = convertSparseValue<std::uint16_t>(value);
+					break;
+
+				case PointData::ElementTypeSpecifier::int8:
+					reinterpret_cast<std::int8_t*>(bytes.data())[index] = convertSparseValue<std::int8_t>(value);
+					break;
+
+				case PointData::ElementTypeSpecifier::uint8:
+					reinterpret_cast<std::uint8_t*>(bytes.data())[index] = convertSparseValue<std::uint8_t>(value);
+					break;
+
+				default:
+					reinterpret_cast<float*>(bytes.data())[index] = value;
+					break;
 			}
 		}
 
@@ -341,9 +386,9 @@ namespace H5AD
 			return values;
 		}
 
-		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress)
+		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const PointData::ElementTypeSpecifier elementType, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress)
 		{
-			constexpr std::size_t elementSize = sizeof(float);
+			const auto elementSize = getTiledElementSize(elementType);
 			const auto staging = std::make_shared<StagedPointData>();
 			staging->rows = rows;
 			staging->columns = columns;
@@ -390,7 +435,6 @@ namespace H5AD
 							const auto tileColumnCount = std::min<std::uint64_t>(staging->columnTileSize, columns - tileColumnOffset);
 							QByteArray bytes(static_cast<qsizetype>(tileRowCount * tileColumnCount * elementSize), Qt::Uninitialized);
 							std::memset(bytes.data(), 0, static_cast<std::size_t>(bytes.size()));
-							auto* destination = reinterpret_cast<float*>(bytes.data());
 
 							for (std::uint64_t rowIndex = 0; rowIndex < tileRowCount; ++rowIndex)
 							{
@@ -402,7 +446,7 @@ namespace H5AD
 								{
 									const auto column = indices[static_cast<std::size_t>(index)];
 									if (column >= tileColumnOffset && column < tileColumnOffset + tileColumnCount)
-										destination[rowIndex * tileColumnCount + column - tileColumnOffset] = values[static_cast<std::size_t>(index)];
+										writeSparseTileValue(bytes, static_cast<std::size_t>(rowIndex * tileColumnCount + column - tileColumnOffset), elementType, values[static_cast<std::size_t>(index)]);
 								}
 							}
 
@@ -422,7 +466,7 @@ namespace H5AD
 			return staging;
 		}
 
-		bool loadSparseDataAsTiled(H5::Group& group, LoaderInfo& loaderInfo, const H5AD::ProgressCallback& progress)
+		bool loadSparseDataAsTiled(H5::Group& group, LoaderInfo& loaderInfo, const int storageType, const H5AD::ProgressCallback& progress)
 		{
 			if (!ContainsSparseMatrix(group) || !group.attrExists("shape"))
 				return false;
@@ -449,12 +493,13 @@ namespace H5AD
 			const auto indicesSet = group.openDataSet("indices");
 			const auto indptrSet = group.openDataSet("indptr");
 			const auto& configuration = loaderInfo._tiledStorageConfiguration;
-			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, configuration, progress);
+			const auto elementType = getTiledElementType(dataSet.getDataType(), storageType);
+			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, elementType, configuration, progress);
 			Points::TiledTileGenerator generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
 				return readStagedTile(*staging, rowOffset, columnOffset, rows, columns);
 			};
 
-			loaderInfo._pointsDataset->initializeTiledStorage(rowCount, columnCount, PointData::ElementTypeSpecifier::float32, configuration, std::move(generator));
+			loaderInfo._pointsDataset->initializeTiledStorage(rowCount, columnCount, elementType, configuration, std::move(generator));
 			attachPackedTileSource(staging, loaderInfo._pointsDataset);
 			loaderInfo._pointsDataset->setTiledLoaderThreadSafe(true);
 			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
@@ -1315,7 +1360,7 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						if (!loaderInfo._useTiledStorage || !loadSparseDataAsTiled(group, loaderInfo, progress))
+						if (!loaderInfo._useTiledStorage || !loadSparseDataAsTiled(group, loaderInfo, storageType, progress))
 							H5AD::LoadData(group, loaderInfo, storageType);
 						break;
 					}
