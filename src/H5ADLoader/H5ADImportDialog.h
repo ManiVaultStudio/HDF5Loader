@@ -105,6 +105,7 @@ public:
     QString stagingDirectory() const;
 
 private:
+    void updateImportActionState();
     void updateImportChecks();
     void estimateTargetElementType();
     void analyzeTargetElementType(bool fullScan);
@@ -136,6 +137,7 @@ private:
     int _recommendedTypeIndex = -1;
     bool _fullScanComplete = false;
     bool _analysisRunning = false;
+    bool _eagerMemoryLimitExceeded = false;
     std::shared_ptr<HDF5_AD_Loader> _loader;
     std::uint64_t _rows = 0;
     std::uint64_t _columns = 0;

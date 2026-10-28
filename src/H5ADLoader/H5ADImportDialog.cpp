@@ -265,7 +265,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     }
     _optionalObjectsAction.setOptionToolTips(metadataToolTips);
     _optionalObjectsAction.setVisible(!optionalObjects.isEmpty());
-    _importAction.setEnabled(!_datasetNameAction.getString().trimmed().isEmpty());
+    updateImportActionState();
 
     _settingsAction.addAction(&_fileAction);
     _settingsAction.addAction(&_matrixAction);
@@ -319,8 +319,8 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         _tiledConfiguration = configurationActionPtr->getConfiguration();
         updateImportChecks();
     });
-    connect(&_datasetNameAction, &mv::gui::StringAction::stringChanged, this, [this](const QString& name) {
-        _importAction.setEnabled(!name.trimmed().isEmpty());
+    connect(&_datasetNameAction, &mv::gui::StringAction::stringChanged, this, [this] {
+        updateImportActionState();
     });
     connect(&_optionalObjectsAction, &mv::gui::OptionsAction::selectedOptionsChanged, this, [this] {
         updateImportChecks();
@@ -395,9 +395,9 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
         return;
 
     _storageTypeAction.setAnalysisRunning(true, !fullScan);
-    _importAction.setEnabled(false);
     _precisionCheckAction.setObservation(mv::util::SeverityLevel::Info, fullScan ? tr("Scanning every matrix value to determine a compact target type. This may take some time.") : tr("Analyzing a bounded sample of the matrix to estimate a compact target type."));
     _analysisRunning = true;
+    updateImportActionState();
     if (!fullScan)
         _fullScanComplete = false;
     _dataSummarySeverity = fullScan ? mv::util::SeverityLevel::Info : mv::util::SeverityLevel::Warning;
@@ -426,7 +426,7 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
 
         guardedDialog->_storageTypeAction.setAnalysisRunning(false);
         guardedDialog->_analysisRunning = false;
-        guardedDialog->_importAction.setEnabled(!guardedDialog->_datasetNameAction.getString().trimmed().isEmpty());
+        guardedDialog->updateImportActionState();
         if (!result || result->getStatus() != mv::workflow::WorkflowResultBase::Status::Success || scanResult->recommendedTypeIndex < 0)
         {
             guardedDialog->_precisionCheckAction.setObservation(mv::util::SeverityLevel::Warning, guardedDialog->tr("The target element type could not be analyzed from this file."));
@@ -496,6 +496,11 @@ QString H5ADImportDialog::stagingDirectory() const
     return _stagingDirectoryAction.getDirectory();
 }
 
+void H5ADImportDialog::updateImportActionState()
+{
+    _importAction.setEnabled(!_analysisRunning && !_eagerMemoryLimitExceeded && !_datasetNameAction.getString().trimmed().isEmpty());
+}
+
 void H5ADImportDialog::updateImportChecks()
 {
     std::size_t elementSize = sizeof(float);
@@ -534,6 +539,8 @@ void H5ADImportDialog::updateImportChecks()
     const auto tiled = backendType() == "Tiled";
     if (!hasMatrixEstimate)
     {
+        _eagerMemoryLimitExceeded = false;
+        updateImportActionState();
         _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("The matrix size could not be estimated from the file dimensions."));
         _stagingCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("The required staging space could not be estimated."));
         return;
@@ -562,6 +569,9 @@ void H5ADImportDialog::updateImportChecks()
     const auto metadataSize = mv::util::getNoBytesHumanReadable(metadataBytes);
     const auto combinedSize = mv::util::getNoBytesHumanReadable(combinedBytes);
     const auto estimateQualifier = metadataEstimateComplete && combinedEstimateAvailable ? QString() : tr(" at least");
+    const auto safeMemoryBudgetBytes = installedRamBytes - installedRamBytes / 4;
+    _eagerMemoryLimitExceeded = !tiled && installedRamBytes > 0 && combinedBytes > safeMemoryBudgetBytes;
+    updateImportActionState();
     const auto memorySummary = tr("Matrix (dense-equivalent): %1. Selected metadata payload:%2 %3. Combined payload estimate:%2 %4. This estimates uncompressed dataset bytes; runtime allocations, variable-length strings, tile cache, viewer, and derived data may add memory.")
         .arg(matrixSize, estimateQualifier, metadataSize, combinedSize);
 
@@ -569,10 +579,10 @@ void H5ADImportDialog::updateImportChecks()
     {
         _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, memorySummary);
     }
-    else if (installedRamBytes > 0 && combinedBytes > installedRamBytes)
+    else if (_eagerMemoryLimitExceeded)
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("%1 Installed RAM: %2. Eager import is at risk for dense input; sparse input may use much less memory. Tiled storage is recommended.")
-            .arg(memorySummary, mv::util::getNoBytesHumanReadable(installedRamBytes)), tr("Use tiled storage"));
+        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Error, tr("%1 Eager import materializes the matrix densely. Its lower-bound payload estimate exceeds the conservative memory budget of %2 (75% of installed RAM). Switch to tiled storage to continue.")
+            .arg(memorySummary, mv::util::getNoBytesHumanReadable(safeMemoryBudgetBytes)), tr("Use tiled storage"));
     }
     else if (combinedBytes > eagerRecommendationThreshold)
     {
