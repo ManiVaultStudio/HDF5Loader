@@ -259,6 +259,71 @@ std::pair<std::uint64_t, std::uint64_t> HDF5_AD_Loader::getMatrixShape() const
 	return { 0, 0 };
 }
 
+H5ADSparseMatrixInfo HDF5_AD_Loader::getSparseMatrixInfo() const
+{
+	H5ADSparseMatrixInfo result;
+	if (!_file)
+		return result;
+
+	try
+	{
+		H5G_obj_t objectType = H5G_UNKNOWN;
+		for (hsize_t index = 0; index < _file->getNumObjs(); ++index)
+		{
+			if (_file->getObjnameByIdx(index) == "X")
+			{
+				objectType = _file->getObjTypeByIdx(index);
+				break;
+			}
+		}
+
+		if (objectType != H5G_GROUP)
+			return result;
+
+		auto group = _file->openGroup("X");
+		if (!group.attrExists("shape") || !H5Utils::contains_name(group, "data") || !H5Utils::contains_name(group, "indices") || !H5Utils::contains_name(group, "indptr"))
+			return result;
+
+		if (group.attrExists("encoding-type"))
+		{
+			std::string encodingType;
+			auto encodingAttribute = group.openAttribute("encoding-type");
+			encodingAttribute.read(encodingAttribute.getDataType(), encodingType);
+			if (encodingType != "csr_matrix" && encodingType != "csc_matrix")
+				return result;
+			result.columnCompressed = encodingType == "csc_matrix";
+		}
+
+		const auto dataSet    = group.openDataSet("data");
+		const auto indicesSet = group.openDataSet("indices");
+		const auto indptrSet  = group.openDataSet("indptr");
+		const auto dataSpace    = dataSet.getSpace();
+		const auto indicesSpace = indicesSet.getSpace();
+		const auto indptrSpace   = indptrSet.getSpace();
+		if (dataSpace.getSimpleExtentNdims() != 1 || indicesSpace.getSimpleExtentNdims() != 1 || indptrSpace.getSimpleExtentNdims() != 1 ||
+			dataSpace.getSimpleExtentNpoints() < 0 || dataSpace.getSimpleExtentNpoints() != indicesSpace.getSimpleExtentNpoints())
+			return {};
+		const auto dataClass = dataSet.getDataType().getClass();
+		if (dataClass != H5T_FLOAT && dataClass != H5T_INTEGER && dataClass != H5T_ENUM)
+			return {};
+
+		const auto [rows, columns] = getMatrixShape();
+		const auto compressedSize = result.columnCompressed ? columns : rows;
+		if (compressedSize >= std::numeric_limits<std::uint64_t>::max() || indptrSpace.getSimpleExtentNpoints() < 0 ||
+			static_cast<std::uint64_t>(indptrSpace.getSimpleExtentNpoints()) != compressedSize + 1)
+			return {};
+
+		result.storedEntryCount = static_cast<std::uint64_t>(dataSpace.getSimpleExtentNpoints());
+		result.available = true;
+	}
+	catch (const H5::Exception&)
+	{
+		return {};
+	}
+
+	return result;
+}
+
 H5ADMatrixScanResult HDF5_AD_Loader::estimateTargetElementType() const
 {
 	return analyzeTargetElementType(false, {});
@@ -743,7 +808,8 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		loaderInfo->_pointsDataset = pointsDataset;
 		loaderInfo->_sourceFileName = _fileName;
 		loaderInfo->_stagingDirectory = options.stagingDirectory.isEmpty() ? _stagingDirectory : options.stagingDirectory;
-		loaderInfo->_useTiledStorage = options.useTiledStorage;
+		loaderInfo->_storageBackendType = options.storageBackendType;
+		loaderInfo->_storageType = options.storageType;
 		loaderInfo->_tiledStorageConfiguration = options.tiledStorageConfiguration;
 		loaderInfo->_originalDimensionNames = _dimensionNames;
 		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());

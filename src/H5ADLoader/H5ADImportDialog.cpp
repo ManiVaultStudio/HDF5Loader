@@ -198,14 +198,14 @@ void TargetElementTypeAction::setRecommendedTypeIndex(const int index)
         _typeAction.setCurrentIndex(index);
 }
 
-H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
+H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
     QDialog(parent),
     _settingsAction(this, "Import settings"),
     _fileAction(&_settingsAction, "File", QFileInfo(fileName).fileName()),
     _matrixAction(&_settingsAction, "Matrix", rows > 0 && columns > 0 ? tr("%1 rows × %2 columns").arg(rows).arg(columns) : tr("Unknown")),
     _datasetNameAction(&_settingsAction, "Dataset name", QFileInfo(fileName).baseName()),
     _storageTypeAction(&_settingsAction, "Data type"),
-    _backendSelector(&_settingsAction, { "Eager", "Tiled" }, "Tiled"),
+    _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Eager", "Tiled", "Sparse" } : QStringList { "Eager", "Tiled" }, "Tiled"),
     _stagingActions(&_settingsAction, "Temporary storage"),
     _stagingDirectoryAction(&_stagingActions, "Location", stagingDirectory),
     _defaultStagingDirectory(defaultStagingDirectory),
@@ -220,6 +220,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _cancelAction(&_buttonsAction, "Cancel"),
     _importAction(&_buttonsAction, "Import"),
     _tiledConfiguration(tiledConfiguration),
+    _sparseMatrixInfo(sparseMatrixInfo),
     _sourceMayLosePrecision(loader && loader->sourceMayLosePrecision()),
     _loader(std::move(loader)),
     _rows(rows),
@@ -301,14 +302,15 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     layout->addStretch(1);
     layout->addWidget(_buttonsAction.createWidget(this));
 
-    _backendSelector.getBackendTypeAction().setCurrentText(backendType);
     _backendSelector.getConfigureAction().setIconByName("gear");
-    _backendSelector.setConfigureEnabled(backendType == "Tiled");
     connect(&_backendSelector, &StorageBackendConfiguratorAction::backendTypeChanged, this, [this](const QString& type) {
         _backendSelector.setConfigureEnabled(type == "Tiled");
         _stagingDirectoryAction.setEnabled(type == "Tiled");
         updateImportChecks();
     });
+    const auto initialBackendType = sparseMatrixInfo.available || backendType != "Sparse" ? backendType : QStringLiteral("Tiled");
+    _backendSelector.getBackendTypeAction().setCurrentText(initialBackendType);
+    _backendSelector.setConfigureEnabled(initialBackendType == "Tiled");
     connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, [this] {
         auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, sizeof(float), _tiledConfiguration, true);
         auto* configurationActionPtr = configurationAction.get();
@@ -359,7 +361,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     connect(&_importAction, &mv::gui::TriggerAction::triggered, this, &QDialog::accept);
     connect(&_cancelAction, &mv::gui::TriggerAction::triggered, this, &QDialog::reject);
 
-    _stagingDirectoryAction.setEnabled(backendType == "Tiled");
+    _stagingDirectoryAction.setEnabled(initialBackendType == "Tiled");
     _dataSummarySeverity = mv::util::SeverityLevel::Warning;
     _dataSummaryDescription = tr("Estimating target type and sparsity from a bounded sample...");
     updateDataSummaryCard();
@@ -372,7 +374,7 @@ H5ADImportOptions H5ADImportDialog::options()
     H5ADImportOptions result;
     result.datasetName = _datasetNameAction.getString().trimmed();
     result.storageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
-    result.useTiledStorage = backendType() == "Tiled";
+    result.storageBackendType = mv::pointdata::storage::getStorageBackendType(backendType()).value_or(mv::pointdata::storage::StorageBackendType::Tiled);
     result.tiledStorageConfiguration = _tiledConfiguration;
     result.optionalObjects = _optionalObjectsAction.getSelectedOptions();
     result.stagingDirectory = stagingDirectory();
@@ -507,10 +509,10 @@ void H5ADImportDialog::updateImportChecks()
     switch (_storageTypeAction.getTypeAction().getCurrentIndex() - 3)
     {
         case 1: elementSize = 2; break; // bfloat16
-        case 2: elementSize = 2; break; // int16
-        case 3: elementSize = 2; break; // uint16
-        case 4: elementSize = 1; break; // int8
-        case 5: elementSize = 1; break; // uint8
+        case 4: elementSize = 2; break; // int16
+        case 5: elementSize = 2; break; // uint16
+        case 6: elementSize = 1; break; // int8
+        case 7: elementSize = 1; break; // uint8
         default: break; // Optimized, original, and 32-bit types use a conservative four-byte estimate.
     }
 
@@ -536,7 +538,10 @@ void H5ADImportDialog::updateImportChecks()
         hasMatrixEstimate = false;
     }
 
-    const auto tiled = backendType() == "Tiled";
+    const auto selectedBackend = backendType();
+    const auto tiled           = selectedBackend == "Tiled";
+    const auto eager           = selectedBackend == "Eager";
+    const auto sparse          = selectedBackend == "Sparse";
     if (!hasMatrixEstimate)
     {
         _eagerMemoryLimitExceeded = false;
@@ -564,16 +569,34 @@ void H5ADImportDialog::updateImportChecks()
         metadataBytes += _metadataSizeEstimates.value(name);
     }
 
-    const auto combinedEstimateAvailable = metadataBytes <= std::numeric_limits<std::uint64_t>::max() - matrixBytes;
-    const auto combinedBytes = combinedEstimateAvailable ? matrixBytes + metadataBytes : matrixBytes;
-    const auto metadataSize = mv::util::getNoBytesHumanReadable(metadataBytes);
-    const auto combinedSize = mv::util::getNoBytesHumanReadable(combinedBytes);
-    const auto estimateQualifier = metadataEstimateComplete && combinedEstimateAvailable ? QString() : tr(" at least");
+    std::uint64_t storageBytes = matrixBytes;
+    bool storageEstimateAvailable = true;
+    if (sparse)
+    {
+        const auto compressedCount = _sparseMatrixInfo.columnCompressed ? _columns : _rows;
+        const auto pointerCount    = compressedCount == std::numeric_limits<std::uint64_t>::max() ? 0 : compressedCount + 1;
+        const auto bytesPerEntry   = sizeof(std::uint64_t) + elementSize + sizeof(float);
+        if (pointerCount == 0 || pointerCount > std::numeric_limits<std::uint64_t>::max() / sizeof(std::uint64_t) ||
+            _sparseMatrixInfo.storedEntryCount > (std::numeric_limits<std::uint64_t>::max() - pointerCount * sizeof(std::uint64_t)) / bytesPerEntry)
+            storageEstimateAvailable = false;
+        else
+            storageBytes = _sparseMatrixInfo.storedEntryCount * bytesPerEntry + pointerCount * sizeof(std::uint64_t);
+    }
+
+    const auto combinedEstimateAvailable = storageEstimateAvailable && metadataBytes <= std::numeric_limits<std::uint64_t>::max() - storageBytes;
+    const auto combinedBytes             = combinedEstimateAvailable ? storageBytes + metadataBytes : storageBytes;
+    const auto metadataSize              = mv::util::getNoBytesHumanReadable(metadataBytes);
+    const auto storageSize               = mv::util::getNoBytesHumanReadable(storageBytes);
+    const auto combinedSize              = mv::util::getNoBytesHumanReadable(combinedBytes);
+    const auto estimateQualifier         = metadataEstimateComplete && combinedEstimateAvailable ? QString() : tr(" at least");
     const auto safeMemoryBudgetBytes = installedRamBytes - installedRamBytes / 4;
-    _eagerMemoryLimitExceeded = !tiled && installedRamBytes > 0 && combinedBytes > safeMemoryBudgetBytes;
+    _eagerMemoryLimitExceeded = (eager || sparse) && installedRamBytes > 0 && combinedBytes > safeMemoryBudgetBytes;
     updateImportActionState();
-    const auto memorySummary = tr("Matrix (dense-equivalent): %1. Selected metadata payload:%2 %3. Combined payload estimate:%2 %4. This estimates uncompressed dataset bytes; runtime allocations, variable-length strings, tile cache, viewer, and derived data may add memory.")
-        .arg(matrixSize, estimateQualifier, metadataSize, combinedSize);
+    const auto memorySummary = sparse ?
+        tr("Sparse import working-memory estimate: %1. Selected metadata payload:%2 %3. Combined payload estimate:%2 %4. Values, indices, pointers, and a temporary conversion buffer are estimated; runtime allocations and metadata may add memory.")
+            .arg(storageSize, estimateQualifier, metadataSize, combinedSize) :
+        tr("Matrix (dense-equivalent): %1. Selected metadata payload:%2 %3. Combined payload estimate:%2 %4. This estimates uncompressed dataset bytes; runtime allocations, variable-length strings, tile cache, viewer, and derived data may add memory.")
+            .arg(matrixSize, estimateQualifier, metadataSize, combinedSize);
 
     if (tiled)
     {
@@ -581,10 +604,10 @@ void H5ADImportDialog::updateImportChecks()
     }
     else if (_eagerMemoryLimitExceeded)
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Error, tr("%1 Eager import materializes the matrix densely. Its lower-bound payload estimate exceeds the conservative memory budget of %2 (75% of installed RAM). Switch to tiled storage to continue.")
+        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Error, tr("%1 The selected backend's lower-bound payload estimate exceeds the conservative memory budget of %2 (75% of installed RAM). Switch to tiled storage to continue.")
             .arg(memorySummary, mv::util::getNoBytesHumanReadable(safeMemoryBudgetBytes)), tr("Use tiled storage"));
     }
-    else if (combinedBytes > eagerRecommendationThreshold)
+    else if (eager && combinedBytes > eagerRecommendationThreshold)
     {
         _memoryCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("%1 Eager import may need additional working memory; tiled storage is recommended above 4 GiB.").arg(memorySummary), tr("Use tiled storage"));
     }
@@ -595,7 +618,7 @@ void H5ADImportDialog::updateImportChecks()
 
     if (!tiled)
     {
-        _stagingCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("Staging space is not required for eager storage."));
+        _stagingCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("Staging space is not required for %1 storage.").arg(selectedBackend.toLower()));
         return;
     }
 

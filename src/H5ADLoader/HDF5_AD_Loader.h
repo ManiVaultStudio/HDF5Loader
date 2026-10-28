@@ -21,18 +21,31 @@ namespace mv
 	class CoreInterface;
 }
 
-/** Options collected by the H5AD import dialog and consumed by the import workflow. */
+/**
+ * @brief Options collected by the H5AD import dialog and consumed by the import workflow.
+ *
+ * Sparse storage is available only for an encoded CSR or CSC X matrix. It
+ * retains the compressed representation in memory and does not use the tiled
+ * staging directory. Dense X matrices can be loaded eagerly or into tiled
+ * storage.
+ */
 struct H5ADImportOptions
 {
 	QString datasetName; /**< Name assigned to the imported point dataset. */
 	QStringList optionalObjects; /**< Optional top-level metadata objects selected for import. */
-	QString stagingDirectory; /**< Directory used for staged matrix data; it must remain available while source-backed tiles are used. */
-	int storageType = -3; /**< X type choice: -3 optimized lossless, -2 optimized with bfloat16, -1 source type, or a PointData element-type index. */
-	bool useTiledStorage = true; /**< Whether X is staged in tiled storage rather than eager storage. */
+	QString stagingDirectory; /**< Directory used for packed tiled data; it must remain available while source-backed tiles are used or until serialization copies them. */
+	int storageType = -3; /**< X type choice: -3 optimized lossless, -2 optimized with bfloat16, -1 source type, or a PointData element-type index. Applied to eager and sparse imports as well as tiled imports. */
+	mv::pointdata::storage::StorageBackendType storageBackendType = mv::pointdata::storage::StorageBackendType::Tiled; /**< Backend for X. Sparse retains CSR/CSC arrays in memory and requires a supported sparse X group. */
 	mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration; /**< Tile geometry and cache configuration used when tiled storage is selected. */
 };
 
-/** Summary of target type, range, and sparsity calculated from sampled or complete matrix values. */
+/**
+ * @brief Summary of target type, value range, and sparsity analysis for X.
+ *
+ * Sampling may leave the counts and range approximate; a full scan analyzes
+ * the complete logical matrix. Sparse implicit zeros contribute to logical
+ * element and zero counts, while storedEntryCount counts only encoded values.
+ */
 struct H5ADMatrixScanResult
 {
 	int recommendedTypeIndex = -1; /**< PointData element-type option index, or -1 when no recommendation is available. */
@@ -46,6 +59,22 @@ struct H5ADMatrixScanResult
 	bool sparsityAvailable = false; /**< Whether zeroFraction and the related counts describe available input data. */
 	bool rangeAvailable = false; /**< Whether minimum and maximum describe at least one finite value. */
 	bool sparseInput = false; /**< Whether X uses a sparse HDF5 representation. */
+};
+
+/**
+ * @brief Describes an encoded sparse X matrix before import.
+ *
+ * This inspects HDF5 structure and dataset shapes without reading matrix
+ * values. When available is false, X did not have a recognized CSR or CSC
+ * group structure or its structural metadata could not be read. The layout and
+ * count fields are meaningful only when available is true; compressed pointer
+ * and index contents are validated during import.
+ */
+struct H5ADSparseMatrixInfo
+{
+	bool available = false; /**< Whether X is an encoded CSR or CSC sparse matrix. */
+	bool columnCompressed = false; /**< Whether X uses CSC storage; otherwise the supported layout is CSR. */
+	std::uint64_t storedEntryCount = 0; /**< Number of explicitly stored entries, including any explicitly stored zeros. */
 };
 
 /**
@@ -96,6 +125,15 @@ public:
 	/** Returns the logical rows and columns of X, or zeroes when its shape is unavailable. */
 	std::pair<std::uint64_t, std::uint64_t> getMatrixShape() const;
 
+	/**
+	 * Inspects X metadata to determine whether it has a supported CSR or CSC
+	 * representation and returns its layout and stored-entry count. This does
+	 * not read matrix values; an incomplete or unsupported sparse-group
+	 * structure, or unreadable structural metadata, produces an unavailable
+	 * result. Pointer and index contents are checked during import.
+	 */
+	H5ADSparseMatrixInfo getSparseMatrixInfo() const;
+
 	/** Estimates target element type and sparsity from a bounded sample of X. */
 	H5ADMatrixScanResult estimateTargetElementType() const;
 	/**
@@ -116,7 +154,9 @@ public:
 	 * tile staging, metadata loading, and hierarchy publication happen on the
 	 * workflow executor. A failed workflow removes the dataset it created.
 	 *
-	 * @param options Dataset name, selected metadata, element type, and storage settings.
+	 * @param options Dataset name, selected metadata, element type, backend, and
+	 *        storage settings. Sparse storage requires supported encoded sparse
+	 *        X data and reads its compressed arrays into memory.
 	 * @return True when the import workflow was submitted; false when the loader
 	 *         has no usable file contents or scheduling fails synchronously.
 	 */

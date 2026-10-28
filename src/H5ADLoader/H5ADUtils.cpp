@@ -107,6 +107,14 @@ namespace H5AD
 					reinterpret_cast<std::uint16_t*>(bytes.data())[index] = convertSparseValue<std::uint16_t>(value);
 					break;
 
+				case PointData::ElementTypeSpecifier::int32:
+					reinterpret_cast<std::int32_t*>(bytes.data())[index] = convertSparseValue<std::int32_t>(value);
+					break;
+
+				case PointData::ElementTypeSpecifier::uint32:
+					reinterpret_cast<std::uint32_t*>(bytes.data())[index] = convertSparseValue<std::uint32_t>(value);
+					break;
+
 				case PointData::ElementTypeSpecifier::int8:
 					reinterpret_cast<std::int8_t*>(bytes.data())[index] = convertSparseValue<std::int8_t>(value);
 					break;
@@ -148,6 +156,62 @@ namespace H5AD
 			}
 
 			throw std::runtime_error("Unsupported tiled H5AD element type");
+		}
+
+		template<typename T>
+		std::vector<T> readH5ADRange(const H5::DataSet& dataset, std::uint64_t offset, std::uint64_t count, const H5::DataType& readType);
+
+		template<typename T>
+		std::vector<std::uint8_t> readSparseValuesAs(const H5::DataSet& dataset, const std::uint64_t count, const H5::DataType& readType)
+		{
+			const auto typedValues = readH5ADRange<T>(dataset, 0, count, readType);
+			std::vector<std::uint8_t> values(typedValues.size() * sizeof(T));
+			if (!values.empty())
+				std::memcpy(values.data(), typedValues.data(), values.size());
+			return values;
+		}
+
+		std::vector<std::uint8_t> readSparseValues(const H5::DataSet& dataset, const std::uint64_t count, const PointData::ElementTypeSpecifier elementType)
+		{
+			if (elementType == PointData::ElementTypeSpecifier::bfloat16)
+			{
+				const auto floatValues = readH5ADRange<float>(dataset, 0, count, H5::PredType::NATIVE_FLOAT);
+				std::vector<biovault::bfloat16_t> typedValues(floatValues.size());
+				for (std::size_t index = 0; index < floatValues.size(); ++index)
+					typedValues[index] = floatValues[index];
+				std::vector<std::uint8_t> values(typedValues.size() * sizeof(biovault::bfloat16_t));
+				if (!values.empty())
+					std::memcpy(values.data(), typedValues.data(), values.size());
+				return values;
+			}
+
+			const auto readType = getTiledReadType(elementType);
+			switch (elementType)
+			{
+				case PointData::ElementTypeSpecifier::float32:
+					return readSparseValuesAs<float>(dataset, count, readType);
+
+				case PointData::ElementTypeSpecifier::int32:
+					return readSparseValuesAs<std::int32_t>(dataset, count, readType);
+
+				case PointData::ElementTypeSpecifier::uint32:
+					return readSparseValuesAs<std::uint32_t>(dataset, count, readType);
+
+				case PointData::ElementTypeSpecifier::int16:
+					return readSparseValuesAs<std::int16_t>(dataset, count, readType);
+
+				case PointData::ElementTypeSpecifier::uint16:
+					return readSparseValuesAs<std::uint16_t>(dataset, count, readType);
+
+				case PointData::ElementTypeSpecifier::int8:
+					return readSparseValuesAs<std::int8_t>(dataset, count, readType);
+
+				case PointData::ElementTypeSpecifier::uint8:
+					return readSparseValuesAs<std::uint8_t>(dataset, count, readType);
+
+				default:
+					throw std::runtime_error("Unsupported sparse H5AD element type");
+			}
 		}
 
 		QByteArray readH5ADTile(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns)
@@ -504,6 +568,63 @@ namespace H5AD
 			loaderInfo._pointsDataset->setTiledLoaderThreadSafe(true);
 			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			return true;
+		}
+
+		bool loadSparseDataAsSparse(H5::Group& group, LoaderInfo& loaderInfo, const H5AD::ProgressCallback& progress)
+		{
+			if (!ContainsSparseMatrix(group) || !group.attrExists("shape"))
+				return false;
+
+			bool columnCompressed = false;
+			if (group.attrExists("encoding-type"))
+			{
+				std::string encodingType;
+				auto encodingAttribute = group.openAttribute("encoding-type");
+				encodingAttribute.read(encodingAttribute.getDataType(), encodingType);
+				if (encodingType != "csr_matrix" && encodingType != "csc_matrix")
+					return false;
+				columnCompressed = encodingType == "csc_matrix";
+			}
+
+			const auto shapeAttribute = group.openAttribute("shape");
+			const auto shapeSpace = shapeAttribute.getSpace();
+			if (shapeSpace.getSimpleExtentNdims() != 1 || shapeSpace.getSimpleExtentNpoints() != 2)
+				return false;
+
+			hsize_t shape[2] = {};
+			shapeAttribute.read(H5::PredType::NATIVE_HSIZE, shape);
+			const auto rows        = static_cast<std::uint64_t>(shape[0]);
+			const auto columns     = static_cast<std::uint64_t>(shape[1]);
+			const auto dataSet     = group.openDataSet("data");
+			const auto indicesSet  = group.openDataSet("indices");
+			const auto indptrSet   = group.openDataSet("indptr");
+			const auto dataSpace    = dataSet.getSpace();
+			const auto indicesSpace = indicesSet.getSpace();
+			const auto indptrSpace   = indptrSet.getSpace();
+			if (dataSpace.getSimpleExtentNdims() != 1 || indicesSpace.getSimpleExtentNdims() != 1 || indptrSpace.getSimpleExtentNdims() != 1 || dataSpace.getSimpleExtentNpoints() != indicesSpace.getSimpleExtentNpoints())
+				return false;
+
+			const auto storedEntryCount = static_cast<std::uint64_t>(dataSpace.getSimpleExtentNpoints());
+			const auto compressedSize   = columnCompressed ? columns : rows;
+			if (compressedSize >= std::numeric_limits<std::uint64_t>::max() || compressedSize + 1 > std::numeric_limits<std::size_t>::max() || compressedSize + 1 > std::numeric_limits<hssize_t>::max() || storedEntryCount > std::numeric_limits<std::size_t>::max() ||
+				indptrSpace.getSimpleExtentNpoints() != static_cast<hssize_t>(compressedSize + 1))
+				return false;
+			const auto elementType = getTiledElementType(dataSet.getDataType(), loaderInfo._storageType);
+			const auto elementSize = getTiledElementSize(elementType);
+			if (storedEntryCount > std::numeric_limits<std::size_t>::max() / elementSize || storedEntryCount > static_cast<std::uint64_t>(std::numeric_limits<qsizetype>::max()) / elementSize)
+				throw std::overflow_error("Sparse H5AD values exceed the supported array size");
+
+			if (progress)
+				progress(0.0f);
+			auto pointers = readH5ADRange<std::uint64_t>(indptrSet, 0, compressedSize + 1, H5::PredType::NATIVE_UINT64);
+			auto indices  = storedEntryCount > 0 ? readH5ADRange<std::uint64_t>(indicesSet, 0, storedEntryCount, H5::PredType::NATIVE_UINT64) : std::vector<std::uint64_t>();
+			auto values   = readSparseValues(dataSet, storedEntryCount, elementType);
+			loaderInfo._pointsDataset->initializeSparseStorage(rows, columns, elementType, columnCompressed, std::move(pointers), std::move(indices), std::move(values));
+			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			if (progress)
+				progress(1.0f);
 			return true;
 		}
 
@@ -1349,7 +1470,9 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::DataSet dataset = h5fILE->openDataSet(objectName1);
-						if (!loaderInfo._useTiledStorage || !loadDenseDataAsTiled(dataset, loaderInfo, storageType, progress))
+						if (loaderInfo._storageBackendType == pointdata::storage::StorageBackendType::Sparse)
+							throw std::runtime_error("Sparse storage requires a sparse H5AD X matrix");
+						if (loaderInfo._storageBackendType != pointdata::storage::StorageBackendType::Tiled || !loadDenseDataAsTiled(dataset, loaderInfo, storageType, progress))
 							H5AD::LoadData(dataset, loaderInfo, storageType);
 						break;
 
@@ -1360,7 +1483,12 @@ namespace H5AD
 					if (objectName1 == "X")
 					{
 						H5::Group group = h5fILE->openGroup(objectName1);
-						if (!loaderInfo._useTiledStorage || !loadSparseDataAsTiled(group, loaderInfo, storageType, progress))
+						if (loaderInfo._storageBackendType == pointdata::storage::StorageBackendType::Sparse)
+						{
+							if (!loadSparseDataAsSparse(group, loaderInfo, progress))
+								throw std::runtime_error("Unsupported sparse H5AD X matrix format");
+						}
+						else if (loaderInfo._storageBackendType != pointdata::storage::StorageBackendType::Tiled || !loadSparseDataAsTiled(group, loaderInfo, storageType, progress))
 							H5AD::LoadData(group, loaderInfo, storageType);
 						break;
 					}

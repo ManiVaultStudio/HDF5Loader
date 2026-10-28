@@ -152,7 +152,8 @@ void H5ADLoader::loadData()
 		}
 
 		const auto [rows, columns] = loader->getMatrixShape();
-		H5ADImportDialog dialog(fileName, stagingDirectory, defaultStagingDirectory, loader->getOptionalObjects(), rows, columns, storageTypeIndex, backendType, _tiledStorageConfiguration, loader, QApplication::activeWindow());
+		const auto sparseMatrixInfo = loader->getSparseMatrixInfo();
+		H5ADImportDialog dialog(fileName, stagingDirectory, defaultStagingDirectory, loader->getOptionalObjects(), rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, loader, QApplication::activeWindow());
 		if (dialog.exec() != QDialog::Accepted)
 			continue;
 

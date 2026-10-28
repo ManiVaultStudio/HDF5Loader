@@ -89,8 +89,23 @@ private:
 class H5ADImportDialog : public QDialog
 {
 public:
-    /** Creates the dialog with file metadata, restored choices, and a shared loader. */
-    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
+    /**
+     * Creates the dialog with file metadata, restored choices, sparse-matrix
+     * availability, and a shared loader.
+     * @param fileName H5AD file whose X and metadata will be imported.
+     * @param stagingDirectory Initial staging directory for tiled imports.
+     * @param defaultStagingDirectory Directory restored by the reset action.
+     * @param optionalObjects Importable optional HDF5 objects.
+     * @param rows Logical row count of X.
+     * @param columns Logical column count of X.
+     * @param storageTypeIndex Initial data-type option index.
+     * @param backendType Initial storage backend name.
+     * @param sparseMatrixInfo Result of metadata inspection used to determine whether Sparse can be selected.
+     * @param tiledConfiguration Initial tile geometry and cache settings.
+     * @param loader Shared loader retained for matrix analysis and import checks.
+     * @param parent Optional parent dialog.
+     */
+    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
 
     /** Returns current import choices; callers should use them after acceptance. */
     H5ADImportOptions options();
@@ -131,6 +146,7 @@ private:
     mv::gui::TriggerAction _cancelAction;
     mv::gui::TriggerAction _importAction;
     mv::pointdata::storage::StorageBackendConfiguration _tiledConfiguration;
+    H5ADSparseMatrixInfo _sparseMatrixInfo; /**< Sparse-X layout snapshot used to expose only a compatible backend choice. */
     bool _sourceMayLosePrecision = false;
     mv::util::SeverityLevel _dataSummarySeverity = mv::util::SeverityLevel::Info;
     QString _dataSummaryDescription;

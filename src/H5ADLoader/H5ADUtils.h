@@ -30,7 +30,8 @@ namespace H5AD
 		mv::Dataset<Points>          _pointsDataset;             /**< Point dataset being populated. */
 		QString                      _sourceFileName;            /**< Source H5AD file path. */
 		QString                      _stagingDirectory;         /**< Application-managed staging root used for this import. */
-		bool                         _useTiledStorage = true;     /**< Whether X is staged in tiled storage instead of eager storage. */
+		mv::pointdata::storage::StorageBackendType _storageBackendType = mv::pointdata::storage::StorageBackendType::Tiled; /**< Selected backend for X; sparse input is retained in memory, while tiled input uses packed staging. */
+		int                          _storageType = -3; /**< Selected X element type index or optimized/source-type sentinel. */
 		mv::pointdata::storage::StorageBackendConfiguration _tiledStorageConfiguration; /**< Selected tiled geometry and cache settings for X. */
 		std::vector<QString>         _originalDimensionNames;    /**< Dimension names discovered from var. */
 		QVariantList                 _sampleNames;               /**< Sample names discovered from obs. */
