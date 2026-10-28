@@ -215,6 +215,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _precisionCheckAction(&_checksAction, "Precision"),
     _dataSummaryCheckAction(&_checksAction, "Data summary"),
     _optionalObjectsAction(&_settingsAction, "Optional metadata", optionalObjects),
+    _metadataSizeEstimates(loader ? loader->getOptionalObjectSizeEstimates() : QMap<QString, std::uint64_t>{}),
     _buttonsAction(this, "Import controls"),
     _cancelAction(&_buttonsAction, "Cancel"),
     _importAction(&_buttonsAction, "Import"),
@@ -254,6 +255,15 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         if (name.startsWith("obs"))
             selectedObjects.append(name);
     _optionalObjectsAction.setSelectedOptions(selectedObjects);
+    QMap<QString, QString> metadataToolTips;
+    for (const auto& name : optionalObjects)
+    {
+        if (_metadataSizeEstimates.contains(name))
+            metadataToolTips.insert(name, tr("Estimated uncompressed HDF5 dataset payload: %1. Container overhead, variable-length values, and derived metadata may add memory.").arg(mv::util::getNoBytesHumanReadable(_metadataSizeEstimates.value(name))));
+        else
+            metadataToolTips.insert(name, tr("The dataset payload size could not be estimated."));
+    }
+    _optionalObjectsAction.setOptionToolTips(metadataToolTips);
     _optionalObjectsAction.setVisible(!optionalObjects.isEmpty());
     _importAction.setEnabled(!_datasetNameAction.getString().trimmed().isEmpty());
 
@@ -311,6 +321,9 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     });
     connect(&_datasetNameAction, &mv::gui::StringAction::stringChanged, this, [this](const QString& name) {
         _importAction.setEnabled(!name.trimmed().isEmpty());
+    });
+    connect(&_optionalObjectsAction, &mv::gui::OptionsAction::selectedOptionsChanged, this, [this] {
+        updateImportChecks();
     });
     connect(&_storageTypeAction.getTypeAction(), &mv::gui::OptionAction::currentIndexChanged, this, [this] {
         updateImportChecks();
@@ -531,23 +544,43 @@ void H5ADImportDialog::updateImportChecks()
     const auto ramSpec = systemHardware.getHardwareComponentSpec<mv::util::RamComponentSpec>(QStringLiteral("RAM"));
     const auto installedRamBytes = ramSpec && ramSpec->isInitialized() ? ramSpec->getNumberOfBytes() : 0;
     const auto matrixSize = mv::util::getNoBytesHumanReadable(matrixBytes);
+    std::uint64_t metadataBytes = 0;
+    bool metadataEstimateComplete = true;
+    for (const auto& name : _optionalObjectsAction.getSelectedOptions())
+    {
+        if (!_metadataSizeEstimates.contains(name) || metadataBytes > std::numeric_limits<std::uint64_t>::max() - _metadataSizeEstimates.value(name))
+        {
+            metadataEstimateComplete = false;
+            continue;
+        }
+
+        metadataBytes += _metadataSizeEstimates.value(name);
+    }
+
+    const auto combinedEstimateAvailable = metadataBytes <= std::numeric_limits<std::uint64_t>::max() - matrixBytes;
+    const auto combinedBytes = combinedEstimateAvailable ? matrixBytes + metadataBytes : matrixBytes;
+    const auto metadataSize = mv::util::getNoBytesHumanReadable(metadataBytes);
+    const auto combinedSize = mv::util::getNoBytesHumanReadable(combinedBytes);
+    const auto estimateQualifier = metadataEstimateComplete && combinedEstimateAvailable ? QString() : tr(" at least");
+    const auto memorySummary = tr("Matrix (dense-equivalent): %1. Selected metadata payload:%2 %3. Combined payload estimate:%2 %4. This estimates uncompressed dataset bytes; runtime allocations, variable-length strings, tile cache, viewer, and derived data may add memory.")
+        .arg(matrixSize, estimateQualifier, metadataSize, combinedSize);
 
     if (tiled)
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("The matrix is estimated at %1 in dense-equivalent memory. Tiled storage loads bounded tiles, though the viewer, tile cache, metadata, and derived data also use memory.").arg(matrixSize));
+        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, memorySummary);
     }
-    else if (installedRamBytes > 0 && matrixBytes > installedRamBytes)
+    else if (installedRamBytes > 0 && combinedBytes > installedRamBytes)
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("The dense-equivalent estimate (%1) exceeds installed RAM (%2). Eager import is at risk for dense input; sparse input may use much less memory. Tiled storage is recommended.")
-            .arg(matrixSize, mv::util::getNoBytesHumanReadable(installedRamBytes)), tr("Use tiled storage"));
+        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("%1 Installed RAM: %2. Eager import is at risk for dense input; sparse input may use much less memory. Tiled storage is recommended.")
+            .arg(memorySummary, mv::util::getNoBytesHumanReadable(installedRamBytes)), tr("Use tiled storage"));
     }
-    else if (matrixBytes > eagerRecommendationThreshold)
+    else if (combinedBytes > eagerRecommendationThreshold)
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("The dense-equivalent estimate is %1. Eager import may need additional working memory; tiled storage is recommended above 4 GiB.").arg(matrixSize), tr("Use tiled storage"));
+        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("%1 Eager import may need additional working memory; tiled storage is recommended above 4 GiB.").arg(memorySummary), tr("Use tiled storage"));
     }
     else
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("The dense-equivalent matrix estimate is %1. This excludes other datasets, metadata, and derived data.").arg(matrixSize));
+        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, memorySummary);
     }
 
     if (!tiled)

@@ -22,6 +22,52 @@
 
 using namespace mv;
 
+namespace
+{
+
+bool addDatasetPayloadSize(const H5::DataSet& dataset, std::uint64_t& totalBytes)
+{
+	const auto valueCount = dataset.getSpace().getSimpleExtentNpoints();
+	const auto elementSize = dataset.getDataType().getSize();
+	if (valueCount < 0 || (elementSize != 0 && static_cast<std::uint64_t>(valueCount) > std::numeric_limits<std::uint64_t>::max() / elementSize))
+		return false;
+
+	const auto datasetBytes = static_cast<std::uint64_t>(valueCount) * elementSize;
+	if (totalBytes > std::numeric_limits<std::uint64_t>::max() - datasetBytes)
+		return false;
+
+	totalBytes += datasetBytes;
+	return true;
+}
+
+bool addGroupPayloadSize(H5::Group& group, std::uint64_t& totalBytes, const std::size_t depth = 0)
+{
+	if (depth > 64)
+		return false;
+
+	for (hsize_t index = 0; index < group.getNumObjs(); ++index)
+	{
+		const auto name = group.getObjnameByIdx(index);
+		const auto objectType = group.getObjTypeByIdx(index);
+		if (objectType == H5G_DATASET)
+		{
+			auto dataset = group.openDataSet(name);
+			if (!addDatasetPayloadSize(dataset, totalBytes))
+				return false;
+		}
+		else if (objectType == H5G_GROUP)
+		{
+			auto subgroup = group.openGroup(name);
+			if (!addGroupPayloadSize(subgroup, totalBytes, depth + 1))
+				return false;
+		}
+	}
+
+	return true;
+}
+
+}
+
 HDF5_AD_Loader::HDF5_AD_Loader(mv::CoreInterface* core, QObject* workflowReceiver, const QString& stagingDirectory)
 {
 	_core = core;
@@ -111,6 +157,46 @@ QStringList HDF5_AD_Loader::getOptionalObjects() const
 			names.append(QString::fromStdString(name));
 	}
 	return names;
+}
+
+QMap<QString, std::uint64_t> HDF5_AD_Loader::getOptionalObjectSizeEstimates() const
+{
+	QMap<QString, std::uint64_t> estimates;
+	if (!_file)
+		return estimates;
+
+	for (hsize_t index = 0; index < _file->getNumObjs(); ++index)
+	{
+		const auto name = _file->getObjnameByIdx(index);
+		if (name == "X" || name == "uns" || name == "var" || name == "varm" || name == "varp")
+			continue;
+
+		const auto objectType = _file->getObjTypeByIdx(index);
+		std::uint64_t totalBytes = 0;
+		bool estimated = false;
+		try
+		{
+			if (objectType == H5G_DATASET)
+			{
+				auto dataset = _file->openDataSet(name);
+				estimated = addDatasetPayloadSize(dataset, totalBytes);
+			}
+			else if (objectType == H5G_GROUP)
+			{
+				auto group = _file->openGroup(name);
+				estimated = addGroupPayloadSize(group, totalBytes);
+			}
+		}
+		catch (const H5::Exception&)
+		{
+			estimated = false;
+		}
+
+		if (estimated)
+			estimates.insert(QString::fromLocal8Bit(name.c_str()), totalBytes);
+	}
+
+	return estimates;
 }
 
 std::pair<std::uint64_t, std::uint64_t> HDF5_AD_Loader::getMatrixShape() const

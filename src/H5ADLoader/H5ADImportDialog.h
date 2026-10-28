@@ -125,6 +125,7 @@ private:
     H5ADImportCheckAction _precisionCheckAction;
     H5ADImportCheckAction _dataSummaryCheckAction;
     mv::gui::OptionsAction _optionalObjectsAction;
+    QMap<QString, std::uint64_t> _metadataSizeEstimates;
     mv::gui::HorizontalGroupAction _buttonsAction;
     mv::gui::TriggerAction _cancelAction;
     mv::gui::TriggerAction _importAction;

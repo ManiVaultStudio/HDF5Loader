@@ -9,6 +9,7 @@
 
 #include <QString>
 #include <QStringList>
+#include <QMap>
 
 class QObject;
 
@@ -84,6 +85,13 @@ public:
 
 	/** Returns importable optional top-level objects, excluding X, uns, var, varm, and varp. */
 	QStringList getOptionalObjects() const;
+
+	/**
+	 * Estimates uncompressed fixed-size dataset payload bytes for optional
+	 * top-level objects. Returns only objects that could be inspected; HDF5
+	 * container overhead and variable-length values are not included.
+	 */
+	QMap<QString, std::uint64_t> getOptionalObjectSizeEstimates() const;
 
 	/** Returns the logical rows and columns of X, or zeroes when its shape is unavailable. */
 	std::pair<std::uint64_t, std::uint64_t> getMatrixShape() const;
