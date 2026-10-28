@@ -309,7 +309,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         updateImportChecks();
     });
     const auto initialBackendType = sparseMatrixInfo.available || backendType != "Sparse" ? backendType : QStringLiteral("Tiled");
-    _backendSelector.getBackendTypeAction().setCurrentText(initialBackendType);
+    _backendSelector.setBackendType(initialBackendType);
     _backendSelector.setConfigureEnabled(initialBackendType == "Tiled");
     connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, [this] {
         auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, sizeof(float), _tiledConfiguration, true);
@@ -344,7 +344,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     });
     connect(&_memoryCheckAction, &H5ADImportCheckAction::actionTriggered, this, [this](int actionIndex) {
         if (actionIndex == 0)
-            _backendSelector.getBackendTypeAction().setCurrentText("Tiled");
+            _backendSelector.setBackendType("Tiled");
     });
     connect(&_stagingCheckAction, &H5ADImportCheckAction::actionTriggered, this, [this](int actionIndex) {
         if (actionIndex == 0)
@@ -490,7 +490,7 @@ void H5ADImportDialog::updateDataSummaryCard()
 
 QString H5ADImportDialog::backendType()
 {
-    return _backendSelector.getBackendTypeAction().getCurrentText();
+    return _backendSelector.getBackendType();
 }
 
 QString H5ADImportDialog::stagingDirectory() const
