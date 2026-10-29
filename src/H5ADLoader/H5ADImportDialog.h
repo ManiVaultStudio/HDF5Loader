@@ -5,50 +5,18 @@
 #include <PointData/StorageBackendConfiguratorAction.h>
 #include <actions/DirectoryPickerAction.h>
 #include <actions/HorizontalGroupAction.h>
+#include <actions/MessageCardAction.h>
 #include <actions/OptionAction.h>
 #include <actions/OptionsAction.h>
 #include <actions/StringAction.h>
 #include <actions/TriggerAction.h>
 #include <actions/VerticalGroupAction.h>
-#include <actions/WidgetAction.h>
 #include <util/SeverityLevel.h>
 
 #include <QDialog>
 #include <QPointer>
 
 #include <memory>
-
-/**
- * @brief Displays one severity-coded observation and up to two corrective actions.
- *
- * The action keeps the observation state and updates every widget it has
- * created, so it can be used in action groups that create widgets on demand.
- */
-class H5ADImportCheckAction : public mv::gui::WidgetAction
-{
-    Q_OBJECT
-
-public:
-    H5ADImportCheckAction(QObject* parent, const QString& category);
-
-    /** Sets the displayed severity, description, and optional buttons in action-index order. */
-    void setObservation(mv::util::SeverityLevel severity, const QString& description, const QString& actionText = {}, const QString& secondaryActionText = {});
-
-signals:
-    /** Emitted with index 0 or 1 when the corresponding visible corrective button is pressed. */
-    void actionTriggered(int actionIndex);
-
-protected:
-    QWidget* getWidget(QWidget* parent, const std::int32_t& widgetFlags) override;
-
-private:
-    void updateWidget(QWidget* widget) const;
-
-    mv::util::SeverityLevel _severity = mv::util::SeverityLevel::Info;
-    QString _description;
-    QStringList _actionTexts;
-    QList<QPointer<QWidget>> _widgets;
-};
 
 /**
  * @brief Combines element-type selection with an estimate request.
@@ -67,6 +35,7 @@ public:
     const mv::gui::OptionAction& getTypeAction() const;
     /** Disables the controls during analysis and updates the estimate-button label. */
     void setAnalysisRunning(bool running, bool estimating = false);
+
     /** Selects the recommended option when index is within the available choices. */
     void setRecommendedTypeIndex(int index);
 
@@ -75,8 +44,8 @@ signals:
     void estimateRequested();
 
 private:
-    mv::gui::OptionAction _typeAction;
-    mv::gui::TriggerAction _estimateAction;
+    mv::gui::OptionAction  _typeAction;      /**< Target element-type selector. */
+    mv::gui::TriggerAction _estimateAction;  /**< Requests analysis of the matrix values. */
 };
 
 /**
@@ -84,7 +53,9 @@ private:
  *
  * The dialog shares the loader so it can estimate or fully scan matrix values
  * in a workflow. Accepting the dialog returns choices to the caller; the
- * loader schedules the actual import separately.
+ * loader schedules the actual import separately. Core message-card actions
+ * display the import checks. Optional callbacks capture the dialog and remain
+ * stored by their member actions until replaced or destroyed with the dialog.
  */
 class H5ADImportDialog : public QDialog
 {
@@ -120,41 +91,70 @@ public:
     QString stagingDirectory() const;
 
 private:
+    /** Enables import only when analysis, memory, and dataset-name checks permit it. */
     void updateImportActionState();
+
+    /** Recomputes the import preflight messages for the current settings. */
     void updateImportChecks();
+
+    /** Updates the memory card and optionally offers switching to tiled storage. */
+    void updateMemoryCheck(mv::util::SeverityLevel severity, const QString& description, bool offerTiledStorage = false);
+
+    /**
+     * Updates the staging card with the requested directory actions.
+     * @param offerChooseDirectory Adds an action that opens the staging directory picker.
+     * @param offerResetDirectory Adds an action that restores the default staging directory.
+     */
+    void updateStagingCheck(mv::util::SeverityLevel severity, const QString& description, bool offerChooseDirectory, bool offerResetDirectory);
+
+    /** Updates the precision card and offers resetting to the recommended type when applicable. */
+    void updatePrecisionCheck(mv::util::SeverityLevel severity, const QString& description);
+
+    /** Starts the bounded sample analysis requested by the estimate control. */
     void estimateTargetElementType();
+
+    /** Starts a bounded sample or full scan workflow for the target element type. */
     void analyzeTargetElementType(bool fullScan);
+
+    /** Updates the data summary card and exposes full scanning when available. */
     void updateDataSummaryCard();
 
-    mv::gui::VerticalGroupAction _settingsAction;
-    mv::gui::StringAction _fileAction;
-    mv::gui::StringAction _matrixAction;
-    mv::gui::StringAction _datasetNameAction;
-    TargetElementTypeAction _storageTypeAction;
-    StorageBackendConfiguratorAction _backendSelector;
-    mv::gui::HorizontalGroupAction _stagingActions;
-    mv::gui::DirectoryPickerAction _stagingDirectoryAction;
-    QString _defaultStagingDirectory;
-    mv::gui::VerticalGroupAction _checksAction;
-    H5ADImportCheckAction _memoryCheckAction;
-    H5ADImportCheckAction _stagingCheckAction;
-    H5ADImportCheckAction _precisionCheckAction;
-    H5ADImportCheckAction _dataSummaryCheckAction;
-    mv::gui::OptionsAction _optionalObjectsAction;
-    QMap<QString, std::uint64_t> _metadataSizeEstimates;
-    mv::gui::HorizontalGroupAction _buttonsAction;
-    mv::gui::TriggerAction _cancelAction;
-    mv::gui::TriggerAction _importAction;
-    mv::pointdata::storage::StorageBackendConfiguration _tiledConfiguration;
-    H5ADSparseMatrixInfo _sparseMatrixInfo; /**< Sparse-X layout snapshot used to expose only a compatible backend choice. */
-    bool _sourceMayLosePrecision = false;
-    mv::util::SeverityLevel _dataSummarySeverity = mv::util::SeverityLevel::Info;
-    QString _dataSummaryDescription;
-    int _recommendedTypeIndex = -1;
-    bool _fullScanComplete = false;
-    bool _analysisRunning = false;
-    bool _eagerMemoryLimitExceeded = false;
-    std::shared_ptr<HDF5_AD_Loader> _loader;
-    std::uint64_t _rows = 0;
-    std::uint64_t _columns = 0;
+    mv::gui::VerticalGroupAction     _settingsAction;           /**< Top-level group containing import settings and checks. */
+    mv::gui::StringAction            _fileAction;               /**< Displays the selected H5AD file name. */
+    mv::gui::StringAction            _matrixAction;             /**< Displays the dimensions of the H5AD X matrix. */
+    mv::gui::StringAction            _datasetNameAction;        /**< Editable name assigned to the imported dataset. */
+    TargetElementTypeAction          _storageTypeAction;        /**< Selects the target element type and requests its estimate. */
+    StorageBackendConfiguratorAction _backendSelector;          /**< Selects the destination storage backend and opens its configuration. */
+    mv::gui::HorizontalGroupAction   _stagingActions;           /**< Groups staging-directory controls. */
+    mv::gui::DirectoryPickerAction   _stagingDirectoryAction;   /**< Staging directory used when importing with tiled storage. */
+    QString                          _defaultStagingDirectory;  /**< Directory restored by the staging reset action. */
+
+    mv::gui::VerticalGroupAction _checksAction;            /**< Vertical group containing the import-check cards. */
+    mv::gui::MessageCardAction   _memoryCheckAction;       /**< Memory estimate and optional tiled-storage callback. */
+    mv::gui::MessageCardAction   _stagingCheckAction;      /**< Staging-space estimate and optional directory callbacks. */
+    mv::gui::MessageCardAction   _precisionCheckAction;    /**< Precision warning and optional type-reset callback. */
+    mv::gui::MessageCardAction   _dataSummaryCheckAction;  /**< Matrix analysis summary and optional full-scan callback. */
+
+    mv::gui::OptionsAction       _optionalObjectsAction;  /**< Optional HDF5 metadata objects selected for import. */
+    QMap<QString, std::uint64_t> _metadataSizeEstimates;  /**< Estimated payload bytes for optional objects, keyed by HDF5 object name. */
+
+    mv::gui::HorizontalGroupAction _buttonsAction;  /**< Bottom-row dialog buttons and leading stretch. */
+    mv::gui::TriggerAction         _cancelAction;   /**< Closes the dialog without accepting its settings. */
+    mv::gui::TriggerAction         _importAction;   /**< Accepts the dialog when the current preflight allows import. */
+
+    mv::pointdata::storage::StorageBackendConfiguration _tiledConfiguration;  /**< Tiled-storage settings selected for this import. */
+
+    H5ADSparseMatrixInfo _sparseMatrixInfo;  /**< Sparse-X layout snapshot used to expose only a compatible backend choice. */
+
+    bool                    _sourceMayLosePrecision   = false;                          /**< Whether conversion from the source representation may lose precision. */
+    mv::util::SeverityLevel _dataSummarySeverity      = mv::util::SeverityLevel::Info;  /**< Severity currently assigned to the data summary. */
+    QString                 _dataSummaryDescription;                                    /**< Current matrix type and sparsity summary. */
+    int                     _recommendedTypeIndex     = -1;                             /**< Recommended option index, or -1 before analysis completes. */
+    bool                    _fullScanComplete         = false;                          /**< Whether an exhaustive matrix-value scan completed successfully. */
+    bool                    _analysisRunning          = false;                          /**< Whether a matrix sampling or full-scan workflow is active. */
+    bool                    _eagerMemoryLimitExceeded = false;                          /**< Whether the selected eager or sparse payload exceeds the configured RAM budget. */
+
+    std::shared_ptr<HDF5_AD_Loader> _loader;       /**< Shared loader retained while estimating and checking this import. */
+    std::uint64_t                   _rows    = 0;  /**< Row count of the H5AD X matrix. */
+    std::uint64_t                   _columns = 0;  /**< Column count of the H5AD X matrix. */
 };

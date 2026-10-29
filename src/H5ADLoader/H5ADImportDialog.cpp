@@ -8,14 +8,9 @@
 #include <util/RamComponentSpec.h>
 #include <util/StyledIcon.h>
 
-#include <QColor>
 #include <QDir>
 #include <QFileInfo>
-#include <QFrame>
 #include <QHeaderView>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QPushButton>
 #include <QSizePolicy>
 #include <QStorageInfo>
 #include <QTableView>
@@ -23,6 +18,7 @@
 #include <QVBoxLayout>
 
 #include <Application.h>
+#include <actions/WidgetAction.h>
 #include <workflow/WorkflowOptions.h>
 #include <workflow/WorkflowPlan.h>
 
@@ -34,17 +30,6 @@
 namespace
 {
 
-QColor getSeverityColor(const mv::util::SeverityLevel severity)
-{
-    switch (severity)
-    {
-        case mv::util::SeverityLevel::Warning: return QColor(196, 150, 20);
-        case mv::util::SeverityLevel::Error: return QColor(196, 32, 32);
-        case mv::util::SeverityLevel::Fatal: return QColor(150, 0, 0);
-        default: return QColor(80, 130, 190);
-    }
-}
-
 bool isPotentiallyLossyStorageType(const int storageType, const bool sourceMayLosePrecision)
 {
     return sourceMayLosePrecision || storageType == -2 ||
@@ -55,110 +40,6 @@ bool isPotentiallyLossyStorageType(const int storageType, const bool sourceMayLo
         storageType == static_cast<int>(PointData::ElementTypeSpecifier::uint16);
 }
 
-}
-
-H5ADImportCheckAction::H5ADImportCheckAction(QObject* parent, const QString& category) :
-    WidgetAction(parent, category)
-{
-    setConfigurationFlag(ConfigurationFlag::NoLabelInGroup);
-}
-
-void H5ADImportCheckAction::setObservation(const mv::util::SeverityLevel severity, const QString& description, const QString& actionText, const QString& secondaryActionText)
-{
-    _severity = severity;
-    _description = description;
-    _actionTexts = { actionText, secondaryActionText };
-
-    for (const auto& widget : _widgets)
-        if (widget)
-            updateWidget(widget);
-}
-
-QWidget* H5ADImportCheckAction::getWidget(QWidget* parent, const std::int32_t&)
-{
-    auto* row = new QFrame(parent);
-    row->setObjectName(QStringLiteral("ImportCheckRow"));
-
-    auto* layout = new QHBoxLayout(row);
-    layout->setContentsMargins(8, 6, 8, 6);
-    layout->setSpacing(8);
-
-    auto* icon = new QLabel(row);
-    icon->setObjectName(QStringLiteral("SeverityIcon"));
-    icon->setFixedSize(20, 20);
-    icon->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
-    layout->addWidget(icon);
-
-    auto* textLayoutWidget = new QWidget(row);
-    auto* textLayout = new QVBoxLayout(textLayoutWidget);
-    textLayout->setContentsMargins(0, 0, 0, 0);
-    textLayout->setSpacing(3);
-
-    auto* headingLayoutWidget = new QWidget(textLayoutWidget);
-    auto* headingLayout = new QHBoxLayout(headingLayoutWidget);
-    headingLayout->setContentsMargins(0, 0, 0, 0);
-    headingLayout->setSpacing(6);
-
-    auto* severityLabel = new QLabel(headingLayoutWidget);
-    severityLabel->setObjectName(QStringLiteral("SeverityLabel"));
-    headingLayout->addWidget(severityLabel);
-
-    auto* categoryLabel = new QLabel(text(), headingLayoutWidget);
-    categoryLabel->setObjectName(QStringLiteral("CategoryLabel"));
-    headingLayout->addWidget(categoryLabel);
-    headingLayout->addStretch(1);
-    textLayout->addWidget(headingLayoutWidget);
-
-    auto* descriptionLabel = new QLabel(textLayoutWidget);
-    descriptionLabel->setObjectName(QStringLiteral("DescriptionLabel"));
-    descriptionLabel->setWordWrap(true);
-    textLayout->addWidget(descriptionLabel);
-    layout->addWidget(textLayoutWidget, 1);
-
-    auto* actionButtonsWidget = new QWidget(row);
-    actionButtonsWidget->setObjectName(QStringLiteral("ActionButtons"));
-    auto* actionButtonsLayout = new QVBoxLayout(actionButtonsWidget);
-    actionButtonsLayout->setContentsMargins(0, 0, 0, 0);
-    actionButtonsLayout->setSpacing(4);
-    for (int actionIndex = 0; actionIndex < 2; ++actionIndex)
-    {
-        auto* actionButton = new QPushButton(actionButtonsWidget);
-        actionButton->setObjectName(QStringLiteral("ActionButton%1").arg(actionIndex));
-        connect(actionButton, &QPushButton::clicked, this, [this, actionIndex] { emit actionTriggered(actionIndex); });
-        actionButtonsLayout->addWidget(actionButton);
-    }
-    layout->addWidget(actionButtonsWidget, 0, Qt::AlignVCenter);
-
-    _widgets.append(row);
-    updateWidget(row);
-    return row;
-}
-
-void H5ADImportCheckAction::updateWidget(QWidget* widget) const
-{
-    const auto color = getSeverityColor(_severity);
-    const auto severityName = mv::util::getSeverityLevelName(_severity);
-    auto* icon = widget->findChild<QLabel*>(QStringLiteral("SeverityIcon"));
-    auto* severityLabel = widget->findChild<QLabel*>(QStringLiteral("SeverityLabel"));
-    auto* descriptionLabel = widget->findChild<QLabel*>(QStringLiteral("DescriptionLabel"));
-
-    icon->setPixmap(mv::util::getSeverityLevelIcon(_severity).pixmap(18, 18));
-    icon->setAccessibleName(severityName);
-    severityLabel->setText(severityName);
-    severityLabel->setStyleSheet(QStringLiteral("color: %1; font-weight: bold;").arg(color.name()));
-    descriptionLabel->setText(_description);
-    for (int actionIndex = 0; actionIndex < 2; ++actionIndex)
-    {
-        auto* actionButton = widget->findChild<QPushButton*>(QStringLiteral("ActionButton%1").arg(actionIndex));
-        const auto actionText = _actionTexts.value(actionIndex);
-        actionButton->setText(actionText);
-        actionButton->setVisible(!actionText.isEmpty());
-    }
-
-    const auto tint = QStringLiteral("rgba(%1, %2, %3, 24)").arg(color.red()).arg(color.green()).arg(color.blue());
-    widget->setStyleSheet(QStringLiteral("QFrame#ImportCheckRow { background-color: %1; border-left: 3px solid %2; border-radius: 3px; }")
-        .arg(tint, color.name()));
-    widget->setAccessibleDescription(QStringLiteral("%1: %2").arg(severityName, _description));
 }
 
 TargetElementTypeAction::TargetElementTypeAction(QObject* parent, const QString& title) :
@@ -210,10 +91,10 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _stagingDirectoryAction(&_stagingActions, "Location", stagingDirectory),
     _defaultStagingDirectory(defaultStagingDirectory),
     _checksAction(&_settingsAction, "Import checks", true),
-    _memoryCheckAction(&_checksAction, "Memory"),
-    _stagingCheckAction(&_checksAction, "Disk space"),
-    _precisionCheckAction(&_checksAction, "Precision"),
-    _dataSummaryCheckAction(&_checksAction, "Data summary"),
+    _memoryCheckAction(&_checksAction),
+    _stagingCheckAction(&_checksAction),
+    _precisionCheckAction(&_checksAction),
+    _dataSummaryCheckAction(&_checksAction),
     _optionalObjectsAction(&_settingsAction, "Optional metadata", optionalObjects),
     _metadataSizeEstimates(loader ? loader->getOptionalObjectSizeEstimates() : QMap<QString, std::uint64_t>{}),
     _buttonsAction(this, "Import controls"),
@@ -331,32 +212,8 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         updateImportChecks();
     });
     connect(&_storageTypeAction, &TargetElementTypeAction::estimateRequested, this, &H5ADImportDialog::estimateTargetElementType);
-    connect(&_precisionCheckAction, &H5ADImportCheckAction::actionTriggered, this, [this](int actionIndex) {
-        if (actionIndex == 0 && _recommendedTypeIndex >= 0)
-            _storageTypeAction.setRecommendedTypeIndex(_recommendedTypeIndex);
-    });
-    connect(&_dataSummaryCheckAction, &H5ADImportCheckAction::actionTriggered, this, [this](int actionIndex) {
-        if (actionIndex == 0)
-            analyzeTargetElementType(true);
-    });
     connect(&_stagingDirectoryAction, &mv::gui::DirectoryPickerAction::directoryChanged, this, [this](const QString&) {
         updateImportChecks();
-    });
-    connect(&_memoryCheckAction, &H5ADImportCheckAction::actionTriggered, this, [this](int actionIndex) {
-        if (actionIndex == 0)
-            _backendSelector.setBackendType("Tiled");
-    });
-    connect(&_stagingCheckAction, &H5ADImportCheckAction::actionTriggered, this, [this](int actionIndex) {
-        if (actionIndex == 0)
-        {
-            const auto pickerActions = _stagingDirectoryAction.getChildren<mv::gui::TriggerAction>();
-            if (!pickerActions.isEmpty())
-                pickerActions.constFirst()->trigger();
-        }
-        else if (actionIndex == 1)
-        {
-            _stagingDirectoryAction.setDirectory(_defaultStagingDirectory);
-        }
     });
     connect(&_importAction, &mv::gui::TriggerAction::triggered, this, &QDialog::accept);
     connect(&_cancelAction, &mv::gui::TriggerAction::triggered, this, &QDialog::reject);
@@ -397,7 +254,8 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
         return;
 
     _storageTypeAction.setAnalysisRunning(true, !fullScan);
-    _precisionCheckAction.setObservation(mv::util::SeverityLevel::Info, fullScan ? tr("Scanning every matrix value to determine a compact target type. This may take some time.") : tr("Analyzing a bounded sample of the matrix to estimate a compact target type."));
+    const auto analysisDescription = fullScan ? tr("Scanning every matrix value to determine a compact target type. This may take some time.") : tr("Analyzing a bounded sample of the matrix to estimate a compact target type.");
+    updatePrecisionCheck(mv::util::SeverityLevel::Info, analysisDescription);
     _analysisRunning = true;
     updateImportActionState();
     if (!fullScan)
@@ -431,7 +289,7 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
         guardedDialog->updateImportActionState();
         if (!result || result->getStatus() != mv::workflow::WorkflowResultBase::Status::Success || scanResult->recommendedTypeIndex < 0)
         {
-            guardedDialog->_precisionCheckAction.setObservation(mv::util::SeverityLevel::Warning, guardedDialog->tr("The target element type could not be analyzed from this file."));
+            guardedDialog->updatePrecisionCheck(mv::util::SeverityLevel::Warning, guardedDialog->tr("The target element type could not be analyzed from this file."));
             guardedDialog->_dataSummarySeverity = mv::util::SeverityLevel::Warning;
             guardedDialog->_dataSummaryDescription = guardedDialog->tr("The data summary could not be determined.");
             guardedDialog->updateDataSummaryCard();
@@ -475,17 +333,57 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
             guardedDialog->_dataSummaryDescription = guardedDialog->tr("The bounded sample could not estimate sparsity.");
             guardedDialog->updateDataSummaryCard();
         }
-        if (fullScan)
-            guardedDialog->_precisionCheckAction.setObservation(isPotentiallyLossyStorageType(selectedType, guardedDialog->_sourceMayLosePrecision) ? mv::util::SeverityLevel::Warning : mv::util::SeverityLevel::Info, guardedDialog->tr("The recommendation was determined by scanning all matrix values. Selecting a narrower type may still discard precision or truncate values."));
-        else
-            guardedDialog->_precisionCheckAction.setObservation(isPotentiallyLossyStorageType(selectedType, guardedDialog->_sourceMayLosePrecision) ? mv::util::SeverityLevel::Warning : mv::util::SeverityLevel::Info, guardedDialog->tr("The recommendation is based on a bounded sample. Values outside the sample may require a wider type."));
+        const auto precisionSeverity = isPotentiallyLossyStorageType(selectedType, guardedDialog->_sourceMayLosePrecision) ? mv::util::SeverityLevel::Warning : mv::util::SeverityLevel::Info;
+        const auto precisionDescription = fullScan ?
+            guardedDialog->tr("The recommendation was determined by scanning all matrix values. Selecting a narrower type may still discard precision or truncate values.") :
+            guardedDialog->tr("The recommendation is based on a bounded sample. Values outside the sample may require a wider type.");
+        guardedDialog->updatePrecisionCheck(precisionSeverity, precisionDescription);
     });
 }
 
 void H5ADImportDialog::updateDataSummaryCard()
 {
-    const auto fullScanActionText = !_analysisRunning && !_fullScanComplete ? tr("Full scan") : QString();
-    _dataSummaryCheckAction.setObservation(_dataSummarySeverity, _dataSummaryDescription, fullScanActionText);
+    mv::gui::MessageCardAction::ButtonActions buttonActions;
+    if (!_analysisRunning && !_fullScanComplete)
+        buttonActions.append({ tr("Full scan"), [this] { analyzeTargetElementType(true); } });
+
+    _dataSummaryCheckAction.setMessage(_dataSummarySeverity, tr("Data summary"), _dataSummaryDescription, buttonActions);
+}
+
+void H5ADImportDialog::updateMemoryCheck(const mv::util::SeverityLevel severity, const QString& description, const bool offerTiledStorage)
+{
+    mv::gui::MessageCardAction::ButtonActions buttonActions;
+    if (offerTiledStorage)
+        buttonActions.append({ tr("Use tiled storage"), [this] { _backendSelector.setBackendType("Tiled"); } });
+
+    _memoryCheckAction.setMessage(severity, tr("Memory"), description, buttonActions);
+}
+
+void H5ADImportDialog::updateStagingCheck(const mv::util::SeverityLevel severity, const QString& description, const bool offerChooseDirectory, const bool offerResetDirectory)
+{
+    mv::gui::MessageCardAction::ButtonActions buttonActions;
+    if (offerChooseDirectory)
+    {
+        buttonActions.append({ tr("Choose directory"), [this] {
+            const auto pickerActions = _stagingDirectoryAction.getChildren<mv::gui::TriggerAction>();
+            if (!pickerActions.isEmpty())
+                pickerActions.constFirst()->trigger();
+        } });
+    }
+
+    if (offerResetDirectory)
+        buttonActions.append({ tr("Reset to default"), [this] { _stagingDirectoryAction.setDirectory(_defaultStagingDirectory); } });
+
+    _stagingCheckAction.setMessage(severity, tr("Disk space"), description, buttonActions);
+}
+
+void H5ADImportDialog::updatePrecisionCheck(const mv::util::SeverityLevel severity, const QString& description)
+{
+    mv::gui::MessageCardAction::ButtonActions buttonActions;
+    if (_recommendedTypeIndex >= 0 && _storageTypeAction.getTypeAction().getCurrentIndex() != _recommendedTypeIndex)
+        buttonActions.append({ tr("Reset type"), [this] { _storageTypeAction.setRecommendedTypeIndex(_recommendedTypeIndex); } });
+
+    _precisionCheckAction.setMessage(severity, tr("Precision"), description, buttonActions);
 }
 
 QString H5ADImportDialog::backendType()
@@ -517,11 +415,12 @@ void H5ADImportDialog::updateImportChecks()
     }
 
     const auto selectedStorageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
-    const auto resetTypeActionText = _recommendedTypeIndex >= 0 && _storageTypeAction.getTypeAction().getCurrentIndex() != _recommendedTypeIndex ? tr("Reset type") : QString();
-    if (isPotentiallyLossyStorageType(selectedStorageType, _sourceMayLosePrecision))
-        _precisionCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("The selected type or source format may discard precision or truncate values. This can be irreversible; choose a wider type to preserve more information."), resetTypeActionText);
-    else
-        _precisionCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("The selected element type does not introduce a known precision reduction for this source format."), resetTypeActionText);
+    const auto precisionIsLossy = isPotentiallyLossyStorageType(selectedStorageType, _sourceMayLosePrecision);
+    const auto precisionSeverity = precisionIsLossy ? mv::util::SeverityLevel::Warning : mv::util::SeverityLevel::Info;
+    const auto precisionDescription = precisionIsLossy ?
+        tr("The selected type or source format may discard precision or truncate values. This can be irreversible; choose a wider type to preserve more information.") :
+        tr("The selected element type does not introduce a known precision reduction for this source format.");
+    updatePrecisionCheck(precisionSeverity, precisionDescription);
 
     bool hasMatrixEstimate = _rows > 0 && _columns > 0;
     std::uint64_t matrixBytes = 0;
@@ -546,8 +445,8 @@ void H5ADImportDialog::updateImportChecks()
     {
         _eagerMemoryLimitExceeded = false;
         updateImportActionState();
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("The matrix size could not be estimated from the file dimensions."));
-        _stagingCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("The required staging space could not be estimated."));
+        updateMemoryCheck(mv::util::SeverityLevel::Info, tr("The matrix size could not be estimated from the file dimensions."));
+        updateStagingCheck(mv::util::SeverityLevel::Info, tr("The required staging space could not be estimated."), false, false);
         return;
     }
 
@@ -600,42 +499,44 @@ void H5ADImportDialog::updateImportChecks()
 
     if (tiled)
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, memorySummary);
+        updateMemoryCheck(mv::util::SeverityLevel::Info, memorySummary);
     }
     else if (_eagerMemoryLimitExceeded)
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Error, tr("%1 The selected backend's lower-bound payload estimate exceeds the conservative memory budget of %2 (75% of installed RAM). Switch to tiled storage to continue.")
-            .arg(memorySummary, mv::util::getNoBytesHumanReadable(safeMemoryBudgetBytes)), tr("Use tiled storage"));
+        const auto memoryDescription = tr("%1 The selected backend's lower-bound payload estimate exceeds the conservative memory budget of %2 (75% of installed RAM). Switch to tiled storage to continue.")
+            .arg(memorySummary, mv::util::getNoBytesHumanReadable(safeMemoryBudgetBytes));
+        updateMemoryCheck(mv::util::SeverityLevel::Error, memoryDescription, true);
     }
     else if (eager && combinedBytes > eagerRecommendationThreshold)
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("%1 Eager import may need additional working memory; tiled storage is recommended above 4 GiB.").arg(memorySummary), tr("Use tiled storage"));
+        const auto memoryDescription = tr("%1 Eager import may need additional working memory; tiled storage is recommended above 4 GiB.").arg(memorySummary);
+        updateMemoryCheck(mv::util::SeverityLevel::Warning, memoryDescription, true);
     }
     else
     {
-        _memoryCheckAction.setObservation(mv::util::SeverityLevel::Info, memorySummary);
+        updateMemoryCheck(mv::util::SeverityLevel::Info, memorySummary);
     }
 
     if (!tiled)
     {
-        _stagingCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("Staging space is not required for %1 storage.").arg(selectedBackend.toLower()));
+        updateStagingCheck(mv::util::SeverityLevel::Info, tr("Staging space is not required for %1 storage.").arg(selectedBackend.toLower()), false, false);
         return;
     }
 
     const auto isDefaultStagingDirectory = QDir::cleanPath(stagingDirectory()) == QDir::cleanPath(_defaultStagingDirectory);
-    const auto resetActionText = isDefaultStagingDirectory ? QString() : tr("Reset to default");
+    const auto unavailableSpaceDescription = tr("Free space could not be checked for the selected staging directory.");
     QStorageInfo stagingStorage(_stagingDirectoryAction.getDirectory());
     stagingStorage.refresh();
     if (!stagingStorage.isValid() || !stagingStorage.isReady())
     {
-        _stagingCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("Free space could not be checked for the selected staging directory."), tr("Choose directory"), resetActionText);
+        updateStagingCheck(mv::util::SeverityLevel::Warning, unavailableSpaceDescription, true, !isDefaultStagingDirectory);
         return;
     }
 
     const auto availableBytesSigned = stagingStorage.bytesAvailable();
     if (availableBytesSigned < 0)
     {
-        _stagingCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("Free space could not be checked for the selected staging directory."), tr("Choose directory"), resetActionText);
+        updateStagingCheck(mv::util::SeverityLevel::Warning, unavailableSpaceDescription, true, !isDefaultStagingDirectory);
         return;
     }
 
@@ -643,12 +544,14 @@ void H5ADImportDialog::updateImportChecks()
     const auto availableSpace = mv::util::getNoBytesHumanReadable(availableBytes);
     if (availableBytes < matrixBytes)
     {
-        _stagingCheckAction.setObservation(mv::util::SeverityLevel::Warning, tr("Potential disk-space issue: %1 is available, below the %2 dense-equivalent estimate. Sparse data and compression may reduce actual staging use.")
-            .arg(availableSpace, matrixSize), tr("Choose directory"), resetActionText);
+        const auto stagingDescription = tr("Potential disk-space issue: %1 is available, below the %2 dense-equivalent estimate. Sparse data and compression may reduce actual staging use.")
+            .arg(availableSpace, matrixSize);
+        updateStagingCheck(mv::util::SeverityLevel::Warning, stagingDescription, true, !isDefaultStagingDirectory);
     }
     else
     {
-        _stagingCheckAction.setObservation(mv::util::SeverityLevel::Info, tr("%1 is available; the dense-equivalent matrix estimate is %2. Sparse data and compression may reduce actual staging use.")
-            .arg(availableSpace, matrixSize), {}, resetActionText);
+        const auto stagingDescription = tr("%1 is available; the dense-equivalent matrix estimate is %2. Sparse data and compression may reduce actual staging use.")
+            .arg(availableSpace, matrixSize);
+        updateStagingCheck(mv::util::SeverityLevel::Info, stagingDescription, false, !isDefaultStagingDirectory);
     }
 }
