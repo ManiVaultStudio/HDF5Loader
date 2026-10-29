@@ -1,8 +1,8 @@
 #include "H5ADImportDialog.h"
 
 #include <PointData/PointData.h>
-#include <PointData/storage/actions/TiledStorageBackendConfigurationAction.h>
-#include <PointData/storage/widgets/StorageBackendConfigurationDialog.h>
+#include <PointData/storage/interface/StorageBackendConfigurationDialog.h>
+#include <PointData/storage/tiled/TiledStorageBackendConfigurationAction.h>
 #include <util/HardwareSpec.h>
 #include <util/Miscellaneous.h>
 #include <util/RamComponentSpec.h>
