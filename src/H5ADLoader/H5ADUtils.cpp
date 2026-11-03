@@ -15,8 +15,11 @@
 #include <PointData/DimensionsPickerAction.h>
 #include <util/Serialization.h>
 #include <cmath>
+#include <chrono>
 #include <cstring>
+#include <deque>
 #include <filesystem>
+#include <future>
 #include <mutex>
 #include <set>
 #include <stdexcept>
@@ -265,6 +268,41 @@ namespace H5AD
 			QString path;
 		};
 
+		struct DenseTilePayload
+		{
+			std::size_t tileIndex = 0;
+			QByteArray bytes;
+		};
+
+		struct DenseSuperTileResult
+		{
+			std::size_t superTileIndex = 0;
+			QString path;
+			std::uint64_t uncompressedBytes = 0;
+			std::uint64_t encodeAndWriteMilliseconds = 0;
+			std::vector<std::pair<std::size_t, mv::util::PackedBlobBlock>> blocks;
+		};
+
+		DenseSuperTileResult encodeDenseSuperTile(const std::size_t superTileIndex, const QString& filePath, std::vector<DenseTilePayload> tiles, const mv::util::SharedCodec& codec)
+		{
+			const auto startTime = std::chrono::steady_clock::now();
+			mv::util::PackedBlobFileWriter writer(filePath, codec);
+			DenseSuperTileResult result;
+			result.superTileIndex = superTileIndex;
+			result.path = filePath;
+			result.blocks.reserve(tiles.size());
+
+			for (const auto& tile : tiles)
+			{
+				result.uncompressedBytes += static_cast<std::uint64_t>(tile.bytes.size());
+				result.blocks.emplace_back(tile.tileIndex, writer.append(tile.bytes));
+			}
+
+			writer.close();
+			result.encodeAndWriteMilliseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime).count());
+			return result;
+		}
+
 		struct StagedPointData
 		{
 			std::uint64_t rows = 0;
@@ -332,6 +370,7 @@ namespace H5AD
 
 		std::shared_ptr<StagedPointData> stageDenseData(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress)
 		{
+			const auto stagingStartTime = std::chrono::steady_clock::now();
 			const auto elementSize = getTiledElementSize(elementType);
 			const auto staging = std::make_shared<StagedPointData>();
 			staging->rows = rows;
@@ -349,40 +388,112 @@ namespace H5AD
 			const auto tileCount = staging->tileRows * staging->tileColumns;
 			staging->tiles.resize(static_cast<std::size_t>(tileCount));
 			std::uint64_t completedTileCount = 0;
-			if (progress)
-				progress(0.0f);
+			std::uint64_t completedReadTileCount = 0;
+			std::uint64_t inFlightBytes = 0;
+			std::uint64_t readMilliseconds = 0;
+			std::uint64_t encodeAndWriteMilliseconds = 0;
+			std::uint64_t stagedBytes = 0;
+			constexpr std::size_t maxInFlightSuperTiles = 4;
+			constexpr std::uint64_t maxInFlightBytes = 256ull * 1024ull * 1024ull;
+			std::deque<std::future<DenseSuperTileResult>> encodingJobs;
+			float reportedProgress = 0.0f;
+			auto reportProgress = [&](const float value) {
+				reportedProgress = std::max(reportedProgress, value);
+				if (progress)
+					progress(reportedProgress);
+			};
+			reportProgress(0.0f);
+
+			auto collectEncodedSuperTile = [&] {
+				auto encoded = encodingJobs.front().get();
+				encodingJobs.pop_front();
+				inFlightBytes -= encoded.uncompressedBytes;
+				encodeAndWriteMilliseconds += encoded.encodeAndWriteMilliseconds;
+				staging->superTiles[encoded.superTileIndex] = { encoded.path };
+				for (const auto& [tileIndex, block] : encoded.blocks)
+					staging->tiles[tileIndex].block = block;
+				completedTileCount += encoded.blocks.size();
+				reportProgress(static_cast<float>(0.8 + 0.2 * static_cast<double>(completedTileCount) / static_cast<double>(tileCount)));
+			};
 
 			for (std::uint64_t superTileRow = 0; superTileRow < staging->tileRows; superTileRow += staging->superTileRows)
 			{
 				for (std::uint64_t superTileColumn = 0; superTileColumn < staging->tileColumns; superTileColumn += staging->superTileColumns)
 				{
-					const auto superTileIndex = staging->superTiles.size();
+					const auto superTileIndex = static_cast<std::size_t>(superTileRow / staging->superTileRows * ((staging->tileColumns + staging->superTileColumns - 1) / staging->superTileColumns) + superTileColumn / staging->superTileColumns);
 					const auto fileName = QStringLiteral("supertile_%1.ptpack").arg(superTileIndex, 8, 10, QLatin1Char('0'));
 					const auto filePath = QDir(stagingDirectory).filePath(fileName);
-					mv::util::PackedBlobFileWriter writer(filePath, staging->codec);
-
-					for (std::uint64_t tileRow = superTileRow; tileRow < std::min<std::uint64_t>(staging->tileRows, superTileRow + staging->superTileRows); ++tileRow)
+					const auto lastTileRow = std::min<std::uint64_t>(staging->tileRows, superTileRow + staging->superTileRows);
+					const auto lastTileColumn = std::min<std::uint64_t>(staging->tileColumns, superTileColumn + staging->superTileColumns);
+					std::uint64_t superTileByteCount = 0;
+					for (std::uint64_t tileRow = superTileRow; tileRow < lastTileRow; ++tileRow)
 					{
-						for (std::uint64_t tileColumn = superTileColumn; tileColumn < std::min<std::uint64_t>(staging->tileColumns, superTileColumn + staging->superTileColumns); ++tileColumn)
+						for (std::uint64_t tileColumn = superTileColumn; tileColumn < lastTileColumn; ++tileColumn)
 						{
+							const auto rowOffset = tileRow * staging->rowTileSize;
+							const auto columnOffset = tileColumn * staging->columnTileSize;
+							const auto rowsInTile = std::min<std::uint64_t>(staging->rowTileSize, rows - rowOffset);
+							const auto columnsInTile = std::min<std::uint64_t>(staging->columnTileSize, columns - columnOffset);
+							superTileByteCount += rowsInTile * columnsInTile * elementSize;
+						}
+					}
+
+					while (!encodingJobs.empty() && (encodingJobs.size() >= maxInFlightSuperTiles || inFlightBytes >= maxInFlightBytes || superTileByteCount > maxInFlightBytes - inFlightBytes))
+						collectEncodedSuperTile();
+
+					std::vector<DenseTilePayload> tilePayloads;
+					tilePayloads.reserve(static_cast<std::size_t>((lastTileRow - superTileRow) * (lastTileColumn - superTileColumn)));
+
+					for (std::uint64_t tileRow = superTileRow; tileRow < lastTileRow; ++tileRow)
+					{
+						for (std::uint64_t tileColumn = superTileColumn; tileColumn < lastTileColumn; ++tileColumn)
+						{
+							reportProgress(static_cast<float>(0.8 * static_cast<double>(completedReadTileCount) / static_cast<double>(tileCount)));
+
 							const auto rowOffset = tileRow * staging->rowTileSize;
 							const auto columnOffset = tileColumn * staging->columnTileSize;
 							const auto tileRows = std::min<std::uint64_t>(staging->rowTileSize, rows - rowOffset);
 							const auto tileColumns = std::min<std::uint64_t>(staging->columnTileSize, columns - columnOffset);
+							const auto readStartTime = std::chrono::steady_clock::now();
 							const auto bytes = readH5ADTile(dataset, elementType, rowOffset, columnOffset, tileRows, tileColumns);
-							const auto block = writer.append(bytes);
+							readMilliseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStartTime).count());
+							stagedBytes += static_cast<std::uint64_t>(bytes.size());
 
 							const auto tileIndex = static_cast<std::size_t>(tileRow * staging->tileColumns + tileColumn);
-							staging->tiles[tileIndex] = { rowOffset, columnOffset, tileRows, tileColumns, superTileIndex, block };
-							if (progress)
-								progress(static_cast<float>(++completedTileCount) / static_cast<float>(tileCount));
+							staging->tiles[tileIndex] = { rowOffset, columnOffset, tileRows, tileColumns, superTileIndex, {} };
+							tilePayloads.push_back({ tileIndex, bytes });
+							++completedReadTileCount;
 						}
 					}
 
-					writer.close();
-					staging->superTiles.push_back({ filePath });
+					const auto codec = createStagingCodec();
+					staging->superTiles.resize(std::max(staging->superTiles.size(), superTileIndex + 1));
+					inFlightBytes += superTileByteCount;
+					encodingJobs.emplace_back(std::async(std::launch::async, [superTileIndex, filePath, tilePayloads = std::move(tilePayloads), codec]() mutable {
+						return encodeDenseSuperTile(superTileIndex, filePath, std::move(tilePayloads), codec);
+					}));
 				}
 			}
+
+			while (!encodingJobs.empty())
+				collectEncodedSuperTile();
+
+			const auto datasetProperties = dataset.getCreatePlist();
+			QString sourceLayout = QStringLiteral("contiguous");
+			if (datasetProperties.getLayout() == H5D_CHUNKED)
+			{
+				hsize_t sourceChunkDimensions[2] = {};
+				datasetProperties.getChunk(2, sourceChunkDimensions);
+				sourceLayout = QStringLiteral("chunked %1x%2").arg(sourceChunkDimensions[0]).arg(sourceChunkDimensions[1]);
+			}
+			const auto totalMilliseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stagingStartTime).count());
+			qInfo().noquote() << QStringLiteral("H5AD dense staging: %1 MiB in %2 ms; HDF5 reads %3 ms; compression/writes %4 worker-ms; source %5; %6 tiles")
+				.arg(static_cast<double>(stagedBytes) / (1024.0 * 1024.0), 0, 'f', 1)
+				.arg(totalMilliseconds)
+				.arg(readMilliseconds)
+				.arg(encodeAndWriteMilliseconds)
+				.arg(sourceLayout)
+				.arg(tileCount);
 
 			return staging;
 		}
