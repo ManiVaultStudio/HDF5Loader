@@ -911,6 +911,7 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		options.cancellation.enabled = true;
 		options.reporting.progress = true;
 		options.reporting.finishedNotification = true;
+		options.profiling.sinkType = mv::workflow::WorkflowProfilingOptions::SinkType::ChromeTracing;
 		auto future = mv::Application::getWorkflowPlanExecutor().execute(std::move(workflow), nullptr, options);
 		future.onFinished(_workflowReceiver, [pointsDataset](const mv::workflow::SharedWorkflowResult& result) {
 			if (!result || result->getStatus() != mv::workflow::WorkflowResultBase::Status::Success)
