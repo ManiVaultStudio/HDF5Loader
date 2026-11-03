@@ -818,6 +818,9 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 
 		workflow->addSequentialStage(QObject::tr("Stage HDF5 point data"), [loader, loaderInfo, storageType = options.storageType](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
 			const H5AD::ProgressCallback progress = [executionContext](const float value) {
+				if (const auto task = executionContext->getTask(); task && (task->isAboutToBeAborted() || task->isAborting() || task->isAborted()))
+					throw std::runtime_error("H5AD point-data staging canceled");
+
 				executionContext->setProgress(value);
 			};
 
