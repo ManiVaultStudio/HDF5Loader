@@ -99,7 +99,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _defaultStagingDirectory(defaultStagingDirectory),
     _bucketingThreadCountAction(&_settingsAction, "Bucketing threads", 1, 32, getDefaultStagingWorkerCount()),
     _stagingThreadCountAction(&_settingsAction, "Staging threads", 1, 32, getDefaultStagingWorkerCount()),
-    _rowChunkTileFactorAction(&_settingsAction, "CSR chunk tile-height factor", 1, 256, 63),
+    _rowChunkTileFactorAction(&_settingsAction, "CSR chunk tile-height factor", 1, 256, 3),
     _checksAction(&_settingsAction, "Import checks", true),
     _memoryCheckAction(&_checksAction),
     _stagingCheckAction(&_checksAction),

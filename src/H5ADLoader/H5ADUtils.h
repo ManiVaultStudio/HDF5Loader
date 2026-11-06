@@ -36,7 +36,7 @@ namespace H5AD
 		mv::pointdata::storage::StorageBackendConfiguration _tiledStorageConfiguration; /**< Selected tiled geometry and cache settings for X. */
 		std::size_t                  _bucketingThreadCount = 4; /**< Worker limit for sparse CSR bucketing. */
 		std::size_t                  _stagingThreadCount = 4; /**< Worker limit for packed tile materialization and encoding. */
-		std::size_t                  _rowChunkTileFactor = 63; /**< Tile-height multiple grouped into each CSR staging batch. */
+		std::size_t                  _rowChunkTileFactor = 3; /**< Tile-height multiple grouped into each CSR staging batch. */
 		std::vector<QString>         _originalDimensionNames;    /**< Dimension names discovered from var. */
 		QVariantList                 _sampleNames;               /**< Sample names discovered from obs. */
 		std::vector<bool>            _enabledDimensions;         /**< Optional dimension-selection mask. */

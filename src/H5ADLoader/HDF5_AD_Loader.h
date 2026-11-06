@@ -40,7 +40,7 @@ struct H5ADImportOptions
 	mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration; /**< Tile geometry and cache configuration used when tiled storage is selected. */
 	std::size_t bucketingThreadCount = 4; /**< Worker limit for distributing sparse CSR entries to output tiles. */
 	std::size_t stagingThreadCount = 4; /**< Worker limit for materializing, compressing, and writing packed tiles. */
-	std::size_t rowChunkTileFactor = 63; /**< Number of tile heights grouped into each sparse CSR staging batch. */
+	std::size_t rowChunkTileFactor = 3; /**< Number of tile heights grouped into each sparse CSR staging batch. */
 };
 
 /**
