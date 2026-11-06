@@ -8,11 +8,9 @@
 #include <util/RamComponentSpec.h>
 #include <util/StyledIcon.h>
 
-#include <QDir>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QSizePolicy>
-#include <QStorageInfo>
 #include <QTableView>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -25,6 +23,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <utility>
 
@@ -94,15 +93,12 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _datasetNameAction(&_settingsAction, "Dataset name", QFileInfo(fileName).baseName()),
     _storageTypeAction(&_settingsAction, "Data type"),
     _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Eager", "Tiled", "Sparse" } : QStringList { "Eager", "Tiled" }, "Tiled"),
-    _stagingActions(&_settingsAction, "Temporary storage"),
-    _stagingDirectoryAction(&_stagingActions, "Location", stagingDirectory),
+    _stagingDirectory(stagingDirectory),
     _defaultStagingDirectory(defaultStagingDirectory),
-    _bucketingThreadCountAction(&_settingsAction, "Bucketing threads", 1, 32, getDefaultStagingWorkerCount()),
-    _stagingThreadCountAction(&_settingsAction, "Staging threads", 1, 32, getDefaultStagingWorkerCount()),
-    _rowChunkTileFactorAction(&_settingsAction, "CSR chunk tile-height factor", 1, 256, 3),
+    _bucketingThreadCount(static_cast<std::size_t>(getDefaultStagingWorkerCount())),
+    _stagingThreadCount(static_cast<std::size_t>(getDefaultStagingWorkerCount())),
     _checksAction(&_settingsAction, "Import checks", true),
     _memoryCheckAction(&_checksAction),
-    _stagingCheckAction(&_checksAction),
     _precisionCheckAction(&_checksAction),
     _dataSummaryCheckAction(&_checksAction),
     _optionalObjectsAction(&_settingsAction, "Optional metadata", optionalObjects),
@@ -119,21 +115,19 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
 {
     setWindowTitle(tr("Import H5AD"));
     setWindowIcon(mv::util::StyledIcon("file-import"));
-    resize(600, 600);
 
     _settingsAction.setShowLabels(true);
     _settingsAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
     _settingsAction.setLabelSizingType(mv::gui::GroupAction::LabelSizingType::Fixed);
     _settingsAction.setLabelWidthFixed(180);
+    _memoryCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
+    _precisionCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
+    _dataSummaryCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
     _fileAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
     _matrixAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
     _datasetNameAction.setDefaultWidgetFlags(mv::gui::StringAction::LineEdit);
     _storageTypeAction.getTypeAction().setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
     _optionalObjectsAction.setDefaultWidgetFlags(mv::gui::OptionsAction::Tags);
-    _stagingDirectoryAction.setConfigurationFlag(mv::gui::WidgetAction::ConfigurationFlag::NoLabelInGroup);
-    _bucketingThreadCountAction.setDefaultWidgetFlags(mv::gui::IntegralAction::SpinBox);
-    _stagingThreadCountAction.setDefaultWidgetFlags(mv::gui::IntegralAction::SpinBox);
-    _rowChunkTileFactorAction.setDefaultWidgetFlags(mv::gui::IntegralAction::SpinBox);
     _checksAction.setShowLabels(false);
     _checksAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
     _buttonsAction.setShowLabels(false);
@@ -167,11 +161,6 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _settingsAction.addAction(&_datasetNameAction);
     _settingsAction.addAction(&_storageTypeAction);
     _settingsAction.addAction(&_backendSelector);
-    _settingsAction.addAction(&_stagingActions);
-    _stagingActions.addAction(&_stagingDirectoryAction);
-    _settingsAction.addAction(&_bucketingThreadCountAction);
-    _settingsAction.addAction(&_stagingThreadCountAction);
-    _settingsAction.addAction(&_rowChunkTileFactorAction);
     _settingsAction.addAction(&_optionalObjectsAction, -1, [this](mv::gui::WidgetAction*, QWidget* widget) {
         auto* tableView = widget->findChild<QTableView*>(QStringLiteral("TableView"));
         if (!tableView)
@@ -187,7 +176,6 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     });
     _settingsAction.addAction(&_checksAction);
     _checksAction.addAction(&_memoryCheckAction);
-    _checksAction.addAction(&_stagingCheckAction);
     _checksAction.addAction(&_precisionCheckAction);
     _checksAction.addAction(&_dataSummaryCheckAction);
     _buttonsAction.addStretch(1);
@@ -202,25 +190,12 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _backendSelector.getConfigureAction().setIconByName("gear");
     connect(&_backendSelector, &StorageBackendConfiguratorAction::backendTypeChanged, this, [this](const QString& type) {
         _backendSelector.setConfigureEnabled(type == "Tiled");
-        _stagingDirectoryAction.setEnabled(type == "Tiled");
-        _bucketingThreadCountAction.setEnabled(type == "Tiled");
-        _stagingThreadCountAction.setEnabled(type == "Tiled");
-        _rowChunkTileFactorAction.setEnabled(type == "Tiled");
         updateImportChecks();
     });
     const auto initialBackendType = sparseMatrixInfo.available || backendType != "Sparse" ? backendType : QStringLiteral("Tiled");
     _backendSelector.setBackendType(initialBackendType);
     _backendSelector.setConfigureEnabled(initialBackendType == "Tiled");
-    connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, [this] {
-        auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, sizeof(float), _tiledConfiguration, true);
-        auto* configurationActionPtr = configurationAction.get();
-        StorageBackendConfigurationDialog dialog(std::move(configurationAction), StorageBackendConfigurationDialog::Purpose::Import, this);
-        if (dialog.exec() != QDialog::Accepted)
-            return;
-
-        _tiledConfiguration = configurationActionPtr->getConfiguration();
-        updateImportChecks();
-    });
+    connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, &H5ADImportDialog::configureTiledStorage);
     connect(&_datasetNameAction, &mv::gui::StringAction::stringChanged, this, [this] {
         updateImportActionState();
     });
@@ -231,21 +206,15 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         updateImportChecks();
     });
     connect(&_storageTypeAction, &TargetElementTypeAction::estimateRequested, this, &H5ADImportDialog::estimateTargetElementType);
-    connect(&_stagingDirectoryAction, &mv::gui::DirectoryPickerAction::directoryChanged, this, [this](const QString&) {
-        updateImportChecks();
-    });
     connect(&_importAction, &mv::gui::TriggerAction::triggered, this, &QDialog::accept);
     connect(&_cancelAction, &mv::gui::TriggerAction::triggered, this, &QDialog::reject);
 
-    _stagingDirectoryAction.setEnabled(initialBackendType == "Tiled");
-    _bucketingThreadCountAction.setEnabled(initialBackendType == "Tiled");
-    _stagingThreadCountAction.setEnabled(initialBackendType == "Tiled");
-    _rowChunkTileFactorAction.setEnabled(initialBackendType == "Tiled");
     _dataSummarySeverity = mv::util::SeverityLevel::Warning;
     _dataSummaryDescription = tr("Estimating target type and sparsity from a bounded sample...");
     updateDataSummaryCard();
     updateImportChecks();
     QTimer::singleShot(0, this, [this] { estimateTargetElementType(); });
+    resize(600, 450);
 }
 
 H5ADImportOptions H5ADImportDialog::options()
@@ -255,9 +224,9 @@ H5ADImportOptions H5ADImportDialog::options()
     result.storageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
     result.storageBackendType = mv::pointdata::storage::getStorageBackendType(backendType()).value_or(mv::pointdata::storage::StorageBackendType::Tiled);
     result.tiledStorageConfiguration = _tiledConfiguration;
-    result.bucketingThreadCount = static_cast<std::size_t>(_bucketingThreadCountAction.getValue());
-    result.stagingThreadCount = static_cast<std::size_t>(_stagingThreadCountAction.getValue());
-    result.rowChunkTileFactor = static_cast<std::size_t>(_rowChunkTileFactorAction.getValue());
+    result.bucketingThreadCount = _bucketingThreadCount;
+    result.stagingThreadCount = _stagingThreadCount;
+    result.rowChunkTileFactor = _rowChunkTileFactor;
     result.optionalObjects = _optionalObjectsAction.getSelectedOptions();
     result.stagingDirectory = stagingDirectory();
     return result;
@@ -384,24 +353,6 @@ void H5ADImportDialog::updateMemoryCheck(const mv::util::SeverityLevel severity,
     _memoryCheckAction.setMessage(severity, tr("Memory"), description, buttonActions);
 }
 
-void H5ADImportDialog::updateStagingCheck(const mv::util::SeverityLevel severity, const QString& description, const bool offerChooseDirectory, const bool offerResetDirectory)
-{
-    mv::gui::MessageCardAction::ButtonActions buttonActions;
-    if (offerChooseDirectory)
-    {
-        buttonActions.append({ tr("Choose directory"), [this] {
-            const auto pickerActions = _stagingDirectoryAction.getChildren<mv::gui::TriggerAction>();
-            if (!pickerActions.isEmpty())
-                pickerActions.constFirst()->trigger();
-        } });
-    }
-
-    if (offerResetDirectory)
-        buttonActions.append({ tr("Reset to default"), [this] { _stagingDirectoryAction.setDirectory(_defaultStagingDirectory); } });
-
-    _stagingCheckAction.setMessage(severity, tr("Disk space"), description, buttonActions);
-}
-
 void H5ADImportDialog::updatePrecisionCheck(const mv::util::SeverityLevel severity, const QString& description)
 {
     mv::gui::MessageCardAction::ButtonActions buttonActions;
@@ -418,7 +369,34 @@ QString H5ADImportDialog::backendType()
 
 QString H5ADImportDialog::stagingDirectory() const
 {
-    return _stagingDirectoryAction.getDirectory();
+    return _stagingDirectory;
+}
+
+void H5ADImportDialog::configureTiledStorage()
+{
+    std::size_t elementSize = sizeof(float);
+    switch (_storageTypeAction.getTypeAction().getCurrentIndex() - 3)
+    {
+        case 1: elementSize = 2; break;
+        case 4: elementSize = 2; break;
+        case 5: elementSize = 2; break;
+        case 6: elementSize = 1; break;
+        case 7: elementSize = 1; break;
+        default: break;
+    }
+
+    auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, elementSize, _tiledConfiguration, true, std::nullopt, true, _bucketingThreadCount, _stagingThreadCount, _rowChunkTileFactor, true, _stagingDirectory, _defaultStagingDirectory);
+    auto* configurationActionPtr = configurationAction.get();
+    StorageBackendConfigurationDialog dialog(std::move(configurationAction), StorageBackendConfigurationDialog::Purpose::Import, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    _tiledConfiguration = configurationActionPtr->getConfiguration();
+    _bucketingThreadCount = configurationActionPtr->getBucketingThreadCount();
+    _stagingThreadCount = configurationActionPtr->getStagingThreadCount();
+    _rowChunkTileFactor = configurationActionPtr->getRowChunkTileFactor();
+    _stagingDirectory = configurationActionPtr->getStagingDirectory();
+    updateImportChecks();
 }
 
 void H5ADImportDialog::updateImportActionState()
@@ -471,7 +449,6 @@ void H5ADImportDialog::updateImportChecks()
         _eagerMemoryLimitExceeded = false;
         updateImportActionState();
         updateMemoryCheck(mv::util::SeverityLevel::Info, tr("The matrix size could not be estimated from the file dimensions."));
-        updateStagingCheck(mv::util::SeverityLevel::Info, tr("The required staging space could not be estimated."), false, false);
         return;
     }
 
@@ -542,41 +519,4 @@ void H5ADImportDialog::updateImportChecks()
         updateMemoryCheck(mv::util::SeverityLevel::Info, memorySummary);
     }
 
-    if (!tiled)
-    {
-        updateStagingCheck(mv::util::SeverityLevel::Info, tr("Staging space is not required for %1 storage.").arg(selectedBackend.toLower()), false, false);
-        return;
-    }
-
-    const auto isDefaultStagingDirectory = QDir::cleanPath(stagingDirectory()) == QDir::cleanPath(_defaultStagingDirectory);
-    const auto unavailableSpaceDescription = tr("Free space could not be checked for the selected staging directory.");
-    QStorageInfo stagingStorage(_stagingDirectoryAction.getDirectory());
-    stagingStorage.refresh();
-    if (!stagingStorage.isValid() || !stagingStorage.isReady())
-    {
-        updateStagingCheck(mv::util::SeverityLevel::Warning, unavailableSpaceDescription, true, !isDefaultStagingDirectory);
-        return;
-    }
-
-    const auto availableBytesSigned = stagingStorage.bytesAvailable();
-    if (availableBytesSigned < 0)
-    {
-        updateStagingCheck(mv::util::SeverityLevel::Warning, unavailableSpaceDescription, true, !isDefaultStagingDirectory);
-        return;
-    }
-
-    const auto availableBytes = static_cast<std::uint64_t>(availableBytesSigned);
-    const auto availableSpace = mv::util::getNoBytesHumanReadable(availableBytes);
-    if (availableBytes < matrixBytes)
-    {
-        const auto stagingDescription = tr("Potential disk-space issue: %1 is available, below the %2 dense-equivalent estimate. Sparse data and compression may reduce actual staging use.")
-            .arg(availableSpace, matrixSize);
-        updateStagingCheck(mv::util::SeverityLevel::Warning, stagingDescription, true, !isDefaultStagingDirectory);
-    }
-    else
-    {
-        const auto stagingDescription = tr("%1 is available; the dense-equivalent matrix estimate is %2. Sparse data and compression may reduce actual staging use.")
-            .arg(availableSpace, matrixSize);
-        updateStagingCheck(mv::util::SeverityLevel::Info, stagingDescription, false, !isDefaultStagingDirectory);
-    }
 }

@@ -3,7 +3,6 @@
 #include "HDF5_AD_Loader.h"
 
 #include <PointData/StorageBackendConfiguratorAction.h>
-#include <actions/DirectoryPickerAction.h>
 #include <actions/HorizontalGroupAction.h>
 #include <actions/IntegralAction.h>
 #include <actions/MessageCardAction.h>
@@ -17,6 +16,7 @@
 #include <QDialog>
 #include <QPointer>
 
+#include <cstddef>
 #include <memory>
 
 /**
@@ -101,18 +101,14 @@ private:
     /** Updates the memory card and optionally offers switching to tiled storage. */
     void updateMemoryCheck(mv::util::SeverityLevel severity, const QString& description, bool offerTiledStorage = false);
 
-    /**
-     * Updates the staging card with the requested directory actions.
-     * @param offerChooseDirectory Adds an action that opens the staging directory picker.
-     * @param offerResetDirectory Adds an action that restores the default staging directory.
-     */
-    void updateStagingCheck(mv::util::SeverityLevel severity, const QString& description, bool offerChooseDirectory, bool offerResetDirectory);
-
     /** Updates the precision card and offers resetting to the recommended type when applicable. */
     void updatePrecisionCheck(mv::util::SeverityLevel severity, const QString& description);
 
     /** Starts the bounded sample analysis requested by the estimate control. */
     void estimateTargetElementType();
+
+    /** Opens tiled storage configuration, including its staging-directory choice. */
+    void configureTiledStorage();
 
     /** Starts a bounded sample or full scan workflow for the target element type. */
     void analyzeTargetElementType(bool fullScan);
@@ -126,16 +122,14 @@ private:
     mv::gui::StringAction            _datasetNameAction;        /**< Editable name assigned to the imported dataset. */
     TargetElementTypeAction          _storageTypeAction;        /**< Selects the target element type and requests its estimate. */
     StorageBackendConfiguratorAction _backendSelector;          /**< Selects the destination storage backend and opens its configuration. */
-    mv::gui::HorizontalGroupAction   _stagingActions;           /**< Groups staging-directory controls. */
-    mv::gui::DirectoryPickerAction   _stagingDirectoryAction;   /**< Staging directory used when importing with tiled storage. */
+    QString                          _stagingDirectory;         /**< Staging directory selected in tiled storage configuration. */
     QString                          _defaultStagingDirectory;  /**< Directory restored by the staging reset action. */
-    mv::gui::IntegralAction          _bucketingThreadCountAction; /**< Maximum parallel workers used to bucket sparse entries. */
-    mv::gui::IntegralAction          _stagingThreadCountAction;   /**< Maximum parallel workers used to materialize and encode output tiles. */
-    mv::gui::IntegralAction          _rowChunkTileFactorAction;   /**< Tile-height multiple used to batch sparse CSR staging work. */
+    std::size_t                      _bucketingThreadCount = 4; /**< Maximum parallel workers used to bucket sparse entries. */
+    std::size_t                      _stagingThreadCount = 4;   /**< Maximum parallel workers used to materialize and encode output tiles. */
+    std::size_t                      _rowChunkTileFactor = 3;   /**< Tile-height multiple used to batch sparse CSR staging work. */
 
     mv::gui::VerticalGroupAction _checksAction;            /**< Vertical group containing the import-check cards. */
     mv::gui::MessageCardAction   _memoryCheckAction;       /**< Memory estimate and optional tiled-storage callback. */
-    mv::gui::MessageCardAction   _stagingCheckAction;      /**< Staging-space estimate and optional directory callbacks. */
     mv::gui::MessageCardAction   _precisionCheckAction;    /**< Precision warning and optional type-reset callback. */
     mv::gui::MessageCardAction   _dataSummaryCheckAction;  /**< Matrix analysis summary and optional full-scan callback. */
 
