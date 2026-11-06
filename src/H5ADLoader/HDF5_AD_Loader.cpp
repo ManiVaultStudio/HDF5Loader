@@ -12,6 +12,7 @@
 #include <QtGlobal>
 
 #include <cassert>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -811,6 +812,9 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		loaderInfo->_storageBackendType = options.storageBackendType;
 		loaderInfo->_storageType = options.storageType;
 		loaderInfo->_tiledStorageConfiguration = options.tiledStorageConfiguration;
+		loaderInfo->_bucketingThreadCount = std::max<std::size_t>(1, options.bucketingThreadCount);
+		loaderInfo->_stagingThreadCount = std::max<std::size_t>(1, options.stagingThreadCount);
+		loaderInfo->_rowChunkTileFactor = std::clamp<std::size_t>(options.rowChunkTileFactor, 1, 256);
 		loaderInfo->_originalDimensionNames = _dimensionNames;
 		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 		const auto loader = shared_from_this();

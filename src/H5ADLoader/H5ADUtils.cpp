@@ -18,6 +18,8 @@
 #include <chrono>
 #include <cstring>
 #include <deque>
+#include <atomic>
+#include <exception>
 #include <filesystem>
 #include <future>
 #include <mutex>
@@ -561,8 +563,25 @@ namespace H5AD
 			return values;
 		}
 
-		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const PointData::ElementTypeSpecifier elementType, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress)
+		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const PointData::ElementTypeSpecifier elementType, const pointdata::storage::StorageBackendConfiguration& configuration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, const H5AD::ProgressCallback& progress)
 		{
+			struct SparseTileEntry
+			{
+				std::uint64_t index = 0;
+				std::uint64_t row = 0;
+			};
+			struct PendingEncoding
+			{
+				std::future<DenseSuperTileResult> future;
+				std::uint64_t bytes = 0;
+			};
+			struct ActiveCounter
+			{
+				std::atomic<std::size_t>& counter;
+				explicit ActiveCounter(std::atomic<std::size_t>& activeCounter) : counter(activeCounter) { counter.fetch_add(1, std::memory_order_relaxed); }
+				~ActiveCounter() { counter.fetch_sub(1, std::memory_order_relaxed); }
+			};
+
 			const auto elementSize = getTiledElementSize(elementType);
 			const auto staging = std::make_shared<StagedPointData>();
 			staging->rows = rows;
@@ -580,63 +599,187 @@ namespace H5AD
 			const auto tileCount = staging->tileRows * staging->tileColumns;
 			staging->tiles.resize(static_cast<std::size_t>(tileCount));
 			std::uint64_t completedTileCount = 0;
+			const auto effectiveBucketingWorkerCount = std::max<std::size_t>(1, bucketingThreadCount);
+			const auto maxPendingEncoders = std::max<std::size_t>(1, stagingThreadCount);
+			const auto requestedChunkTileRows = std::max<std::size_t>(staging->superTileRows, rowChunkTileFactor);
+			const auto chunkTileRows = ((requestedChunkTileRows + staging->superTileRows - 1) / staging->superTileRows) * staging->superTileRows;
+			constexpr std::uint64_t maxPendingTileBytes = 4ull * 1024ull * 1024ull * 1024ull;
+			const auto columnSuperTileCount = (staging->tileColumns + staging->superTileColumns - 1) / staging->superTileColumns;
+			std::deque<PendingEncoding> pending;
+			std::uint64_t pendingBytes = 0;
+			std::atomic<std::uint64_t> hdf5ReadMilliseconds = 0;
+			std::atomic<std::uint64_t> stagedNonZeroCount = 0;
+			std::atomic<std::uint64_t> bucketingWorkerMilliseconds = 0;
+			std::atomic<std::uint64_t> materializationWorkerMilliseconds = 0;
+			std::atomic<std::uint64_t> encodeAndWriteWorkerMilliseconds = 0;
+			std::atomic<std::size_t> activeBucketers = 0;
+			std::atomic<std::size_t> maximumActiveBucketers = 0;
+			std::atomic<std::size_t> activeEncoders = 0;
+			std::atomic<std::size_t> maximumActiveEncoders = 0;
+			const auto stagingStart = std::chrono::steady_clock::now();
+			auto updateMaximum = [](std::atomic<std::size_t>& maximum, const std::size_t value) {
+				auto observed = maximum.load(std::memory_order_relaxed);
+				while (observed < value && !maximum.compare_exchange_weak(observed, value, std::memory_order_relaxed))
+				{}
+			};
+			auto collectOldest = [&]() {
+				auto encoded = pending.front().future.get();
+				encodeAndWriteWorkerMilliseconds.fetch_add(encoded.encodeAndWriteMilliseconds, std::memory_order_relaxed);
+				pendingBytes -= pending.front().bytes;
+				pending.pop_front();
+				staging->superTiles[encoded.superTileIndex] = { encoded.path };
+				for (const auto& [tileIndex, block] : encoded.blocks)
+				{
+					staging->tiles[tileIndex].block = block;
+					if (progress)
+						progress(static_cast<float>(++completedTileCount) / static_cast<float>(tileCount));
+				}
+			};
 			if (progress)
 				progress(0.0f);
 
-			for (std::uint64_t superTileRow = 0; superTileRow < staging->tileRows; superTileRow += staging->superTileRows)
+			for (std::uint64_t superTileRow = 0; superTileRow < staging->tileRows; superTileRow += chunkTileRows)
 			{
-				const auto superTileRowCount = std::min<std::uint64_t>(staging->superTileRows * staging->rowTileSize, rows - superTileRow * staging->rowTileSize);
 				const auto sourceRowOffset = superTileRow * staging->rowTileSize;
-				const auto indptr = readH5ADRange<std::uint64_t>(indptrSet, sourceRowOffset, superTileRowCount + 1, H5::PredType::NATIVE_UINT64);
+				const auto lastTileRow = std::min<std::uint64_t>(staging->tileRows, superTileRow + chunkTileRows);
+				const auto superTileRowCount = std::min<std::uint64_t>((lastTileRow - superTileRow) * staging->rowTileSize, rows - sourceRowOffset);
+				const auto readStart = std::chrono::steady_clock::now();
+				auto indptr = readH5ADRange<std::uint64_t>(indptrSet, sourceRowOffset, superTileRowCount + 1, H5::PredType::NATIVE_UINT64);
 				const auto valueCount = indptr.back() - indptr.front();
-				const auto indices = valueCount > 0 ? readH5ADRange<std::uint64_t>(indicesSet, indptr.front(), valueCount, H5::PredType::NATIVE_UINT64) : std::vector<std::uint64_t>();
-				const auto values = valueCount > 0 ? readH5ADRange<float>(dataSet, indptr.front(), valueCount, H5::PredType::NATIVE_FLOAT) : std::vector<float>();
+				auto indices = valueCount > 0 ? readH5ADRange<std::uint64_t>(indicesSet, indptr.front(), valueCount, H5::PredType::NATIVE_UINT64) : std::vector<std::uint64_t>();
+				auto values = valueCount > 0 ? readH5ADRange<float>(dataSet, indptr.front(), valueCount, H5::PredType::NATIVE_FLOAT) : std::vector<float>();
+				hdf5ReadMilliseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStart).count()), std::memory_order_relaxed);
 
-				for (std::uint64_t superTileColumn = 0; superTileColumn < staging->tileColumns; superTileColumn += staging->superTileColumns)
+				const auto activeWorkerCount = std::max<std::size_t>(1, std::min<std::size_t>(effectiveBucketingWorkerCount, static_cast<std::size_t>(superTileRowCount)));
+				std::vector<std::vector<std::vector<SparseTileEntry>>> entriesByWorkerAndColumn(activeWorkerCount, std::vector<std::vector<SparseTileEntry>>(static_cast<std::size_t>(columnSuperTileCount)));
+				std::vector<std::future<void>> bucketJobs;
+				bucketJobs.reserve(activeWorkerCount);
+				const auto bucketingStart = std::chrono::steady_clock::now();
+				for (std::size_t workerIndex = 0; workerIndex < activeWorkerCount; ++workerIndex)
+				{
+					const auto firstRow = superTileRowCount * workerIndex / activeWorkerCount;
+					const auto lastRow = superTileRowCount * (workerIndex + 1) / activeWorkerCount;
+					bucketJobs.emplace_back(std::async(std::launch::async, [&, workerIndex, firstRow, lastRow]() {
+					ActiveCounter activeCounter(activeBucketers);
+					const auto active = activeBucketers.load(std::memory_order_relaxed);
+						updateMaximum(maximumActiveBucketers, active);
+						auto& workerBuckets = entriesByWorkerAndColumn[workerIndex];
+						for (auto row = firstRow; row < lastRow; ++row)
+						{
+							const auto begin = indptr[static_cast<std::size_t>(row)] - indptr.front();
+							const auto end = indptr[static_cast<std::size_t>(row + 1)] - indptr.front();
+							for (auto index = begin; index < end; ++index)
+							{
+								const auto column = indices[static_cast<std::size_t>(index)];
+								if (column >= columns)
+									throw std::runtime_error("CSR H5AD column index exceeds matrix dimensions");
+								const auto tileColumn = column / staging->columnTileSize;
+								const auto columnSuperTile = tileColumn / staging->superTileColumns;
+								workerBuckets[static_cast<std::size_t>(columnSuperTile)].push_back({ index, row });
+							}
+						}
+					}));
+				}
+				std::exception_ptr bucketingException;
+				for (auto& job : bucketJobs)
+					try { job.get(); } catch (...) { if (!bucketingException) bucketingException = std::current_exception(); }
+				if (bucketingException)
+					std::rethrow_exception(bucketingException);
+				stagedNonZeroCount.fetch_add(valueCount, std::memory_order_relaxed);
+				bucketingWorkerMilliseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - bucketingStart).count()), std::memory_order_relaxed);
+
+				auto sharedIndices = std::make_shared<std::vector<std::uint64_t>>(std::move(indices));
+				auto sharedValues = std::make_shared<std::vector<float>>(std::move(values));
+				for (std::uint64_t columnSuperTileIndex = 0; columnSuperTileIndex < columnSuperTileCount; ++columnSuperTileIndex)
 				{
 					const auto superTileIndex = staging->superTiles.size();
 					const auto fileName = QStringLiteral("supertile_%1.ptpack").arg(superTileIndex, 8, 10, QLatin1Char('0'));
 					const auto filePath = QDir(stagingDirectory).filePath(fileName);
-					mv::util::PackedBlobFileWriter writer(filePath, staging->codec);
+					const auto superTileColumn = columnSuperTileIndex * staging->superTileColumns;
+					const auto lastTileColumn = std::min<std::uint64_t>(staging->tileColumns, superTileColumn + staging->superTileColumns);
+					const auto tileColumnCount = lastTileColumn - superTileColumn;
+					std::uint64_t outputBytes = 0;
+					for (auto tileRow = superTileRow; tileRow < lastTileRow; ++tileRow)
+						for (auto tileColumn = superTileColumn; tileColumn < lastTileColumn; ++tileColumn)
+							outputBytes += std::min<std::uint64_t>(staging->rowTileSize, rows - tileRow * staging->rowTileSize) * std::min<std::uint64_t>(staging->columnTileSize, columns - tileColumn * staging->columnTileSize) * elementSize;
+					while (!pending.empty() && (pending.size() >= maxPendingEncoders || pendingBytes + outputBytes > maxPendingTileBytes))
+						collectOldest();
 
-					for (std::uint64_t tileRow = superTileRow; tileRow < std::min<std::uint64_t>(staging->tileRows, superTileRow + staging->superTileRows); ++tileRow)
-					{
-						const auto tileRowOffset = tileRow * staging->rowTileSize;
-						const auto tileRowCount = std::min<std::uint64_t>(staging->rowTileSize, rows - tileRowOffset);
+					std::vector<std::vector<SparseTileEntry>> entriesForColumnByWorker;
+					entriesForColumnByWorker.reserve(activeWorkerCount);
+					for (auto& workerBuckets : entriesByWorkerAndColumn)
+						entriesForColumnByWorker.push_back(std::move(workerBuckets[static_cast<std::size_t>(columnSuperTileIndex)]));
 
-						for (std::uint64_t tileColumn = superTileColumn; tileColumn < std::min<std::uint64_t>(staging->tileColumns, superTileColumn + staging->superTileColumns); ++tileColumn)
+					staging->superTiles.resize(superTileIndex + 1);
+					for (auto tileRow = superTileRow; tileRow < lastTileRow; ++tileRow)
+						for (auto tileColumn = superTileColumn; tileColumn < lastTileColumn; ++tileColumn)
 						{
+							const auto tileRowOffset = tileRow * staging->rowTileSize;
 							const auto tileColumnOffset = tileColumn * staging->columnTileSize;
-							const auto tileColumnCount = std::min<std::uint64_t>(staging->columnTileSize, columns - tileColumnOffset);
-							QByteArray bytes(static_cast<qsizetype>(tileRowCount * tileColumnCount * elementSize), Qt::Uninitialized);
-							std::memset(bytes.data(), 0, static_cast<std::size_t>(bytes.size()));
-
-							for (std::uint64_t rowIndex = 0; rowIndex < tileRowCount; ++rowIndex)
-							{
-								const auto sourceRow = tileRowOffset + rowIndex;
-								const auto begin = indptr[static_cast<std::size_t>(sourceRow - sourceRowOffset)] - indptr.front();
-								const auto end = indptr[static_cast<std::size_t>(sourceRow - sourceRowOffset + 1)] - indptr.front();
-
-								for (std::uint64_t index = begin; index < end; ++index)
-								{
-									const auto column = indices[static_cast<std::size_t>(index)];
-									if (column >= tileColumnOffset && column < tileColumnOffset + tileColumnCount)
-										writeSparseTileValue(bytes, static_cast<std::size_t>(rowIndex * tileColumnCount + column - tileColumnOffset), elementType, values[static_cast<std::size_t>(index)]);
-								}
-							}
-
-							const auto block = writer.append(bytes);
+							const auto tileRowCount = std::min<std::uint64_t>(staging->rowTileSize, rows - tileRowOffset);
+							const auto tileColumnValueCount = std::min<std::uint64_t>(staging->columnTileSize, columns - tileColumnOffset);
 							const auto tileIndex = static_cast<std::size_t>(tileRow * staging->tileColumns + tileColumn);
-							staging->tiles[tileIndex] = { tileRowOffset, tileColumnOffset, tileRowCount, tileColumnCount, superTileIndex, block };
-							if (progress)
-								progress(static_cast<float>(++completedTileCount) / static_cast<float>(tileCount));
+							staging->tiles[tileIndex] = { tileRowOffset, tileColumnOffset, tileRowCount, tileColumnValueCount, superTileIndex, {} };
 						}
-					}
 
-					writer.close();
-					staging->superTiles.push_back({ filePath });
+					const auto codec = createStagingCodec();
+					pending.push_back({ std::async(std::launch::async, [&, superTileIndex, superTileRow, lastTileRow, superTileColumn, lastTileColumn, tileColumnCount, filePath, entriesForColumnByWorker = std::move(entriesForColumnByWorker), sharedIndices, sharedValues, codec]() mutable {
+						ActiveCounter activeCounter(activeEncoders);
+						const auto active = activeEncoders.load(std::memory_order_relaxed);
+						updateMaximum(maximumActiveEncoders, active);
+						const auto materializationStart = std::chrono::steady_clock::now();
+						const auto tileBufferCount = static_cast<std::size_t>((lastTileRow - superTileRow) * tileColumnCount);
+						std::vector<QByteArray> tileBuffers(tileBufferCount);
+						for (auto tileRow = superTileRow; tileRow < lastTileRow; ++tileRow)
+							for (auto tileColumn = superTileColumn; tileColumn < lastTileColumn; ++tileColumn)
+							{
+								const auto tileRowCount = std::min<std::uint64_t>(staging->rowTileSize, rows - tileRow * staging->rowTileSize);
+								const auto tileColumnValueCount = std::min<std::uint64_t>(staging->columnTileSize, columns - tileColumn * staging->columnTileSize);
+								auto& bytes = tileBuffers[static_cast<std::size_t>((tileRow - superTileRow) * tileColumnCount + tileColumn - superTileColumn)];
+								bytes = QByteArray(static_cast<qsizetype>(tileRowCount * tileColumnValueCount * elementSize), Qt::Uninitialized);
+								std::memset(bytes.data(), 0, static_cast<std::size_t>(bytes.size()));
+							}
+						for (const auto& workerEntries : entriesForColumnByWorker)
+							for (const auto& entry : workerEntries)
+							{
+								const auto tileRow = superTileRow + entry.row / staging->rowTileSize;
+								const auto column = (*sharedIndices)[static_cast<std::size_t>(entry.index)];
+								const auto tileColumn = column / staging->columnTileSize;
+								const auto tileColumnValueCount = std::min<std::uint64_t>(staging->columnTileSize, columns - tileColumn * staging->columnTileSize);
+								auto& bytes = tileBuffers[static_cast<std::size_t>((tileRow - superTileRow) * tileColumnCount + tileColumn - superTileColumn)];
+								writeSparseTileValue(bytes, static_cast<std::size_t>((entry.row % staging->rowTileSize) * tileColumnValueCount + column % staging->columnTileSize), elementType, (*sharedValues)[static_cast<std::size_t>(entry.index)]);
+							}
+						materializationWorkerMilliseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - materializationStart).count()), std::memory_order_relaxed);
+						std::vector<DenseTilePayload> payloads;
+						payloads.reserve(tileBufferCount);
+						for (auto tileRow = superTileRow; tileRow < lastTileRow; ++tileRow)
+							for (auto tileColumn = superTileColumn; tileColumn < lastTileColumn; ++tileColumn)
+							{
+								const auto tileIndex = static_cast<std::size_t>(tileRow * staging->tileColumns + tileColumn);
+								payloads.push_back({ tileIndex, std::move(tileBuffers[static_cast<std::size_t>((tileRow - superTileRow) * tileColumnCount + tileColumn - superTileColumn)]) });
+							}
+						auto result = encodeDenseSuperTile(superTileIndex, filePath, std::move(payloads), codec);
+						return result;
+					}), outputBytes });
+					pendingBytes += outputBytes;
 				}
 			}
+			while (!pending.empty())
+				collectOldest();
+			qInfo().noquote() << QStringLiteral("H5AD sparse CSR staging: %1 nonzero values across %2 tiles in %3 chunks (%4 tile rows each); HDF5 reads %5 ms; bucketing %6 worker-ms; tile materialization %7 worker-ms; compression/write %8 worker-ms; maximum concurrent bucketers %9/%10; encoders %11/%12; elapsed %13 ms")
+				.arg(stagedNonZeroCount.load(std::memory_order_relaxed))
+				.arg(staging->tiles.size())
+				.arg((staging->tileRows + chunkTileRows - 1) / chunkTileRows)
+				.arg(chunkTileRows)
+				.arg(hdf5ReadMilliseconds.load(std::memory_order_relaxed))
+				.arg(bucketingWorkerMilliseconds.load(std::memory_order_relaxed))
+				.arg(materializationWorkerMilliseconds.load(std::memory_order_relaxed))
+				.arg(encodeAndWriteWorkerMilliseconds.load(std::memory_order_relaxed))
+				.arg(maximumActiveBucketers.load(std::memory_order_relaxed))
+				.arg(effectiveBucketingWorkerCount)
+				.arg(maximumActiveEncoders.load(std::memory_order_relaxed))
+				.arg(maxPendingEncoders)
+				.arg(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stagingStart).count());
 
 			return staging;
 		}
@@ -669,7 +812,7 @@ namespace H5AD
 			const auto indptrSet = group.openDataSet("indptr");
 			const auto& configuration = loaderInfo._tiledStorageConfiguration;
 			const auto elementType = getTiledElementType(dataSet.getDataType(), storageType);
-			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, elementType, configuration, progress);
+			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, elementType, configuration, loaderInfo._bucketingThreadCount, loaderInfo._stagingThreadCount, loaderInfo._rowChunkTileFactor, progress);
 			Points::TiledTileGenerator generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
 				return readStagedTile(*staging, rowOffset, columnOffset, rows, columns);
 			};

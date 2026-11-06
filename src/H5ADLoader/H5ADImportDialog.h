@@ -5,6 +5,7 @@
 #include <PointData/StorageBackendConfiguratorAction.h>
 #include <actions/DirectoryPickerAction.h>
 #include <actions/HorizontalGroupAction.h>
+#include <actions/IntegralAction.h>
 #include <actions/MessageCardAction.h>
 #include <actions/OptionAction.h>
 #include <actions/OptionsAction.h>
@@ -128,6 +129,9 @@ private:
     mv::gui::HorizontalGroupAction   _stagingActions;           /**< Groups staging-directory controls. */
     mv::gui::DirectoryPickerAction   _stagingDirectoryAction;   /**< Staging directory used when importing with tiled storage. */
     QString                          _defaultStagingDirectory;  /**< Directory restored by the staging reset action. */
+    mv::gui::IntegralAction          _bucketingThreadCountAction; /**< Maximum parallel workers used to bucket sparse entries. */
+    mv::gui::IntegralAction          _stagingThreadCountAction;   /**< Maximum parallel workers used to materialize and encode output tiles. */
+    mv::gui::IntegralAction          _rowChunkTileFactorAction;   /**< Tile-height multiple used to batch sparse CSR staging work. */
 
     mv::gui::VerticalGroupAction _checksAction;            /**< Vertical group containing the import-check cards. */
     mv::gui::MessageCardAction   _memoryCheckAction;       /**< Memory estimate and optional tiled-storage callback. */

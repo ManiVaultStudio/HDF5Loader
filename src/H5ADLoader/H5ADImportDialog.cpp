@@ -25,10 +25,17 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <thread>
 #include <utility>
 
 namespace
 {
+
+std::int32_t getDefaultStagingWorkerCount()
+{
+    const auto logicalProcessorCount = std::max(1u, std::thread::hardware_concurrency());
+    return static_cast<std::int32_t>(std::clamp(logicalProcessorCount / 2, 1u, 8u));
+}
 
 bool isPotentiallyLossyStorageType(const int storageType, const bool sourceMayLosePrecision)
 {
@@ -90,6 +97,9 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _stagingActions(&_settingsAction, "Temporary storage"),
     _stagingDirectoryAction(&_stagingActions, "Location", stagingDirectory),
     _defaultStagingDirectory(defaultStagingDirectory),
+    _bucketingThreadCountAction(&_settingsAction, "Bucketing threads", 1, 32, getDefaultStagingWorkerCount()),
+    _stagingThreadCountAction(&_settingsAction, "Staging threads", 1, 32, getDefaultStagingWorkerCount()),
+    _rowChunkTileFactorAction(&_settingsAction, "CSR chunk tile-height factor", 1, 256, 63),
     _checksAction(&_settingsAction, "Import checks", true),
     _memoryCheckAction(&_checksAction),
     _stagingCheckAction(&_checksAction),
@@ -121,6 +131,9 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _storageTypeAction.getTypeAction().setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
     _optionalObjectsAction.setDefaultWidgetFlags(mv::gui::OptionsAction::Tags);
     _stagingDirectoryAction.setConfigurationFlag(mv::gui::WidgetAction::ConfigurationFlag::NoLabelInGroup);
+    _bucketingThreadCountAction.setDefaultWidgetFlags(mv::gui::IntegralAction::SpinBox);
+    _stagingThreadCountAction.setDefaultWidgetFlags(mv::gui::IntegralAction::SpinBox);
+    _rowChunkTileFactorAction.setDefaultWidgetFlags(mv::gui::IntegralAction::SpinBox);
     _checksAction.setShowLabels(false);
     _checksAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
     _buttonsAction.setShowLabels(false);
@@ -156,6 +169,9 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _settingsAction.addAction(&_backendSelector);
     _settingsAction.addAction(&_stagingActions);
     _stagingActions.addAction(&_stagingDirectoryAction);
+    _settingsAction.addAction(&_bucketingThreadCountAction);
+    _settingsAction.addAction(&_stagingThreadCountAction);
+    _settingsAction.addAction(&_rowChunkTileFactorAction);
     _settingsAction.addAction(&_optionalObjectsAction, -1, [this](mv::gui::WidgetAction*, QWidget* widget) {
         auto* tableView = widget->findChild<QTableView*>(QStringLiteral("TableView"));
         if (!tableView)
@@ -187,6 +203,9 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     connect(&_backendSelector, &StorageBackendConfiguratorAction::backendTypeChanged, this, [this](const QString& type) {
         _backendSelector.setConfigureEnabled(type == "Tiled");
         _stagingDirectoryAction.setEnabled(type == "Tiled");
+        _bucketingThreadCountAction.setEnabled(type == "Tiled");
+        _stagingThreadCountAction.setEnabled(type == "Tiled");
+        _rowChunkTileFactorAction.setEnabled(type == "Tiled");
         updateImportChecks();
     });
     const auto initialBackendType = sparseMatrixInfo.available || backendType != "Sparse" ? backendType : QStringLiteral("Tiled");
@@ -219,6 +238,9 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     connect(&_cancelAction, &mv::gui::TriggerAction::triggered, this, &QDialog::reject);
 
     _stagingDirectoryAction.setEnabled(initialBackendType == "Tiled");
+    _bucketingThreadCountAction.setEnabled(initialBackendType == "Tiled");
+    _stagingThreadCountAction.setEnabled(initialBackendType == "Tiled");
+    _rowChunkTileFactorAction.setEnabled(initialBackendType == "Tiled");
     _dataSummarySeverity = mv::util::SeverityLevel::Warning;
     _dataSummaryDescription = tr("Estimating target type and sparsity from a bounded sample...");
     updateDataSummaryCard();
@@ -233,6 +255,9 @@ H5ADImportOptions H5ADImportDialog::options()
     result.storageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
     result.storageBackendType = mv::pointdata::storage::getStorageBackendType(backendType()).value_or(mv::pointdata::storage::StorageBackendType::Tiled);
     result.tiledStorageConfiguration = _tiledConfiguration;
+    result.bucketingThreadCount = static_cast<std::size_t>(_bucketingThreadCountAction.getValue());
+    result.stagingThreadCount = static_cast<std::size_t>(_stagingThreadCountAction.getValue());
+    result.rowChunkTileFactor = static_cast<std::size_t>(_rowChunkTileFactorAction.getValue());
     result.optionalObjects = _optionalObjectsAction.getSelectedOptions();
     result.stagingDirectory = stagingDirectory();
     return result;

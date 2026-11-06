@@ -6,6 +6,7 @@
 #include "PointData/PointData.h"
 
 #include <functional>
+#include <cstddef>
 
 namespace H5AD
 {
@@ -33,6 +34,9 @@ namespace H5AD
 		mv::pointdata::storage::StorageBackendType _storageBackendType = mv::pointdata::storage::StorageBackendType::Tiled; /**< Selected backend for X; sparse input is retained in memory, while tiled input uses packed staging. */
 		int                          _storageType = -3; /**< Selected X element type index or optimized/source-type sentinel. */
 		mv::pointdata::storage::StorageBackendConfiguration _tiledStorageConfiguration; /**< Selected tiled geometry and cache settings for X. */
+		std::size_t                  _bucketingThreadCount = 4; /**< Worker limit for sparse CSR bucketing. */
+		std::size_t                  _stagingThreadCount = 4; /**< Worker limit for packed tile materialization and encoding. */
+		std::size_t                  _rowChunkTileFactor = 63; /**< Tile-height multiple grouped into each CSR staging batch. */
 		std::vector<QString>         _originalDimensionNames;    /**< Dimension names discovered from var. */
 		QVariantList                 _sampleNames;               /**< Sample names discovered from obs. */
 		std::vector<bool>            _enabledDimensions;         /**< Optional dimension-selection mask. */
