@@ -35,7 +35,7 @@ struct H5ADImportOptions
 	QString datasetName; /**< Name assigned to the imported point dataset. */
 	QStringList optionalObjects; /**< Optional top-level metadata objects selected for import. */
 	QString stagingDirectory; /**< Directory used for packed tiled data; it must remain available while source-backed tiles are used or until serialization copies them. */
-	int storageType = -3; /**< X type choice: -3 optimized lossless, -2 optimized with bfloat16, -1 source type, or a PointData element-type index. Applied to eager and sparse imports as well as tiled imports. */
+	int storageType = -3; /**< X type choice: -3 optimized lossless, -2 optimized with bfloat16, -1 source type, or a PointData element-type index. Applied to dense and sparse imports as well as tiled imports. */
 	mv::pointdata::storage::StorageBackendType storageBackendType = mv::pointdata::storage::StorageBackendType::Tiled; /**< Backend for X. Sparse retains CSR/CSC arrays in memory and requires a supported sparse X group. */
 	mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration; /**< Tile geometry and cache configuration used when tiled storage is selected. */
 	std::size_t bucketingThreadCount = 4; /**< Worker limit for distributing sparse CSR entries to output tiles. */

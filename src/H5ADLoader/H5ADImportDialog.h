@@ -150,7 +150,7 @@ private:
     int                     _recommendedTypeIndex     = -1;                             /**< Recommended option index, or -1 before analysis completes. */
     bool                    _fullScanComplete         = false;                          /**< Whether an exhaustive matrix-value scan completed successfully. */
     bool                    _analysisRunning          = false;                          /**< Whether a matrix sampling or full-scan workflow is active. */
-    bool                    _eagerMemoryLimitExceeded = false;                          /**< Whether the selected eager or sparse payload exceeds the configured RAM budget. */
+    bool                    _denseMemoryLimitExceeded = false;                          /**< Whether the selected dense or sparse payload exceeds the configured RAM budget. */
 
     std::shared_ptr<HDF5_AD_Loader> _loader;       /**< Shared loader retained while estimating and checking this import. */
     std::uint64_t                   _rows    = 0;  /**< Row count of the H5AD X matrix. */

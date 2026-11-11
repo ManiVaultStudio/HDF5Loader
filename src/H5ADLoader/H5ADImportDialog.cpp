@@ -92,7 +92,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _matrixAction(&_settingsAction, "Matrix", rows > 0 && columns > 0 ? tr("%1 rows × %2 columns").arg(rows).arg(columns) : tr("Unknown")),
     _datasetNameAction(&_settingsAction, "Dataset name", QFileInfo(fileName).baseName()),
     _storageTypeAction(&_settingsAction, "Data type"),
-    _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Eager", "Tiled", "Sparse" } : QStringList { "Eager", "Tiled" }, "Tiled"),
+    _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Dense", "Tiled", "Sparse" } : QStringList { "Dense", "Tiled" }, "Tiled"),
     _stagingDirectory(stagingDirectory),
     _defaultStagingDirectory(defaultStagingDirectory),
     _bucketingThreadCount(static_cast<std::size_t>(getDefaultStagingWorkerCount())),
@@ -401,7 +401,7 @@ void H5ADImportDialog::configureTiledStorage()
 
 void H5ADImportDialog::updateImportActionState()
 {
-    _importAction.setEnabled(!_analysisRunning && !_eagerMemoryLimitExceeded && !_datasetNameAction.getString().trimmed().isEmpty());
+    _importAction.setEnabled(!_analysisRunning && !_denseMemoryLimitExceeded && !_datasetNameAction.getString().trimmed().isEmpty());
 }
 
 void H5ADImportDialog::updateImportChecks()
@@ -442,17 +442,17 @@ void H5ADImportDialog::updateImportChecks()
 
     const auto selectedBackend = backendType();
     const auto tiled           = selectedBackend == "Tiled";
-    const auto eager           = selectedBackend == "Eager";
+    const auto dense           = selectedBackend == "Dense";
     const auto sparse          = selectedBackend == "Sparse";
     if (!hasMatrixEstimate)
     {
-        _eagerMemoryLimitExceeded = false;
+        _denseMemoryLimitExceeded = false;
         updateImportActionState();
         updateMemoryCheck(mv::util::SeverityLevel::Info, tr("The matrix size could not be estimated from the file dimensions."));
         return;
     }
 
-    constexpr std::uint64_t eagerRecommendationThreshold = std::uint64_t { 4 } * 1024 * 1024 * 1024;
+    constexpr std::uint64_t denseRecommendationThreshold = std::uint64_t { 4 } * 1024 * 1024 * 1024;
     const auto& systemHardware = mv::util::HardwareSpec::getSystemHardwareSpec();
     const auto ramSpec = systemHardware.getHardwareComponentSpec<mv::util::RamComponentSpec>(QStringLiteral("RAM"));
     const auto installedRamBytes = ramSpec && ramSpec->isInitialized() ? ramSpec->getNumberOfBytes() : 0;
@@ -491,7 +491,7 @@ void H5ADImportDialog::updateImportChecks()
     const auto combinedSize              = mv::util::getNoBytesHumanReadable(combinedBytes);
     const auto estimateQualifier         = metadataEstimateComplete && combinedEstimateAvailable ? QString() : tr(" at least");
     const auto safeMemoryBudgetBytes = installedRamBytes - installedRamBytes / 4;
-    _eagerMemoryLimitExceeded = (eager || sparse) && installedRamBytes > 0 && combinedBytes > safeMemoryBudgetBytes;
+    _denseMemoryLimitExceeded = (dense || sparse) && installedRamBytes > 0 && combinedBytes > safeMemoryBudgetBytes;
     updateImportActionState();
     const auto memorySummary = sparse ?
         tr("Sparse import working-memory estimate: %1. Selected metadata payload:%2 %3. Combined payload estimate:%2 %4. Values, indices, pointers, and a temporary conversion buffer are estimated; runtime allocations and metadata may add memory.")
@@ -503,15 +503,15 @@ void H5ADImportDialog::updateImportChecks()
     {
         updateMemoryCheck(mv::util::SeverityLevel::Info, memorySummary);
     }
-    else if (_eagerMemoryLimitExceeded)
+    else if (_denseMemoryLimitExceeded)
     {
         const auto memoryDescription = tr("%1 The selected backend's lower-bound payload estimate exceeds the conservative memory budget of %2 (75% of installed RAM). Switch to tiled storage to continue.")
             .arg(memorySummary, mv::util::getNoBytesHumanReadable(safeMemoryBudgetBytes));
         updateMemoryCheck(mv::util::SeverityLevel::Error, memoryDescription, true);
     }
-    else if (eager && combinedBytes > eagerRecommendationThreshold)
+    else if (dense && combinedBytes > denseRecommendationThreshold)
     {
-        const auto memoryDescription = tr("%1 Eager import may need additional working memory; tiled storage is recommended above 4 GiB.").arg(memorySummary);
+        const auto memoryDescription = tr("%1 Dense import may need additional working memory; tiled storage is recommended above 4 GiB.").arg(memorySummary);
         updateMemoryCheck(mv::util::SeverityLevel::Warning, memoryDescription, true);
     }
     else
