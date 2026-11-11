@@ -13,6 +13,8 @@
 #include <QUuid>
 
 #include <PointData/DimensionsPickerAction.h>
+#include <PointData/storage/sparse/SparsePointsStorageBackend.h>
+#include <PointData/storage/tiled/TiledPointsStorageBackend.h>
 #include <util/Serialization.h>
 #include <cmath>
 #include <chrono>
@@ -524,30 +526,52 @@ namespace H5AD
 			return reader->second->read(tile.block);
 		}
 
-		void attachPackedTileSource(const std::shared_ptr<StagedPointData>& staging, Dataset<Points>& pointsDataset)
+		mv::pointdata::storage::TiledStorageBackendCreationOptions::PackedTileSource createPackedTileSource(const std::shared_ptr<StagedPointData>& staging)
 		{
-			QStringList filePaths;
-			filePaths.reserve(static_cast<qsizetype>(staging->superTiles.size()));
+			mv::pointdata::storage::TiledStorageBackendCreationOptions::PackedTileSource packedSource;
+			packedSource.filePaths.reserve(static_cast<qsizetype>(staging->superTiles.size()));
 			for (const auto& superTile : staging->superTiles)
-				filePaths.push_back(superTile.path);
+				packedSource.filePaths.push_back(superTile.path);
 
-			std::vector<std::uint64_t> offsets;
-			std::vector<std::uint64_t> compressedSizes;
-			std::vector<std::uint64_t> uncompressedSizes;
-			std::vector<std::size_t> superTileIndices;
-			offsets.reserve(staging->tiles.size());
-			compressedSizes.reserve(staging->tiles.size());
-			uncompressedSizes.reserve(staging->tiles.size());
-			superTileIndices.reserve(staging->tiles.size());
+			packedSource.offsets.reserve(staging->tiles.size());
+			packedSource.compressedSizes.reserve(staging->tiles.size());
+			packedSource.uncompressedSizes.reserve(staging->tiles.size());
+			packedSource.superTileIndices.reserve(staging->tiles.size());
 			for (const auto& tile : staging->tiles)
 			{
-				offsets.push_back(tile.block.offset);
-				compressedSizes.push_back(tile.block.compressedSize);
-				uncompressedSizes.push_back(tile.block.uncompressedSize);
-				superTileIndices.push_back(tile.superTileIndex);
+				packedSource.offsets.push_back(tile.block.offset);
+				packedSource.compressedSizes.push_back(tile.block.compressedSize);
+				packedSource.uncompressedSizes.push_back(tile.block.uncompressedSize);
+				packedSource.superTileIndices.push_back(tile.superTileIndex);
 			}
 
-			pointsDataset->attachPackedTileSource(filePaths, staging->codec->getName(), offsets, compressedSizes, uncompressedSizes, superTileIndices, staging);
+			packedSource.codecName = staging->codec->getName();
+			packedSource.sourceLifetime = staging;
+			return packedSource;
+		}
+
+		std::unique_ptr<mv::pointdata::storage::PointsStorageBackend> createStagedTiledBackend(const std::uint64_t rows, const std::uint64_t columns, const Points::ElementTypeSpecifier elementType, const mv::pointdata::storage::StorageBackendConfiguration& configuration, const std::shared_ptr<StagedPointData>& staging)
+		{
+			auto creation = std::make_shared<mv::pointdata::storage::TiledStorageBackendCreationOptions>();
+			creation->rows = rows;
+			creation->columns = columns;
+			creation->elementSize = getTiledElementSize(elementType);
+			creation->elementTypeIndex = static_cast<std::uint32_t>(elementType);
+			creation->rowTileSize = configuration.rowTileSize;
+			creation->columnTileSize = configuration.columnTileSize;
+			creation->cacheCapacity = configuration.cacheCapacity;
+			creation->cacheCapacityBytes = configuration.cacheCapacityBytes;
+			creation->packedTiles = configuration.packedTiles;
+			creation->superTileRows = configuration.superTileRows;
+			creation->superTileColumns = configuration.superTileColumns;
+			creation->loaderThreadSafe = true;
+			creation->generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t tileRows, const std::uint64_t tileColumns) {
+				return readStagedTile(*staging, rowOffset, columnOffset, tileRows, tileColumns);
+			};
+			creation->packedSource = createPackedTileSource(staging);
+
+			auto tiledStorage = mv::pointdata::storage::TiledPointsStorageBackend::create(*creation);
+			return std::make_unique<mv::pointdata::storage::TiledPointsStorageBackend>(tiledStorage, static_cast<std::uint32_t>(elementType));
 		}
 
 		template<typename T>
@@ -813,13 +837,7 @@ namespace H5AD
 			const auto& configuration = loaderInfo._tiledStorageConfiguration;
 			const auto elementType = getTiledElementType(dataSet.getDataType(), storageType);
 			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, elementType, configuration, loaderInfo._bucketingThreadCount, loaderInfo._stagingThreadCount, loaderInfo._rowChunkTileFactor, progress);
-			Points::TiledTileGenerator generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
-				return readStagedTile(*staging, rowOffset, columnOffset, rows, columns);
-			};
-
-			loaderInfo._pointsDataset->initializeTiledStorage(rowCount, columnCount, elementType, configuration, std::move(generator));
-			attachPackedTileSource(staging, loaderInfo._pointsDataset);
-			loaderInfo._pointsDataset->setTiledLoaderThreadSafe(true);
+			loaderInfo._pointsDataset->initializeStorageBackend(createStagedTiledBackend(rowCount, columnCount, elementType, configuration, staging));
 			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 			return true;
@@ -874,7 +892,9 @@ namespace H5AD
 			auto pointers = readH5ADRange<std::uint64_t>(indptrSet, 0, compressedSize + 1, H5::PredType::NATIVE_UINT64);
 			auto indices  = storedEntryCount > 0 ? readH5ADRange<std::uint64_t>(indicesSet, 0, storedEntryCount, H5::PredType::NATIVE_UINT64) : std::vector<std::uint64_t>();
 			auto values   = readSparseValues(dataSet, storedEntryCount, elementType);
-			loaderInfo._pointsDataset->initializeSparseStorage(rows, columns, elementType, columnCompressed, std::move(pointers), std::move(indices), std::move(values));
+			const auto layout = columnCompressed ? mv::pointdata::storage::SparseMatrixLayout::ColumnCompressed : mv::pointdata::storage::SparseMatrixLayout::RowCompressed;
+			auto sparseBackend = std::make_unique<mv::pointdata::storage::SparsePointsStorageBackend>(rows, columns, layout, static_cast<std::uint32_t>(elementType), elementSize, std::move(pointers), std::move(indices), std::move(values));
+			loaderInfo._pointsDataset->initializeStorageBackend(std::move(sparseBackend));
 			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 			if (progress)
@@ -899,13 +919,7 @@ namespace H5AD
 			const auto totalRows = static_cast<std::uint64_t>(dimensions[0]);
 			const auto totalColumns = static_cast<std::uint64_t>(dimensions[1]);
 			const auto staging = stageDenseData(sourceDataset, elementType, totalRows, totalColumns, loaderInfo._stagingDirectory, configuration, progress);
-			Points::TiledTileGenerator generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns) {
-				return readStagedTile(*staging, rowOffset, columnOffset, rows, columns);
-			};
-
-			loaderInfo._pointsDataset->initializeTiledStorage(dimensions[0], dimensions[1], elementType, configuration, std::move(generator));
-			attachPackedTileSource(staging, loaderInfo._pointsDataset);
-			loaderInfo._pointsDataset->setTiledLoaderThreadSafe(true);
+			loaderInfo._pointsDataset->initializeStorageBackend(createStagedTiledBackend(totalRows, totalColumns, elementType, configuration, staging));
 			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 			return true;
