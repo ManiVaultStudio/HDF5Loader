@@ -139,8 +139,7 @@ void H5ADLoader::loadData()
 
 	setSetting(Keys::fileNameKey, fileNames.constFirst());
 	setSetting(Keys::selectedNameFilterKey, _fileDialog.selectedNameFilter());
-	const auto defaultStagingDirectory = projects().ensureTemporaryDirPath(AbstractProjectManager::TemporaryDirType::Staging);
-	auto stagingDirectory = defaultStagingDirectory;
+	const auto stagingDirectory = projects().ensureTemporaryDirPath(AbstractProjectManager::TemporaryDirType::Staging);
 
 	for (const auto& fileName : fileNames)
 	{
@@ -153,14 +152,13 @@ void H5ADLoader::loadData()
 
 		const auto [rows, columns] = loader->getMatrixShape();
 		const auto sparseMatrixInfo = loader->getSparseMatrixInfo();
-		H5ADImportDialog dialog(fileName, stagingDirectory, defaultStagingDirectory, loader->getOptionalObjects(), rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, loader, QApplication::activeWindow());
+		H5ADImportDialog dialog(fileName, stagingDirectory, loader->getOptionalObjects(), rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, loader, QApplication::activeWindow());
 		if (dialog.exec() != QDialog::Accepted)
 			continue;
 
 		const auto options = dialog.options();
 		backendType = dialog.backendType();
 		storageTypeIndex = dialog.storageTypeIndex();
-		stagingDirectory = dialog.stagingDirectory();
 		_tiledStorageConfiguration = options.tiledStorageConfiguration;
 		setSetting(Keys::storageValueKey, storageTypeIndex);
 		setSetting(Keys::storageBackendKey, backendType);

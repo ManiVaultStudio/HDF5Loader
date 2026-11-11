@@ -85,7 +85,7 @@ void TargetElementTypeAction::setRecommendedTypeIndex(const int index)
         _typeAction.setCurrentIndex(index);
 }
 
-H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
+H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
     QDialog(parent),
     _settingsAction(this, "Import settings"),
     _fileAction(&_settingsAction, "File", QFileInfo(fileName).fileName()),
@@ -94,7 +94,6 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _storageTypeAction(&_settingsAction, "Data type"),
     _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Dense", "Tiled", "Sparse" } : QStringList { "Dense", "Tiled" }, "Tiled"),
     _stagingDirectory(stagingDirectory),
-    _defaultStagingDirectory(defaultStagingDirectory),
     _bucketingThreadCount(static_cast<std::size_t>(getDefaultStagingWorkerCount())),
     _stagingThreadCount(static_cast<std::size_t>(getDefaultStagingWorkerCount())),
     _checksAction(&_settingsAction, "Import checks", true),
@@ -224,11 +223,12 @@ H5ADImportOptions H5ADImportDialog::options()
     result.storageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
     result.storageBackendType = mv::pointdata::storage::getStorageBackendType(backendType()).value_or(mv::pointdata::storage::StorageBackendType::Tiled);
     result.tiledStorageConfiguration = _tiledConfiguration;
+    result.projectOpenStagingPolicy = _projectOpenStagingPolicy;
     result.bucketingThreadCount = _bucketingThreadCount;
     result.stagingThreadCount = _stagingThreadCount;
     result.rowChunkTileFactor = _rowChunkTileFactor;
     result.optionalObjects = _optionalObjectsAction.getSelectedOptions();
-    result.stagingDirectory = stagingDirectory();
+    result.stagingDirectory = _stagingDirectory;
     return result;
 }
 
@@ -367,11 +367,6 @@ QString H5ADImportDialog::backendType()
     return _backendSelector.getBackendType();
 }
 
-QString H5ADImportDialog::stagingDirectory() const
-{
-    return _stagingDirectory;
-}
-
 void H5ADImportDialog::configureTiledStorage()
 {
     std::size_t elementSize = sizeof(float);
@@ -385,7 +380,7 @@ void H5ADImportDialog::configureTiledStorage()
         default: break;
     }
 
-    auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, elementSize, _tiledConfiguration, true, std::nullopt, true, _bucketingThreadCount, _stagingThreadCount, _rowChunkTileFactor, true, _stagingDirectory, _defaultStagingDirectory);
+    auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, elementSize, _tiledConfiguration, true, std::nullopt, true, _bucketingThreadCount, _stagingThreadCount, _rowChunkTileFactor, true, _stagingDirectory, _projectOpenStagingPolicy);
     auto* configurationActionPtr = configurationAction.get();
     StorageBackendConfigurationDialog dialog(std::move(configurationAction), StorageBackendConfigurationDialog::Purpose::Import, this);
     if (dialog.exec() != QDialog::Accepted)
@@ -395,7 +390,7 @@ void H5ADImportDialog::configureTiledStorage()
     _bucketingThreadCount = configurationActionPtr->getBucketingThreadCount();
     _stagingThreadCount = configurationActionPtr->getStagingThreadCount();
     _rowChunkTileFactor = configurationActionPtr->getRowChunkTileFactor();
-    _stagingDirectory = configurationActionPtr->getStagingDirectory();
+    _projectOpenStagingPolicy = configurationActionPtr->getProjectOpenStagingPolicy();
     updateImportChecks();
 }
 

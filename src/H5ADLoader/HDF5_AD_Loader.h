@@ -16,6 +16,7 @@ class QObject;
 
 #include "H5Utils.h"
 #include <PointData/storage/interface/PointsStorageBackendTypes.h>
+#include <util/ProjectResourceStagingPolicy.h>
 
 namespace mv
 {
@@ -38,6 +39,7 @@ struct H5ADImportOptions
 	int storageType = -3; /**< X type choice: -3 optimized lossless, -2 optimized with bfloat16, -1 source type, or a PointData element-type index. Applied to dense and sparse imports as well as tiled imports. */
 	mv::pointdata::storage::StorageBackendType storageBackendType = mv::pointdata::storage::StorageBackendType::Tiled; /**< Backend for X. Sparse retains CSR/CSC arrays in memory and requires a supported sparse X group. */
 	mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration; /**< Tile geometry and cache configuration used when tiled storage is selected. */
+	mv::util::ProjectResourceStagingPolicy projectOpenStagingPolicy = mv::util::ProjectResourceStagingPolicy::Inherit; /**< Dataset override applied when a saved project containing this dataset is opened; does not affect import staging. */
 	std::size_t bucketingThreadCount = 4; /**< Worker limit for distributing sparse CSR entries to output tiles. */
 	std::size_t stagingThreadCount = 4; /**< Worker limit for materializing, compressing, and writing packed tiles. */
 	std::size_t rowChunkTileFactor = 3; /**< Number of tile heights grouped into each sparse CSR staging batch. */

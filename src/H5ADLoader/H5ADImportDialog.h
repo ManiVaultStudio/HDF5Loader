@@ -65,8 +65,7 @@ public:
      * Creates the dialog with file metadata, restored choices, sparse-matrix
      * availability, and a shared loader.
      * @param fileName H5AD file whose X and metadata will be imported.
-     * @param stagingDirectory Initial staging directory for tiled imports.
-     * @param defaultStagingDirectory Directory restored by the reset action.
+     * @param stagingDirectory App-managed staging directory for tiled imports.
      * @param optionalObjects Importable optional HDF5 objects.
      * @param rows Logical row count of X.
      * @param columns Logical column count of X.
@@ -77,7 +76,7 @@ public:
      * @param loader Shared loader retained for matrix analysis and import checks.
      * @param parent Optional parent dialog.
      */
-    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QString& defaultStagingDirectory, const QStringList& optionalObjects, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
+    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
 
     /** Returns current import choices; callers should use them after acceptance. */
     H5ADImportOptions options();
@@ -87,9 +86,6 @@ public:
 
     /** Returns the selected backend name for restoring the backend control. */
     QString backendType();
-
-    /** Returns the staging directory selected for this import, including for eager staging. */
-    QString stagingDirectory() const;
 
 private:
     /** Enables import only when analysis, memory, and dataset-name checks permit it. */
@@ -107,7 +103,7 @@ private:
     /** Starts the bounded sample analysis requested by the estimate control. */
     void estimateTargetElementType();
 
-    /** Opens tiled storage configuration, including its staging-directory choice. */
+    /** Opens tiled storage configuration and its staging-space observation. */
     void configureTiledStorage();
 
     /** Starts a bounded sample or full scan workflow for the target element type. */
@@ -122,11 +118,11 @@ private:
     mv::gui::StringAction            _datasetNameAction;        /**< Editable name assigned to the imported dataset. */
     TargetElementTypeAction          _storageTypeAction;        /**< Selects the target element type and requests its estimate. */
     StorageBackendConfiguratorAction _backendSelector;          /**< Selects the destination storage backend and opens its configuration. */
-    QString                          _stagingDirectory;         /**< Staging directory selected in tiled storage configuration. */
-    QString                          _defaultStagingDirectory;  /**< Directory restored by the staging reset action. */
+    QString                          _stagingDirectory;         /**< App-managed staging directory used by this import. */
     std::size_t                      _bucketingThreadCount = 4; /**< Maximum parallel workers used to bucket sparse entries. */
     std::size_t                      _stagingThreadCount = 4;   /**< Maximum parallel workers used to materialize and encode output tiles. */
     std::size_t                      _rowChunkTileFactor = 3;   /**< Tile-height multiple used to batch sparse CSR staging work. */
+    mv::util::ProjectResourceStagingPolicy _projectOpenStagingPolicy = mv::util::ProjectResourceStagingPolicy::Inherit; /**< Dataset-level override used only when opening a saved project. */
 
     mv::gui::VerticalGroupAction _checksAction;            /**< Vertical group containing the import-check cards. */
     mv::gui::MessageCardAction   _memoryCheckAction;       /**< Memory estimate and optional tiled-storage callback. */
