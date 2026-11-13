@@ -73,10 +73,13 @@ public:
      * @param backendType Initial storage backend name.
      * @param sparseMatrixInfo Result of metadata inspection used to determine whether Sparse can be selected.
      * @param tiledConfiguration Initial tile geometry and cache settings.
+     * @param bucketingThreadCount Sparse CSR bucketing worker limit, or zero to use the default.
+     * @param stagingThreadCount Packed tile staging worker limit, or zero to use the default.
+     * @param rowChunkTileFactor Number of tile rows grouped into sparse staging batches, or zero to use the default.
      * @param loader Shared loader retained for matrix analysis and import checks.
      * @param parent Optional parent dialog.
      */
-    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
+    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::size_t bucketingThreadCount, std::size_t stagingThreadCount, std::size_t rowChunkTileFactor, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
 
     /** Returns current import choices; callers should use them after acceptance. */
     H5ADImportOptions options();

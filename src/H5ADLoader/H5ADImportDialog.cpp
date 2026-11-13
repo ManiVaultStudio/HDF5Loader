@@ -85,7 +85,7 @@ void TargetElementTypeAction::setRecommendedTypeIndex(const int index)
         _typeAction.setCurrentIndex(index);
 }
 
-H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
+H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
     QDialog(parent),
     _settingsAction(this, "Import settings"),
     _fileAction(&_settingsAction, "File", QFileInfo(fileName).fileName()),
@@ -94,8 +94,9 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _storageTypeAction(&_settingsAction, "Data type"),
     _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Dense", "Tiled", "Sparse" } : QStringList { "Dense", "Tiled" }, "Tiled"),
     _stagingDirectory(stagingDirectory),
-    _bucketingThreadCount(static_cast<std::size_t>(getDefaultStagingWorkerCount())),
-    _stagingThreadCount(static_cast<std::size_t>(getDefaultStagingWorkerCount())),
+    _bucketingThreadCount(bucketingThreadCount > 0 ? bucketingThreadCount : static_cast<std::size_t>(getDefaultStagingWorkerCount())),
+    _stagingThreadCount(stagingThreadCount > 0 ? stagingThreadCount : static_cast<std::size_t>(getDefaultStagingWorkerCount())),
+    _rowChunkTileFactor(rowChunkTileFactor > 0 ? rowChunkTileFactor : 3),
     _checksAction(&_settingsAction, "Import checks", true),
     _memoryCheckAction(&_checksAction),
     _precisionCheckAction(&_checksAction),
@@ -390,7 +391,7 @@ void H5ADImportDialog::configureTiledStorage()
     _bucketingThreadCount = configurationActionPtr->getBucketingThreadCount();
     _stagingThreadCount = configurationActionPtr->getStagingThreadCount();
     _rowChunkTileFactor = configurationActionPtr->getRowChunkTileFactor();
-    _projectOpenStagingPolicy = configurationActionPtr->getProjectOpenStagingPolicy();
+    _projectOpenStagingPolicy = configurationActionPtr->getProjectResourceStagingPolicy();
     updateImportChecks();
 }
 

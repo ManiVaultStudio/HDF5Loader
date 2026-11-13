@@ -24,6 +24,7 @@
 #include <exception>
 #include <filesystem>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <stdexcept>
@@ -307,6 +308,23 @@ namespace H5AD
 			return result;
 		}
 
+		struct StagedBlobReader
+		{
+			explicit StagedBlobReader(const QString& filePath, const mv::util::SharedCodec& codec) :
+				reader(filePath, codec)
+			{
+			}
+
+			std::mutex mutex;
+			mv::util::PackedBlobFileReader reader;
+		};
+
+		struct StagedReadCache
+		{
+			std::mutex mutex;
+			std::unordered_map<std::size_t, std::shared_ptr<StagedBlobReader>> readers;
+		};
+
 		struct StagedPointData
 		{
 			std::uint64_t rows = 0;
@@ -322,17 +340,18 @@ namespace H5AD
 			QString stagingDirectory;
 			std::vector<StagedPackedSuperTile> superTiles;
 			std::vector<StagedPackedTile> tiles;
+			mutable StagedReadCache readCache;
 
 			~StagedPointData()
 			{
+				{
+					const std::lock_guard lock(readCache.mutex);
+					readCache.readers.clear();
+				}
+
 				if (!stagingDirectory.isEmpty() && !QDir(stagingDirectory).removeRecursively())
 					qWarning() << "Unable to remove H5AD staging directory:" << stagingDirectory;
 			}
-		};
-
-		struct StagedReadCache
-		{
-			std::unordered_map<std::size_t, std::unique_ptr<mv::util::PackedBlobFileReader>> readers;
 		};
 
 		QString createStagingDirectory(const QString& stagingRoot, const std::uint64_t rows, const std::uint64_t columns, const std::size_t elementSize, const pointdata::storage::StorageBackendConfiguration& configuration, const mv::util::SharedCodec& codec)
@@ -504,8 +523,6 @@ namespace H5AD
 
 		QByteArray readStagedTile(const StagedPointData& staging, const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t rows, const std::uint64_t columns)
 		{
-			thread_local std::unordered_map<const StagedPointData*, std::unique_ptr<StagedReadCache>> caches;
-			auto& cache = caches[&staging];
 			const auto tileRow = rowOffset / staging.rowTileSize;
 			const auto tileColumn = columnOffset / staging.columnTileSize;
 			const auto tileIndex = static_cast<std::size_t>(tileRow * staging.tileColumns + tileColumn);
@@ -515,15 +532,27 @@ namespace H5AD
 			const auto& tile = staging.tiles[tileIndex];
 			if (tile.rowOffset != rowOffset || tile.columnOffset != columnOffset || tile.rows != rows || tile.columns != columns)
 				throw std::out_of_range("Requested tile does not match H5AD packed staging geometry");
+			if (tile.superTileIndex >= staging.superTiles.size())
+				throw std::out_of_range("Requested tile references a missing H5AD packed super-tile");
 
-			auto reader = cache->readers.find(tile.superTileIndex);
-			if (reader == cache->readers.end())
+			std::shared_ptr<StagedBlobReader> reader;
 			{
-				const auto& superTile = staging.superTiles[tile.superTileIndex];
-				reader = cache->readers.emplace(tile.superTileIndex, std::make_unique<mv::util::PackedBlobFileReader>(superTile.path, staging.codec)).first;
+				const std::lock_guard cacheLock(staging.readCache.mutex);
+				auto readerIt = staging.readCache.readers.find(tile.superTileIndex);
+				if (readerIt == staging.readCache.readers.end())
+				{
+					const auto& superTile = staging.superTiles[tile.superTileIndex];
+					reader = std::make_shared<StagedBlobReader>(superTile.path, staging.codec);
+					staging.readCache.readers.emplace(tile.superTileIndex, reader);
+				}
+				else
+				{
+					reader = readerIt->second;
+				}
 			}
 
-			return reader->second->read(tile.block);
+			const std::lock_guard readerLock(reader->mutex);
+			return reader->reader.read(tile.block);
 		}
 
 		mv::pointdata::storage::TiledStorageBackendCreationOptions::PackedTileSource createPackedTileSource(const std::shared_ptr<StagedPointData>& staging)

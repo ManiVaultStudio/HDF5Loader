@@ -803,7 +803,7 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 			objectsToProcess.insert(name.toStdString());
 
 		Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, false, options.datasetName);
-		pointsDataset->setProjectOpenStagingPolicy(options.projectOpenStagingPolicy);
+		pointsDataset->setProjectResourceStagingPolicy(options.projectOpenStagingPolicy);
 		pointsDataset->getDataHierarchyItem().setVisible(false);
 	
 		const auto loaderInfo = std::make_shared<H5AD::LoaderInfo>();
