@@ -907,7 +907,8 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 			return metadataWorkflow;
 		}, mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread, 19);
 
-		workflow->addSequentialStage(QObject::tr("Publish point-data metadata"), [loaderInfo](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
+		workflow->addSequentialStage(QObject::tr("Publish point-data metadata"), [loaderInfo, stagingPolicy = options.projectOpenStagingPolicy](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
+			loaderInfo->_pointsDataset->setProjectResourceStagingPolicy(stagingPolicy);
 			events().notifyDatasetDataChanged(loaderInfo->_pointsDataset);
 			loaderInfo->_pointsDataset->getDataHierarchyItem().setVisible(true);
 		}, mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread, 1);
