@@ -58,3 +58,8 @@ add_library(${H5ADPROJECT} SHARED ${H5AD_SOURCES} ${SHARED_SOURCES} ${SHARED_HEA
 SetBuildSettings(${H5ADPROJECT})
 SetPluginSettings(${H5ADPROJECT})
 SetDebugEnvironment(${H5ADPROJECT})
+
+if(MSVC)
+	# Keep debug symbols in RelWithDebInfo without sharing a compiler PDB among /MP workers.
+	target_compile_options(${H5ADPROJECT} PRIVATE $<$<CONFIG:RelWithDebInfo>:/Z7>)
+endif()
