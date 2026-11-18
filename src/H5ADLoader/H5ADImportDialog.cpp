@@ -1,22 +1,29 @@
 #include "H5ADImportDialog.h"
 
 #include <PointData/PointData.h>
+#include <PointData/storage/dense/DenseStorageBackendConversionAction.h>
 #include <PointData/storage/interface/StorageBackendConfigurationDialog.h>
 #include <PointData/storage/tiled/TiledStorageBackendConfigurationAction.h>
+#include <PointData/storage/interface/PointsStorageBackendTypes.h>
+#include <actions/GroupAction.h>
+#include <actions/MessageCardAction.h>
 #include <util/HardwareSpec.h>
 #include <util/Miscellaneous.h>
 #include <util/RamComponentSpec.h>
 #include <util/StyledIcon.h>
 
 #include <QFileInfo>
+#include <QDialogButtonBox>
+#include <QGridLayout>
 #include <QHeaderView>
+#include <QLabel>
+#include <QSize>
 #include <QSizePolicy>
 #include <QTableView>
 #include <QTimer>
 #include <QVBoxLayout>
 
 #include <Application.h>
-#include <actions/WidgetAction.h>
 #include <workflow/WorkflowOptions.h>
 #include <workflow/WorkflowPlan.h>
 
@@ -29,6 +36,23 @@
 
 namespace
 {
+
+class ObsmTiledStorageBackendConfigurationAction final : public mv::gui::TiledStorageBackendConfigurationAction
+{
+public:
+    ObsmTiledStorageBackendConfigurationAction(QObject* parent, const std::uint64_t rows, const std::uint64_t columns, const std::size_t elementSize, const mv::pointdata::storage::StorageBackendConfiguration& configuration, const bool initializeFromConfiguration, const std::uint32_t elementTypeIndex) :
+        TiledStorageBackendConfigurationAction(parent, rows, columns, elementSize, configuration, initializeFromConfiguration, elementTypeIndex)
+    {
+        for (auto* action : getActions())
+        {
+            if (!action->isVisible() && dynamic_cast<mv::gui::MessageCardAction*>(action))
+            {
+                removeAction(action);
+                break;
+            }
+        }
+    }
+};
 
 std::int32_t getDefaultStagingWorkerCount()
 {
@@ -48,43 +72,6 @@ bool isPotentiallyLossyStorageType(const int storageType, const bool sourceMayLo
 
 }
 
-TargetElementTypeAction::TargetElementTypeAction(QObject* parent, const QString& title) :
-    mv::gui::HorizontalGroupAction(parent, title),
-    _typeAction(this, "Type"),
-    _estimateAction(this, "Estimate")
-{
-    setShowLabels(false);
-    _typeAction.setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
-    _estimateAction.setIconByName("wand-magic-sparkles");
-    _estimateAction.setToolTip(tr("Estimate a compact target type from a bounded sample of the matrix"));
-    addAction(&_typeAction);
-    addAction(&_estimateAction, mv::gui::TriggerAction::Text);
-    connect(&_estimateAction, &mv::gui::TriggerAction::triggered, this, &TargetElementTypeAction::estimateRequested);
-}
-
-mv::gui::OptionAction& TargetElementTypeAction::getTypeAction()
-{
-    return _typeAction;
-}
-
-const mv::gui::OptionAction& TargetElementTypeAction::getTypeAction() const
-{
-    return _typeAction;
-}
-
-void TargetElementTypeAction::setAnalysisRunning(const bool running, const bool estimating)
-{
-    _typeAction.setEnabled(!running);
-    _estimateAction.setEnabled(!running);
-    _estimateAction.setText(running && estimating ? tr("Estimating...") : tr("Estimate"));
-}
-
-void TargetElementTypeAction::setRecommendedTypeIndex(const int index)
-{
-    if (index >= 0 && index < static_cast<int>(_typeAction.getNumberOfOptions()))
-        _typeAction.setCurrentIndex(index);
-}
-
 H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
     QDialog(parent),
     _settingsAction(this, "Import settings"),
@@ -97,12 +84,19 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _bucketingThreadCount(bucketingThreadCount > 0 ? bucketingThreadCount : static_cast<std::size_t>(getDefaultStagingWorkerCount())),
     _stagingThreadCount(stagingThreadCount > 0 ? stagingThreadCount : static_cast<std::size_t>(getDefaultStagingWorkerCount())),
     _rowChunkTileFactor(rowChunkTileFactor > 0 ? rowChunkTileFactor : 3),
-    _checksAction(&_settingsAction, "Import checks", true),
+    _checksAction(&_settingsAction, "Pre-flight checks", true),
     _memoryCheckAction(&_checksAction),
     _precisionCheckAction(&_checksAction),
     _dataSummaryCheckAction(&_checksAction),
     _optionalObjectsAction(&_settingsAction, "Optional metadata", optionalObjects),
+    _obsmMatrixImportAction(nullptr, "obsm matrix import"),
+    _obsmMatrixSelectionAction(this),
+    _obsmMatrices(loader ? loader->getObsmMatrices() : QStringList{}),
     _metadataSizeEstimates(loader ? loader->getOptionalObjectSizeEstimates() : QMap<QString, std::uint64_t>{}),
+    _importInfoAction(&_settingsAction, "Import information"),
+    _obsmMemoryInfoAction(&_importInfoAction),
+    _obsmDialogMatrixAction(nullptr, "Matrix selection"),
+    _obsmDialogChecksAction(nullptr, "Pre-flight checks"),
     _buttonsAction(this, "Import controls"),
     _cancelAction(&_buttonsAction, "Cancel"),
     _importAction(&_buttonsAction, "Import"),
@@ -123,6 +117,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _memoryCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
     _precisionCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
     _dataSummaryCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
+    _obsmMemoryInfoAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
     _fileAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
     _matrixAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
     _datasetNameAction.setDefaultWidgetFlags(mv::gui::StringAction::LineEdit);
@@ -152,8 +147,15 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         else
             metadataToolTips.insert(name, tr("The dataset payload size could not be estimated."));
     }
+    if (_optionalObjectsAction.getOptions().contains("obsm"))
+        _optionalObjectsAction.setOptionConfigurationCallback("obsm", [this] { configureObsmMatrices(); });
+    if (_optionalObjectsAction.getOptions().contains("obsm"))
+        metadataToolTips.insert("obsm", tr("Choose which obsm matrices to import"));
     _optionalObjectsAction.setOptionToolTips(metadataToolTips);
     _optionalObjectsAction.setVisible(!optionalObjects.isEmpty());
+    _selectedObsmMatrices = _obsmMatrices;
+    for (const auto& name : _obsmMatrices)
+        _obsmStorageTypes.insert(name, mv::pointdata::storage::StorageBackendType::Dense);
     updateImportActionState();
 
     _settingsAction.addAction(&_fileAction);
@@ -174,10 +176,14 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
         widget->setMaximumHeight(widget->sizeHint().height());
     });
-    _settingsAction.addAction(&_checksAction);
+    _importInfoAction.setShowLabels(false);
+    _importInfoAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
+    _importInfoAction.addAction(&_obsmMemoryInfoAction);
     _checksAction.addAction(&_memoryCheckAction);
     _checksAction.addAction(&_precisionCheckAction);
     _checksAction.addAction(&_dataSummaryCheckAction);
+    _importInfoAction.addAction(&_checksAction);
+    _settingsAction.addAction(&_importInfoAction);
     _buttonsAction.addStretch(1);
     _buttonsAction.addAction(&_cancelAction, mv::gui::TriggerAction::Text);
     _buttonsAction.addAction(&_importAction, mv::gui::TriggerAction::Text);
@@ -201,6 +207,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     });
     connect(&_optionalObjectsAction, &mv::gui::OptionsAction::selectedOptionsChanged, this, [this] {
         updateImportChecks();
+        updateObsmImportInfo(_selectedObsmMatrices);
     });
     connect(&_storageTypeAction.getTypeAction(), &mv::gui::OptionAction::currentIndexChanged, this, [this] {
         updateImportChecks();
@@ -213,6 +220,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _dataSummaryDescription = tr("Estimating target type and sparsity from a bounded sample...");
     updateDataSummaryCard();
     updateImportChecks();
+    updateObsmImportInfo(_selectedObsmMatrices);
     QTimer::singleShot(0, this, [this] { estimateTargetElementType(); });
     resize(600, 450);
 }
@@ -222,6 +230,7 @@ H5ADImportOptions H5ADImportDialog::options()
     H5ADImportOptions result;
     result.datasetName = _datasetNameAction.getString().trimmed();
     result.storageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
+    result.metadataStorageType = result.storageType;
     result.storageBackendType = mv::pointdata::storage::getStorageBackendType(backendType()).value_or(mv::pointdata::storage::StorageBackendType::Tiled);
     result.tiledStorageConfiguration = _tiledConfiguration;
     result.projectOpenStagingPolicy = _projectOpenStagingPolicy;
@@ -229,6 +238,24 @@ H5ADImportOptions H5ADImportDialog::options()
     result.stagingThreadCount = _stagingThreadCount;
     result.rowChunkTileFactor = _rowChunkTileFactor;
     result.optionalObjects = _optionalObjectsAction.getSelectedOptions();
+    result.optionalObjects.removeAll("obsm");
+    if (_optionalObjectsAction.isOptionSelected("obsm"))
+    {
+        result.optionalObjects.append("obsm");
+        result.optionalMatrixObjects = _selectedObsmMatrices;
+        for (const auto& name : _selectedObsmMatrices)
+        {
+            if (_obsmElementTypes.contains(name))
+                result.optionalMatrixElementTypes.insert(name, _obsmElementTypes.value(name));
+
+            if (_obsmStorageTypes.value(name, mv::pointdata::storage::StorageBackendType::Dense) == mv::pointdata::storage::StorageBackendType::Tiled)
+            {
+                result.optionalMatrixStorageTypes.insert(name, mv::pointdata::storage::StorageBackendType::Tiled);
+                if (_obsmTiledConfigurations.contains(name))
+                    result.optionalMatrixTiledConfigurations.insert(name, _obsmTiledConfigurations.value(name));
+            }
+        }
+    }
     result.stagingDirectory = _stagingDirectory;
     return result;
 }
@@ -345,6 +372,38 @@ void H5ADImportDialog::updateDataSummaryCard()
     _dataSummaryCheckAction.setMessage(_dataSummarySeverity, tr("Data summary"), _dataSummaryDescription, buttonActions);
 }
 
+void H5ADImportDialog::updateObsmImportInfo(const QStringList& selectedMatrices)
+{
+    std::uint64_t totalBytes = 0;
+    bool sizeAvailable = true;
+    for (const auto& name : selectedMatrices)
+    {
+        if (!_optionalObjectsAction.isOptionSelected("obsm"))
+            continue;
+
+        const auto shape = _loader ? _loader->getObsmMatrixShape(name) : std::pair<std::uint64_t, std::uint64_t>{ 0, 0 };
+        if (shape.second != 0 && shape.first > std::numeric_limits<std::uint64_t>::max() / shape.second)
+        {
+            sizeAvailable = false;
+            break;
+        }
+
+        const auto elementCount = shape.first * shape.second;
+        constexpr std::uint64_t estimatedElementSize = sizeof(float);
+        if (elementCount > std::numeric_limits<std::uint64_t>::max() / estimatedElementSize || totalBytes > std::numeric_limits<std::uint64_t>::max() - elementCount * estimatedElementSize)
+        {
+            sizeAvailable = false;
+            break;
+        }
+        totalBytes += elementCount * estimatedElementSize;
+    }
+
+    const auto description = !_optionalObjectsAction.isOptionSelected("obsm") || selectedMatrices.isEmpty() ?
+        tr("No obsm matrices selected for import.") :
+        tr("Selected obsm matrices have an estimated uncompressed size of %1. Dense storage may use additional working memory during import.").arg(sizeAvailable ? mv::util::getNoBytesHumanReadable(totalBytes) : tr("at least the maximum representable size"));
+    _obsmMemoryInfoAction.setMessage(sizeAvailable ? mv::util::SeverityLevel::Info : mv::util::SeverityLevel::Warning, tr("obsm memory estimate"), description);
+}
+
 void H5ADImportDialog::updateMemoryCheck(const mv::util::SeverityLevel severity, const QString& description, const bool offerTiledStorage)
 {
     mv::gui::MessageCardAction::ButtonActions buttonActions;
@@ -366,6 +425,94 @@ void H5ADImportDialog::updatePrecisionCheck(const mv::util::SeverityLevel severi
 QString H5ADImportDialog::backendType()
 {
     return _backendSelector.getBackendType();
+}
+
+void H5ADImportDialog::configureObsmMatrices()
+{
+    if (!_loader || _obsmMatrices.isEmpty())
+        return;
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Configure obsm matrices"));
+    dialog.resize(700, 380);
+    dialog.setMinimumSize(700, 380);
+    auto* layout = new QVBoxLayout(&dialog);
+    _obsmDialogMatrixAction.removeAllActions();
+    _obsmDialogChecksAction.removeAllActions();
+    _obsmMatrixImportAction.removeAllActions();
+    _obsmDialogMatrixAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
+    _obsmDialogChecksAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
+    _obsmDialogMatrixAction.setShowLabels(false);
+    _obsmDialogMatrixAction.setConfigurationFlag(mv::gui::WidgetAction::ConfigurationFlag::NoLabelInGroup, true);
+    _obsmDialogChecksAction.setShowLabels(false);
+    _obsmDialogChecksAction.setConfigurationFlag(mv::gui::WidgetAction::ConfigurationFlag::NoLabelInGroup, true);
+    _obsmMatrixImportAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
+    _obsmMatrixImportAction.setShowLabels(true);
+    _obsmMatrixImportAction.setLabelSizingType(mv::gui::GroupAction::LabelSizingType::Fixed);
+    _obsmMatrixImportAction.setLabelWidthFixed(120);
+    _obsmDialogChecksAction.setExpanded(false);
+    _obsmMatrixImportAction.setText(tr("obsm matrix import"));
+    _obsmDialogMatrixAction.setText(tr("Matrix selection"));
+    _obsmDialogChecksAction.setText(tr("Pre-flight checks"));
+    _obsmDialogMatrixAction.addAction(&_obsmMatrixSelectionAction);
+    _obsmDialogChecksAction.addAction(&_obsmMemoryInfoAction);
+    _obsmMatrixImportAction.addAction(&_obsmDialogMatrixAction);
+    _obsmMatrixImportAction.addAction(&_obsmDialogChecksAction);
+    auto* preflightStretch = _obsmMatrixImportAction.addStretch(1);
+    preflightStretch->setConfigurationFlag(mv::gui::WidgetAction::ConfigurationFlag::NoLabelInGroup);
+    _obsmMatrixSelectionAction.setMatrices(_obsmMatrices, _selectedObsmMatrices, _obsmStorageTypes, _loader.get());
+    connect(&_obsmMatrixSelectionAction, &ObsmMatrixSelectionAction::storageConfigurationRequested, this, &H5ADImportDialog::configureObsmMatrixStorage);
+    connect(&_obsmMatrixSelectionAction, &ObsmMatrixSelectionAction::selectionChanged, &dialog, [this] {
+        updateObsmImportInfo(_obsmMatrixSelectionAction.selectedMatrices());
+    });
+    auto* rootWidget = _obsmMatrixImportAction.createWidget(&dialog);
+    layout->addWidget(rootWidget, 1);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    const auto result = dialog.exec();
+    if (result != QDialog::Accepted)
+        return;
+
+    _selectedObsmMatrices.clear();
+    _selectedObsmMatrices = _obsmMatrixSelectionAction.selectedMatrices();
+    _obsmStorageTypes = _obsmMatrixSelectionAction.storageTypes();
+    updateObsmImportInfo(_selectedObsmMatrices);
+}
+
+void H5ADImportDialog::configureObsmMatrixStorage(const QString& matrixName, const std::uint64_t rows, const std::uint64_t columns, const mv::pointdata::storage::StorageBackendType storageType)
+{
+    const auto selectedTypeIndex = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
+    const auto fallbackTypeIndex = selectedTypeIndex >= 0 ? selectedTypeIndex : (_recommendedTypeIndex >= 0 ? _recommendedTypeIndex : 0);
+    const auto elementTypeIndex = static_cast<std::uint32_t>(_obsmElementTypes.value(matrixName, fallbackTypeIndex));
+
+    if (storageType == mv::pointdata::storage::StorageBackendType::Dense)
+    {
+        auto configurationAction = std::make_unique<mv::gui::DenseStorageBackendConversionAction>(nullptr, rows, columns, elementTypeIndex);
+        auto* configurationActionPtr = configurationAction.get();
+        ::StorageBackendConfigurationDialog configurationDialog(std::move(configurationAction), ::StorageBackendConfigurationDialog::Purpose::Import, this);
+
+        if (configurationDialog.exec() == QDialog::Accepted)
+            if (const auto configuredTypeIndex = configurationActionPtr->getTargetElementTypeIndex())
+                _obsmElementTypes.insert(matrixName, static_cast<int>(*configuredTypeIndex));
+
+        return;
+    }
+
+    const auto configuration = _obsmTiledConfigurations.value(matrixName);
+    const auto elementSize = PointData::getElementTypeSize(elementTypeIndex);
+    auto configurationAction = std::make_unique<ObsmTiledStorageBackendConfigurationAction>(this, rows, columns, elementSize, configuration, _obsmTiledConfigurations.contains(matrixName), elementTypeIndex);
+    auto* configurationActionPtr = configurationAction.get();
+    ::StorageBackendConfigurationDialog configurationDialog(std::move(configurationAction), ::StorageBackendConfigurationDialog::Purpose::Import, this);
+
+    if (configurationDialog.exec() == QDialog::Accepted)
+    {
+        _obsmTiledConfigurations.insert(matrixName, configurationActionPtr->getConfiguration());
+        if (const auto configuredTypeIndex = configurationActionPtr->getTargetElementTypeIndex())
+            _obsmElementTypes.insert(matrixName, static_cast<int>(*configuredTypeIndex));
+    }
 }
 
 void H5ADImportDialog::configureTiledStorage()

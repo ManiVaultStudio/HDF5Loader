@@ -597,7 +597,9 @@ namespace H5AD
 			creation->generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t tileRows, const std::uint64_t tileColumns) {
 				return readStagedTile(*staging, rowOffset, columnOffset, tileRows, tileColumns);
 			};
-			creation->packedSource = createPackedTileSource(staging);
+			// PackedTileSource is accepted only when the backend itself is configured for packed tiles.
+			if (configuration.packedTiles)
+				creation->packedSource = createPackedTileSource(staging);
 
 			auto tiledStorage = mv::pointdata::storage::TiledPointsStorageBackend::create(*creation);
 			return std::make_unique<mv::pointdata::storage::TiledPointsStorageBackend>(tiledStorage, static_cast<std::uint32_t>(elementType));
@@ -1631,7 +1633,6 @@ namespace H5AD
 			dci.resize(xsize, ysize);
 			dci.set_sparse_row_data(indices, indptr, data, TRANSFORM::None());
 		}
-
 		events().notifyDatasetDataChanged(numericalDataset);
 
 		// Dimension names
@@ -1890,6 +1891,52 @@ namespace H5AD
 
 			Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(numericalMetaData, numericalMetaDataDimensionNames, true, loaderInfo._pointsDataset, h5datasetName.c_str());
 			numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+		}
+		else
+		{
+			const auto datasetClass = dataset.getDataType().getClass();
+			if (datasetClass != H5T_INTEGER && datasetClass != H5T_FLOAT && datasetClass != H5T_ENUM)
+				return;
+
+			const auto dataspace = dataset.getSpace();
+			if (dataspace.getSimpleExtentNdims() != 2)
+				return;
+			hsize_t matrixShape[2] = {};
+			dataspace.getSimpleExtentDims(matrixShape, nullptr);
+			if (matrixShape[0] != loaderInfo._pointsDataset->getNumPoints() || matrixShape[1] == 0)
+				return;
+
+			std::vector<QString> dimensionNames(matrixShape[1]);
+			for (std::size_t column = 0; column < matrixShape[1]; ++column)
+				dimensionNames[column] = QString::number(column + 1);
+
+			const auto matrixRows = static_cast<std::uint64_t>(matrixShape[0]);
+			const auto matrixColumns = static_cast<std::uint64_t>(matrixShape[1]);
+			const auto baseName = QString::fromLocal8Bit(h5datasetName.c_str());
+
+			if (loaderInfo._metadataStorageBackendType == pointdata::storage::StorageBackendType::Tiled)
+			{
+				const auto elementType = getTiledElementType(dataset.getDataType(), loaderInfo._metadataStorageType);
+				auto staging = stageDenseData(dataset, elementType, matrixRows, matrixColumns, loaderInfo._metadataStagingDirectory, loaderInfo._metadataTiledStorageConfiguration, {});
+				auto tiledBackend = createStagedTiledBackend(matrixRows, matrixColumns, elementType, loaderInfo._metadataTiledStorageConfiguration, staging);
+				mv::Dataset<Points> numericalMetaDataset = mv::data().createDerivedDataset<Points>(baseName, loaderInfo._pointsDataset, {}, false);
+				numericalMetaDataset->initializeStorageBackend(std::move(tiledBackend));
+				numericalMetaDataset->setDimensionNames(dimensionNames);
+				numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+				mv::events().notifyDatasetAdded(numericalMetaDataset);
+				mv::events().notifyDatasetDataChanged(numericalMetaDataset);
+			}
+			else
+			{
+				H5Utils::MultiDimensionalData<numericMetaDataType> matrixData;
+				if (!H5Utils::read_multi_dimensional_data(dataset, matrixData))
+					return;
+				auto numericalMetaDataset = H5Utils::addNumericalMetaData(matrixData.data, dimensionNames, false, loaderInfo._pointsDataset, baseName, loaderInfo._metadataStorageType);
+				numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+			}
+
+			if (progress)
+				progress(1.0f, baseName);
 		}
 	}
 
@@ -2250,7 +2297,7 @@ namespace H5AD
 										{
 											if (mdd.size.size() == 2)
 											{
-												if (mdd.size[0] == loaderInfo._pointsDataset->getNumPoints())
+												if (mdd.size[0] == loaderInfo._pointsDataset->getNumPoints() && mdd.size[1] > 0)
 												{
 
 													QString baseString = dataSet.getObjName().c_str();
@@ -2259,8 +2306,16 @@ namespace H5AD
 													{
 														dimensionNames[l] = QString::number(l + 1);
 													}
-													mv::Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(mdd.data, dimensionNames, false, loaderInfo._pointsDataset, baseString);
+													mv::Dataset<Points> numericalMetaDataset = H5Utils::addNumericalMetaData(mdd.data, dimensionNames, false, loaderInfo._pointsDataset, baseString, loaderInfo._metadataStorageType);
 													numericalMetaDataset->setProperty("Sample Names", loaderInfo._sampleNames);
+													if (loaderInfo._metadataStorageBackendType == pointdata::storage::StorageBackendType::Tiled)
+													{
+														const auto rows = static_cast<std::uint64_t>(mdd.size[0]);
+														const auto columns = static_cast<std::uint64_t>(mdd.size[1]);
+														const auto elementType = getTiledElementType(dataSet.getDataType(), loaderInfo._metadataStorageType);
+														auto staging = stageDenseData(dataSet, elementType, rows, columns, loaderInfo._metadataStagingDirectory, loaderInfo._metadataTiledStorageConfiguration, {});
+														numericalMetaDataset->initializeStorageBackend(createStagedTiledBackend(rows, columns, elementType, loaderInfo._metadataTiledStorageConfiguration, staging));
+													}
 												}
 											}
 										}

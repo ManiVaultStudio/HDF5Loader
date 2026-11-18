@@ -1,12 +1,12 @@
 #pragma once
 
 #include "HDF5_AD_Loader.h"
+#include "actions/ObsmMatrixSelectionAction.h"
+#include "actions/TargetElementTypeAction.h"
 
 #include <PointData/StorageBackendConfiguratorAction.h>
-#include <actions/HorizontalGroupAction.h>
 #include <actions/IntegralAction.h>
 #include <actions/MessageCardAction.h>
-#include <actions/OptionAction.h>
 #include <actions/OptionsAction.h>
 #include <actions/StringAction.h>
 #include <actions/TriggerAction.h>
@@ -14,40 +14,10 @@
 #include <util/SeverityLevel.h>
 
 #include <QDialog>
-#include <QPointer>
+#include <QMap>
 
 #include <cstddef>
 #include <memory>
-
-/**
- * @brief Combines element-type selection with an estimate request.
- *
- * Estimation is performed by the dialog's workflow; this action only exposes
- * the controls and emits a request signal.
- */
-class TargetElementTypeAction : public mv::gui::HorizontalGroupAction
-{
-    Q_OBJECT
-
-public:
-    TargetElementTypeAction(QObject* parent, const QString& title);
-
-    mv::gui::OptionAction& getTypeAction();
-    const mv::gui::OptionAction& getTypeAction() const;
-    /** Disables the controls during analysis and updates the estimate-button label. */
-    void setAnalysisRunning(bool running, bool estimating = false);
-
-    /** Selects the recommended option when index is within the available choices. */
-    void setRecommendedTypeIndex(int index);
-
-signals:
-    /** Emitted when the user requests a bounded estimate; the dialog owns the scan workflow. */
-    void estimateRequested();
-
-private:
-    mv::gui::OptionAction  _typeAction;      /**< Target element-type selector. */
-    mv::gui::TriggerAction _estimateAction;  /**< Requests analysis of the matrix values. */
-};
 
 /**
  * @brief Collects import settings and data checks for an opened H5AD file.
@@ -97,6 +67,9 @@ private:
     /** Recomputes the import preflight messages for the current settings. */
     void updateImportChecks();
 
+    /** Recomputes the memory card for selected obsm matrices. */
+    void updateObsmImportInfo(const QStringList& selectedMatrices);
+
     /** Updates the memory card and optionally offers switching to tiled storage. */
     void updateMemoryCheck(mv::util::SeverityLevel severity, const QString& description, bool offerTiledStorage = false);
 
@@ -108,6 +81,12 @@ private:
 
     /** Opens tiled storage configuration and its staging-space observation. */
     void configureTiledStorage();
+
+    /** Opens matrix selection for the obsm metadata group. */
+    void configureObsmMatrices();
+
+    /** Opens backend configuration for the requested obsm matrix. */
+    void configureObsmMatrixStorage(const QString& matrixName, std::uint64_t rows, std::uint64_t columns, mv::pointdata::storage::StorageBackendType storageType);
 
     /** Starts a bounded sample or full scan workflow for the target element type. */
     void analyzeTargetElementType(bool fullScan);
@@ -133,7 +112,19 @@ private:
     mv::gui::MessageCardAction   _dataSummaryCheckAction;  /**< Matrix analysis summary and optional full-scan callback. */
 
     mv::gui::OptionsAction       _optionalObjectsAction;  /**< Optional HDF5 metadata objects selected for import. */
+    mv::gui::VerticalGroupAction _obsmMatrixImportAction; /**< Root action for the obsm matrix import dialog. */
+    ObsmMatrixSelectionAction _obsmMatrixSelectionAction; /**< Vertical group of per-matrix import configuration actions. */
+    QStringList _obsmMatrices; /**< Names of numeric dense matrices inside obsm. */
+    QStringList _selectedObsmMatrices; /**< Matrices selected for import in the obsm configuration dialog. */
+    QMap<QString, mv::pointdata::storage::StorageBackendType> _obsmStorageTypes; /**< Selected storage backend per obsm matrix. */
+    QMap<QString, int> _obsmElementTypes; /**< Explicit target element type per configured obsm matrix. */
+    QMap<QString, mv::pointdata::storage::StorageBackendConfiguration> _obsmTiledConfigurations; /**< Tiled settings per obsm matrix. */
     QMap<QString, std::uint64_t> _metadataSizeEstimates;  /**< Estimated payload bytes for optional objects, keyed by HDF5 object name. */
+
+    mv::gui::VerticalGroupAction _importInfoAction; /**< Information cards describing estimated import size and data checks. */
+    mv::gui::MessageCardAction _obsmMemoryInfoAction; /**< Estimated memory required by selected obsm matrices. */
+    mv::gui::VerticalGroupAction _obsmDialogMatrixAction; /**< Matrix table and obsm size estimate in the configuration dialog. */
+    mv::gui::VerticalGroupAction _obsmDialogChecksAction; /**< Import preflight cards in the configuration dialog. */
 
     mv::gui::HorizontalGroupAction _buttonsAction;  /**< Bottom-row dialog buttons and leading stretch. */
     mv::gui::TriggerAction         _cancelAction;   /**< Closes the dialog without accepting its settings. */

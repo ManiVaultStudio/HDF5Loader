@@ -4,6 +4,7 @@
 #include "ClusterData/ClusterData.h"
 #include "H5Utils.h"
 #include "PointData/PointData.h"
+#include <PointData/storage/interface/PointsStorageBackendTypes.h>
 
 #include <functional>
 #include <cstddef>
@@ -37,6 +38,10 @@ namespace H5AD
 		std::size_t                  _bucketingThreadCount = 4; /**< Worker limit for sparse CSR bucketing. */
 		std::size_t                  _stagingThreadCount = 4; /**< Worker limit for packed tile materialization and encoding. */
 		std::size_t                  _rowChunkTileFactor = 3; /**< Tile-height multiple grouped into each CSR staging batch. */
+		mv::pointdata::storage::StorageBackendType _metadataStorageBackendType = mv::pointdata::storage::StorageBackendType::Dense; /**< Storage backend for numeric obsm matrices. */
+		mv::pointdata::storage::StorageBackendConfiguration _metadataTiledStorageConfiguration; /**< Tile settings for numeric obsm matrices. */
+		QString                      _metadataStagingDirectory; /**< Staging directory used for tiled numeric metadata matrices. */
+		int                          _metadataStorageType = -3; /**< Target numeric type for obsm matrices. */
 		std::vector<QString>         _originalDimensionNames;    /**< Dimension names discovered from var. */
 		QVariantList                 _sampleNames;               /**< Sample names discovered from obs. */
 		std::vector<bool>            _enabledDimensions;         /**< Optional dimension-selection mask. */

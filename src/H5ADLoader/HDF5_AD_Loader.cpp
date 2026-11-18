@@ -7,6 +7,7 @@
 #include <Application.h>
 #include <workflow/WorkflowOptions.h>
 #include <workflow/WorkflowPlan.h>
+#include <util/Miscellaneous.h>
 
 #include <QGuiApplication>
 #include <QtGlobal>
@@ -18,6 +19,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <string>
 
 #include <PointData/PointData.h>
 
@@ -158,6 +160,86 @@ QStringList HDF5_AD_Loader::getOptionalObjects() const
 			names.append(QString::fromStdString(name));
 	}
 	return names;
+}
+
+QStringList HDF5_AD_Loader::getObsmMatrices() const
+{
+	QStringList names;
+	if (!_file)
+		return names;
+
+	try
+	{
+		auto group = _file->openGroup("obsm");
+		for (hsize_t index = 0; index < group.getNumObjs(); ++index)
+		{
+			if (group.getObjTypeByIdx(index) != H5G_DATASET)
+				continue;
+
+			const auto name = group.getObjnameByIdx(index);
+			const auto dataset = group.openDataSet(name);
+			if (dataset.getDataType().getClass() != H5T_FLOAT && dataset.getDataType().getClass() != H5T_INTEGER)
+				continue;
+
+			const auto space = dataset.getSpace();
+			if (space.getSimpleExtentNdims() == 2)
+				names.append(QString::fromLocal8Bit(name.c_str()));
+		}
+	}
+	catch (const H5::Exception&)
+	{
+	}
+	return names;
+}
+
+QString HDF5_AD_Loader::getObsmMatrixDescription(const QString& name) const
+{
+	if (!_file)
+		return {};
+
+	try
+	{
+		const auto dataset = _file->openDataSet(std::string("obsm/") + name.toStdString());
+		const auto space = dataset.getSpace();
+		if (space.getSimpleExtentNdims() != 2)
+			return {};
+
+		hsize_t shape[2] = {};
+		space.getSimpleExtentDims(shape);
+		if (shape[1] != 0 && static_cast<std::uint64_t>(shape[0]) > std::numeric_limits<std::uint64_t>::max() / static_cast<std::uint64_t>(shape[1]))
+			return QObject::tr("%1 × %2, dense, size unavailable").arg(shape[0]).arg(shape[1]);
+		const auto elementCount = static_cast<std::uint64_t>(shape[0]) * static_cast<std::uint64_t>(shape[1]);
+		if (dataset.getDataType().getSize() != 0 && elementCount > std::numeric_limits<std::uint64_t>::max() / dataset.getDataType().getSize())
+			return QObject::tr("%1 × %2, dense, size unavailable").arg(shape[0]).arg(shape[1]);
+		const auto bytes = elementCount * dataset.getDataType().getSize();
+		return QObject::tr("%1 × %2, dense, %3").arg(shape[0]).arg(shape[1]).arg(mv::util::getNoBytesHumanReadable(bytes));
+	}
+	catch (const H5::Exception&)
+	{
+		return QObject::tr("Matrix details unavailable");
+	}
+}
+
+std::pair<std::uint64_t, std::uint64_t> HDF5_AD_Loader::getObsmMatrixShape(const QString& name) const
+{
+	if (!_file)
+		return { 0, 0 };
+
+	try
+	{
+		const auto dataset = _file->openDataSet(std::string("obsm/") + name.toStdString());
+		const auto space = dataset.getSpace();
+		if (space.getSimpleExtentNdims() != 2)
+			return { 0, 0 };
+
+		hsize_t shape[2] = {};
+		space.getSimpleExtentDims(shape);
+		return { shape[0], shape[1] };
+	}
+	catch (const H5::Exception&)
+	{
+		return { 0, 0 };
+	}
 }
 
 QMap<QString, std::uint64_t> HDF5_AD_Loader::getOptionalObjectSizeEstimates() const
@@ -801,6 +883,11 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		std::set<std::string> objectsToProcess;
 		for (const auto& name : options.optionalObjects)
 			objectsToProcess.insert(name.toStdString());
+		std::set<std::string> optionalMatricesToProcess;
+		for (const auto& name : options.optionalMatrixObjects)
+			optionalMatricesToProcess.insert(name.toStdString());
+		if (!optionalMatricesToProcess.empty())
+			objectsToProcess.insert("obsm");
 
 		Dataset<Points> pointsDataset = H5Utils::createPointsDataset(_core, false, options.datasetName);
 		pointsDataset->setProjectResourceStagingPolicy(options.projectOpenStagingPolicy);
@@ -816,6 +903,8 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		loaderInfo->_bucketingThreadCount = std::max<std::size_t>(1, options.bucketingThreadCount);
 		loaderInfo->_stagingThreadCount = std::max<std::size_t>(1, options.stagingThreadCount);
 		loaderInfo->_rowChunkTileFactor = std::clamp<std::size_t>(options.rowChunkTileFactor, 1, 256);
+		loaderInfo->_metadataStagingDirectory = loaderInfo->_stagingDirectory;
+		loaderInfo->_metadataStorageType = options.metadataStorageType;
 		loaderInfo->_originalDimensionNames = _dimensionNames;
 		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 		const auto loader = shared_from_this();
@@ -833,7 +922,7 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 				throw std::runtime_error("Unable to stage H5AD point data");
 		}, mv::workflow::WorkflowPlan::JobThreadAffinity::CurrentWorkerThread, 80);
 
-		workflow->addNestedWorkflowStage(QObject::tr("Create point-data metadata"), [loader, loaderInfo, objectsToProcess, objectNameIdx](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
+		workflow->addNestedWorkflowStage(QObject::tr("Create point-data metadata"), [loader, loaderInfo, objectsToProcess, optionalMatricesToProcess, objectNameIdx, options](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
 			auto metadataWorkflow = std::make_unique<mv::workflow::WorkflowPlan>(QObject::tr("Load optional H5AD metadata"));
 			mv::workflow::WorkflowPlan::Jobs metadataJobs;
 
@@ -850,7 +939,7 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 
 				const auto objectType = loader->_file->getObjTypeByIdx(fo);
 				const auto jobName = QObject::tr("Load sample names and metadata: %1").arg(QString::fromLocal8Bit(objectName.c_str()));
-				addMetadataJob(jobName, [loader, loaderInfo, objectName, objectType](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
+				addMetadataJob(jobName, [loader, loaderInfo, objectName, objectType, optionalMatricesToProcess, options](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
 					const H5AD::MetadataProgressCallback progress = [executionContext](const float value, const QString&) {
 						executionContext->setProgress(value);
 					};
@@ -865,7 +954,33 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 						else if (objectType == H5G_GROUP)
 						{
 							auto h5Group = loader->_file->openGroup(objectName);
-							H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, *loaderInfo, progress);
+							if (objectName == "obsm")
+							{
+								for (const auto& matrixName : optionalMatricesToProcess)
+								{
+									if (h5Group.nameExists(matrixName.c_str()))
+									{
+										auto matrix = h5Group.openDataSet(matrixName.c_str());
+										const auto matrixKey = QString::fromLocal8Bit(matrixName.c_str());
+										loaderInfo->_metadataStorageBackendType = options.optionalMatrixStorageTypes.value(matrixKey, pointdata::storage::StorageBackendType::Dense);
+										loaderInfo->_metadataTiledStorageConfiguration = options.optionalMatrixTiledConfigurations.value(matrixKey);
+										const auto previousMetadataStorageType = loaderInfo->_metadataStorageType;
+										loaderInfo->_metadataStorageType = options.optionalMatrixElementTypes.value(matrixKey, options.metadataStorageType);
+										try
+										{
+											H5AD::LoadSampleNamesAndMetaDataFloat(matrix, *loaderInfo, progress);
+										}
+										catch (...)
+										{
+											loaderInfo->_metadataStorageType = previousMetadataStorageType;
+											throw;
+										}
+										loaderInfo->_metadataStorageType = previousMetadataStorageType;
+									}
+								}
+							}
+							else
+								H5AD::LoadSampleNamesAndMetaDataFloat(h5Group, *loaderInfo, progress);
 						}
 					}
 					catch (const std::exception& exception)
