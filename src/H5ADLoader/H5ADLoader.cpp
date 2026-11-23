@@ -65,6 +65,9 @@ namespace
 		configuration.cacheCapacity = values.value("cacheCapacity", 8).toULongLong();
 		configuration.cacheCapacityBytes = values.value("cacheCapacityBytes", 64U * 1024U * 1024U).toULongLong();
 		configuration.packedTiles = values.value("packedTiles", true).toBool();
+		configuration.experimentalStripStorage = values.value("experimentalStripStorage", false).toBool();
+		configuration.rowStripHeight = values.value("rowStripHeight", 8).toULongLong();
+		configuration.columnStripWidth = values.value("columnStripWidth", 8).toULongLong();
 		configuration.superTileRows = values.value("superTileRows", 4).toULongLong();
 		configuration.superTileColumns = values.value("superTileColumns", 4).toULongLong();
 		configuration.tileCodecName = values.value("tileCodecName").toString();
@@ -79,6 +82,9 @@ namespace
 			{ "cacheCapacity", QVariant::fromValue<qulonglong>(configuration.cacheCapacity) },
 			{ "cacheCapacityBytes", QVariant::fromValue<qulonglong>(configuration.cacheCapacityBytes) },
 			{ "packedTiles", configuration.packedTiles },
+			{ "experimentalStripStorage", configuration.experimentalStripStorage },
+			{ "rowStripHeight", QVariant::fromValue<qulonglong>(configuration.rowStripHeight) },
+			{ "columnStripWidth", QVariant::fromValue<qulonglong>(configuration.columnStripWidth) },
 			{ "superTileRows", QVariant::fromValue<qulonglong>(configuration.superTileRows) },
 			{ "superTileColumns", QVariant::fromValue<qulonglong>(configuration.superTileColumns) },
 			{ "tileCodecName", configuration.tileCodecName }
@@ -96,6 +102,8 @@ H5ADLoader::H5ADLoader(PluginFactory* factory)
 	_tiledStorageConfiguration.cacheCapacity = 8;
 	_tiledStorageConfiguration.cacheCapacityBytes = 64U * 1024U * 1024U;
 	_tiledStorageConfiguration.packedTiles = true;
+	_tiledStorageConfiguration.rowStripHeight = 8;
+	_tiledStorageConfiguration.columnStripWidth = 8;
 	_tiledStorageConfiguration.superTileRows = 4;
 	_tiledStorageConfiguration.superTileColumns = 4;
 }
