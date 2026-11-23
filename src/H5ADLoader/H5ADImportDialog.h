@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HDF5_AD_Loader.h"
+#include "actions/ClusterSetSelectionAction.h"
 #include "actions/ObsmMatrixSelectionAction.h"
 #include "actions/TargetElementTypeAction.h"
 
@@ -85,6 +86,12 @@ private:
     /** Opens matrix selection for the obsm metadata group. */
     void configureObsmMatrices();
 
+    /** Opens cluster-set selection for categorical obs metadata. */
+    void configureObsClusterSets();
+
+    /** Refreshes the cluster-count pre-flight card from the current selection. */
+    void updateClusterSetPreflightCheck();
+
     /** Opens backend configuration for the requested obsm matrix. */
     void configureObsmMatrixStorage(const QString& matrixName, std::uint64_t rows, std::uint64_t columns, mv::pointdata::storage::StorageBackendType storageType);
 
@@ -112,6 +119,13 @@ private:
     mv::gui::MessageCardAction   _dataSummaryCheckAction;  /**< Matrix analysis summary and optional full-scan callback. */
 
     mv::gui::OptionsAction       _optionalObjectsAction;  /**< Optional HDF5 metadata objects selected for import. */
+    mv::gui::VerticalGroupAction _clusterSetImportAction; /**< Root action for the obs cluster-set configuration dialog. */
+    ClusterSetSelectionAction _clusterSetSelectionAction; /**< Selects categorical fields under obs for cluster creation. */
+    mv::gui::VerticalGroupAction _clusterSetDialogChecksAction; /**< Pre-flight checks shown beneath the cluster-set table. */
+    mv::gui::MessageCardAction _clusterSetCountInfoAction; /**< Summary of the selected cluster sets' available category counts. */
+    QMap<QString, H5ADClusterSetInfo> _availableClusterSets; /**< Discovered categorical obs fields and counts when available. */
+    QStringList _selectedClusterSets; /**< Cluster sets selected in the configuration dialog. */
+    bool _clusterSetSelectionConfigured = false; /**< Whether the user accepted a cluster-set selection. */
     mv::gui::VerticalGroupAction _obsmMatrixImportAction; /**< Root action for the obsm matrix import dialog. */
     ObsmMatrixSelectionAction _obsmMatrixSelectionAction; /**< Vertical group of per-matrix import configuration actions. */
     QStringList _obsmMatrices; /**< Names of numeric dense matrices inside obsm. */

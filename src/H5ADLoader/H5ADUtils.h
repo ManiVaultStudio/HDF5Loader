@@ -2,12 +2,16 @@
 
 #include "ClusterData/Cluster.h"
 #include "ClusterData/ClusterData.h"
+#include "H5ADClusterSetInfo.h"
 #include "H5Utils.h"
 #include "PointData/PointData.h"
 #include <PointData/storage/interface/PointsStorageBackendTypes.h>
 
 #include <functional>
 #include <cstddef>
+
+#include <QMap>
+#include <QStringList>
 
 namespace H5AD
 {
@@ -42,6 +46,9 @@ namespace H5AD
 		mv::pointdata::storage::StorageBackendConfiguration _metadataTiledStorageConfiguration; /**< Tile settings for numeric obsm matrices. */
 		QString                      _metadataStagingDirectory; /**< Staging directory used for tiled numeric metadata matrices. */
 		int                          _metadataStorageType = -3; /**< Target numeric type for obsm matrices. */
+		QMap<QString, H5ADClusterSetInfo> _availableClusterSets; /**< Discovered categorical sets in obs, with source details for filtering. */
+		QStringList                  _selectedClusterSets; /**< Selected categorical sets to create while importing obs. */
+		bool                         _filterClusterSets = false; /**< Whether the current obs import should restrict cluster creation. */
 		std::vector<QString>         _originalDimensionNames;    /**< Dimension names discovered from var. */
 		QVariantList                 _sampleNames;               /**< Sample names discovered from obs. */
 		std::vector<bool>            _enabledDimensions;         /**< Optional dimension-selection mask. */

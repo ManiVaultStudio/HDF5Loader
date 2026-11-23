@@ -41,6 +41,25 @@ namespace H5AD
 		constexpr std::size_t tiledRowSize = 256;
 		constexpr std::size_t tiledColumnSize = 256;
 
+		bool shouldLoadClusterSet(const LoaderInfo& loaderInfo, const std::string& objectName)
+		{
+			if (!loaderInfo._filterClusterSets)
+				return true;
+
+			auto key = QString::fromLocal8Bit(objectName.c_str());
+			while (key.startsWith('/'))
+				key.remove(0, 1);
+			if (key.startsWith("obs/"))
+				key.remove(0, 4);
+			else if (key == "obs")
+				key.clear();
+
+			if (key.isEmpty() || !loaderInfo._availableClusterSets.contains(key))
+				return true;
+
+			return loaderInfo._selectedClusterSets.contains(key);
+		}
+
 		PointData::ElementTypeSpecifier getTiledElementType(const H5::DataType& dataType, const int storageType)
 		{
 			if (storageType >= 0)
@@ -1892,7 +1911,8 @@ namespace H5AD
 						else
 						{
 							QString prefix = h5datasetName.c_str() + QString("\\");
-							H5Utils::addClusterMetaData(indices, component->first.c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), prefix);
+							if (shouldLoadClusterSet(loaderInfo, h5datasetName + "/" + component->first))
+								H5Utils::addClusterMetaData(indices, component->first.c_str(), loaderInfo._pointsDataset, std::map<QString, QColor>(), prefix);
 						}
 
 					}
@@ -1994,7 +2014,8 @@ namespace H5AD
 			{
 				if (count == nrOfRows)
 				{
-					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset);
+					if (shouldLoadClusterSet(loaderInfo, group.getObjName()))
+						H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset);
 				}
 			}
 			else
@@ -2095,7 +2116,8 @@ namespace H5AD
 										colors[it->first] = QColor(it->first);
 
 
-									H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset, colors);
+									if (shouldLoadClusterSet(loaderInfo, group.getObjName()))
+										H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset, colors);
 									option = options;
 								}
 							}
@@ -2107,7 +2129,8 @@ namespace H5AD
 				}
 				else
 				{
-					H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset);
+					if (shouldLoadClusterSet(loaderInfo, group.getObjName()))
+						H5Utils::addClusterMetaData(codedCategories, h5GroupName.c_str(), loaderInfo._pointsDataset);
 				}
 			}
 		}
@@ -2163,7 +2186,10 @@ namespace H5AD
 												assert(indices_iterator->second.size() > 0);
 											}
 											if (load_colors == 0)
-												H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset);
+											{
+												if (shouldLoadClusterSet(loaderInfo, dataSet.getObjName()))
+													H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset);
+											}
 											else
 											{
 												const std::vector<QString>& items = categories[objectName1];
@@ -2270,7 +2296,8 @@ namespace H5AD
 																	for (auto it = indices.cbegin(); it != indices.cend(); ++it)
 																		colors[it->first] = QColor(it->first);
 
-																	H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset, colors);
+																	if (shouldLoadClusterSet(loaderInfo, dataSet.getObjName()))
+																		H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset, colors);
 
 																}
 															}
@@ -2358,7 +2385,8 @@ namespace H5AD
 										{
 											indices[items[i]].push_back(i);
 										}
-										H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset);
+										if (shouldLoadClusterSet(loaderInfo, dataSet.getObjName()))
+											H5Utils::addClusterMetaData(indices, dataSet.getObjName().c_str(), loaderInfo._pointsDataset);
 									}
 									else
 									{

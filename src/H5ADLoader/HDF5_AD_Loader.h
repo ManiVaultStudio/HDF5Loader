@@ -15,6 +15,7 @@
 class QObject;
 
 #include "H5Utils.h"
+#include "H5ADClusterSetInfo.h"
 #include <PointData/storage/interface/PointsStorageBackendTypes.h>
 #include <util/ProjectResourceStagingPolicy.h>
 
@@ -35,6 +36,9 @@ struct H5ADImportOptions
 {
 	QString datasetName; /**< Name assigned to the imported point dataset. */
 	QStringList optionalObjects; /**< Optional top-level metadata objects selected for import. */
+	QMap<QString, H5ADClusterSetInfo> availableClusterSets; /**< Categorical sets discovered in obs, keyed by import name. */
+	QStringList selectedClusterSets; /**< Selected obs cluster sets, used when cluster-set filtering is enabled. */
+	bool filterClusterSets = false; /**< Whether to restrict obs cluster creation to selectedClusterSets. */
 	QStringList optionalMatrixObjects; /**< Selected numeric matrices nested in optional groups such as obsm. */
 	QMap<QString, mv::pointdata::storage::StorageBackendType> optionalMatrixStorageTypes; /**< Optional metadata matrix storage choices. */
 	QMap<QString, int> optionalMatrixElementTypes; /**< Optional metadata matrix element-type choices keyed by HDF5 matrix name. */
@@ -125,6 +129,8 @@ public:
 
 	/** Returns importable optional top-level objects, excluding X, uns, var, varm, and varp. */
 	QStringList getOptionalObjects() const;
+	/** Returns categorical cluster sets found in obs and brief descriptions for the selection dialog. */
+	QMap<QString, H5ADClusterSetInfo> getObsClusterSets() const;
 	/** Returns numeric two-dimensional matrices within obsm, with shapes and encodings available separately. */
 	QStringList getObsmMatrices() const;
 	/** Describes a matrix in obsm without reading its values. */

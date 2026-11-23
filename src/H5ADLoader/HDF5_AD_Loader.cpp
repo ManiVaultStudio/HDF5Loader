@@ -162,6 +162,146 @@ QStringList HDF5_AD_Loader::getOptionalObjects() const
 	return names;
 }
 
+QMap<QString, H5ADClusterSetInfo> HDF5_AD_Loader::getObsClusterSets() const
+{
+	QMap<QString, H5ADClusterSetInfo> clusterSets;
+	if (!_file)
+		return clusterSets;
+	const auto observationCount = static_cast<std::uint64_t>(_sampleNames.size());
+	H5G_obj_t obsObjectType = H5G_UNKNOWN;
+	for (hsize_t index = 0; index < _file->getNumObjs(); ++index)
+		if (_file->getObjnameByIdx(index) == "obs")
+		{
+			obsObjectType = _file->getObjTypeByIdx(index);
+			break;
+		}
+
+	if (obsObjectType == H5G_DATASET)
+	{
+		try
+		{
+			const auto dataset = _file->openDataSet("obs");
+			const auto dataSpace = dataset.getSpace();
+			const auto valueCount = dataSpace.getSimpleExtentNpoints();
+			if (dataset.getDataType().getClass() == H5T_COMPOUND && valueCount >= 0 && (observationCount == 0 || static_cast<std::uint64_t>(valueCount) == observationCount))
+			{
+				const auto compoundType = dataset.getCompType();
+				for (int member = 0; member < compoundType.getNmembers(); ++member)
+					if (compoundType.getMemberClass(member) == H5T_STRING)
+					{
+						const auto name = QString::fromLocal8Bit(compoundType.getMemberName(member).c_str());
+						clusterSets.insert(name, H5ADClusterSetInfo { false, 0, QObject::tr("String field · %1 observations; category count requires scanning values").arg(valueCount) });
+					}
+			}
+		}
+		catch (const H5::Exception&)
+		{
+		}
+		return clusterSets;
+	}
+
+	if (obsObjectType != H5G_GROUP)
+		return clusterSets;
+
+	try
+	{
+		auto obsGroup = _file->openGroup("obs");
+
+		const auto visitGroup = [&clusterSets, observationCount](const auto& self, H5::Group& group, const QString& parentPath, const std::size_t depth) -> void {
+			if (depth > 32)
+				return;
+
+			const auto groupPath = QString::fromLocal8Bit(group.getObjName().c_str());
+			const auto groupName = groupPath.section('/', -1);
+			if (group.nameExists("codes") && group.nameExists("categories"))
+			{
+				try
+				{
+					const auto codes = group.openDataSet("codes");
+					const auto categories = group.openDataSet("categories");
+					const auto codeCount = codes.getSpace().getSimpleExtentNpoints();
+					const auto categoryCount = categories.getSpace().getSimpleExtentNpoints();
+					if (codeCount >= 0 && categoryCount >= 0 && (observationCount == 0 || static_cast<std::uint64_t>(codeCount) == observationCount))
+					{
+						const auto key = parentPath.isEmpty() ? groupName : parentPath;
+						clusterSets.insert(key, H5ADClusterSetInfo { true, static_cast<std::uint64_t>(categoryCount), QObject::tr("Encoded category labels · %1 observations").arg(codeCount) });
+					}
+					return;
+				}
+				catch (const H5::Exception&)
+				{
+				}
+			}
+
+			for (hsize_t index = 0; index < group.getNumObjs(); ++index)
+			{
+				const auto name = group.getObjnameByIdx(index);
+				if (name == "__categories" || name == "index" || name == "_index" || name.find("_color") != std::string::npos)
+					continue;
+
+				const auto key = parentPath.isEmpty() ? QString::fromLocal8Bit(name.c_str()) : parentPath + "/" + QString::fromLocal8Bit(name.c_str());
+				const auto objectType = group.getObjTypeByIdx(index);
+				if (objectType == H5G_GROUP)
+				{
+					auto subgroup = group.openGroup(name);
+					self(self, subgroup, key, depth + 1);
+					continue;
+				}
+				if (objectType != H5G_DATASET)
+					continue;
+
+				try
+				{
+					const auto dataset = group.openDataSet(name);
+					const auto dataSpace = dataset.getSpace();
+					const auto dimensions = dataSpace.getSimpleExtentNdims();
+					const auto valueCount = dataSpace.getSimpleExtentNpoints();
+					if (dimensions != 1 || valueCount < 0 || (observationCount != 0 && static_cast<std::uint64_t>(valueCount) != observationCount))
+						continue;
+
+					const auto typeClass = dataset.getDataType().getClass();
+					if (typeClass == H5T_STRING || typeClass == H5T_ENUM || (dataset.attrExists("categories") && (typeClass == H5T_INTEGER || typeClass == H5T_FLOAT)))
+					{
+						H5ADClusterSetInfo info;
+						info.description = QObject::tr("Categorical field · %1 observations").arg(valueCount);
+						if (dataset.attrExists("categories") && group.nameExists("__categories"))
+						{
+							try
+							{
+								auto categoriesGroup = group.openGroup("__categories");
+								if (categoriesGroup.nameExists(name))
+								{
+									const auto categoriesDataSet = categoriesGroup.openDataSet(name);
+									const auto categoryCount = categoriesDataSet.getSpace().getSimpleExtentNpoints();
+									if (categoryCount >= 0)
+									{
+										info.clusterCountAvailable = true;
+										info.clusterCount = static_cast<std::uint64_t>(categoryCount);
+									}
+								}
+							}
+							catch (const H5::Exception&)
+							{
+							}
+						}
+						clusterSets.insert(key, info);
+					}
+				}
+				catch (const H5::Exception&)
+				{
+				}
+			}
+		};
+
+		visitGroup(visitGroup, obsGroup, {}, 0);
+	}
+	catch (const H5::Exception&)
+	{
+	}
+
+	return clusterSets;
+}
+
 QStringList HDF5_AD_Loader::getObsmMatrices() const
 {
 	QStringList names;
@@ -905,6 +1045,8 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		loaderInfo->_rowChunkTileFactor = std::clamp<std::size_t>(options.rowChunkTileFactor, 1, 256);
 		loaderInfo->_metadataStagingDirectory = loaderInfo->_stagingDirectory;
 		loaderInfo->_metadataStorageType = options.metadataStorageType;
+		loaderInfo->_availableClusterSets = options.availableClusterSets;
+		loaderInfo->_selectedClusterSets = options.selectedClusterSets;
 		loaderInfo->_originalDimensionNames = _dimensionNames;
 		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 		const auto loader = shared_from_this();
@@ -943,6 +1085,10 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 					const H5AD::MetadataProgressCallback progress = [executionContext](const float value, const QString&) {
 						executionContext->setProgress(value);
 					};
+
+					const auto previousClusterSetFilter = loaderInfo->_filterClusterSets;
+					if (objectName == "obs")
+						loaderInfo->_filterClusterSets = options.filterClusterSets;
 
 					try
 					{
@@ -985,8 +1131,15 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 					}
 					catch (const std::exception& exception)
 					{
+						loaderInfo->_filterClusterSets = previousClusterSetFilter;
 						std::cerr << "H5AD Loader: Optional metadata loading failed for " << objectName << ": " << exception.what() << std::endl;
 					}
+					catch (...)
+					{
+						loaderInfo->_filterClusterSets = previousClusterSetFilter;
+						throw;
+					}
+					loaderInfo->_filterClusterSets = previousClusterSetFilter;
 				});
 			}
 

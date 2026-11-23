@@ -89,6 +89,11 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _precisionCheckAction(&_checksAction),
     _dataSummaryCheckAction(&_checksAction),
     _optionalObjectsAction(&_settingsAction, "Optional metadata", optionalObjects),
+    _clusterSetImportAction(nullptr, "obs cluster-set import"),
+    _clusterSetSelectionAction(this),
+    _clusterSetDialogChecksAction(nullptr, "Pre-flight checks", true),
+    _clusterSetCountInfoAction(&_clusterSetDialogChecksAction),
+    _availableClusterSets(loader ? loader->getObsClusterSets() : QMap<QString, H5ADClusterSetInfo>{}),
     _obsmMatrixImportAction(nullptr, "obsm matrix import"),
     _obsmMatrixSelectionAction(this),
     _obsmMatrices(loader ? loader->getObsmMatrices() : QStringList{}),
@@ -139,6 +144,13 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         if (name.startsWith("obs"))
             selectedObjects.append(name);
     _optionalObjectsAction.setSelectedOptions(selectedObjects);
+    _selectedClusterSets = _availableClusterSets.keys();
+    _clusterSetCountInfoAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
+    _clusterSetDialogChecksAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
+    _clusterSetDialogChecksAction.setShowLabels(true);
+    _clusterSetDialogChecksAction.setLabelSizingType(mv::gui::GroupAction::LabelSizingType::Fixed);
+    _clusterSetDialogChecksAction.setLabelWidthFixed(140);
+    connect(&_clusterSetSelectionAction, &ClusterSetSelectionAction::selectionChanged, this, &H5ADImportDialog::updateClusterSetPreflightCheck);
     QMap<QString, QString> metadataToolTips;
     for (const auto& name : optionalObjects)
     {
@@ -149,8 +161,12 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     }
     if (_optionalObjectsAction.getOptions().contains("obsm"))
         _optionalObjectsAction.setOptionConfigurationCallback("obsm", [this] { configureObsmMatrices(); });
+    if (_optionalObjectsAction.getOptions().contains("obs") && !_availableClusterSets.isEmpty())
+        _optionalObjectsAction.setOptionConfigurationCallback("obs", [this] { configureObsClusterSets(); });
     if (_optionalObjectsAction.getOptions().contains("obsm"))
         metadataToolTips.insert("obsm", tr("Choose which obsm matrices to import"));
+    if (_optionalObjectsAction.getOptions().contains("obs") && !_availableClusterSets.isEmpty())
+        metadataToolTips.insert("obs", tr("Choose which categorical obs fields to import as cluster sets"));
     _optionalObjectsAction.setOptionToolTips(metadataToolTips);
     _optionalObjectsAction.setVisible(!optionalObjects.isEmpty());
     _selectedObsmMatrices = _obsmMatrices;
@@ -238,6 +254,9 @@ H5ADImportOptions H5ADImportDialog::options()
     result.stagingThreadCount = _stagingThreadCount;
     result.rowChunkTileFactor = _rowChunkTileFactor;
     result.optionalObjects = _optionalObjectsAction.getSelectedOptions();
+    result.availableClusterSets = _availableClusterSets;
+    result.selectedClusterSets = _selectedClusterSets;
+    result.filterClusterSets = _clusterSetSelectionConfigured && _optionalObjectsAction.isOptionSelected("obs");
     result.optionalObjects.removeAll("obsm");
     if (_optionalObjectsAction.isOptionSelected("obsm"))
     {
@@ -480,6 +499,73 @@ void H5ADImportDialog::configureObsmMatrices()
     _selectedObsmMatrices = _obsmMatrixSelectionAction.selectedMatrices();
     _obsmStorageTypes = _obsmMatrixSelectionAction.storageTypes();
     updateObsmImportInfo(_selectedObsmMatrices);
+}
+
+void H5ADImportDialog::configureObsClusterSets()
+{
+    if (_availableClusterSets.isEmpty())
+        return;
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Configure obs cluster sets"));
+    dialog.resize(620, 470);
+    dialog.setMinimumSize(620, 470);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    _clusterSetImportAction.removeAllActions();
+    _clusterSetImportAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
+    _clusterSetImportAction.setShowLabels(true);
+    _clusterSetImportAction.setLabelSizingType(mv::gui::GroupAction::LabelSizingType::Fixed);
+    _clusterSetImportAction.setLabelWidthFixed(140);
+    _clusterSetImportAction.setText(tr("obs cluster-set import"));
+    _clusterSetSelectionAction.setClusterSets(_availableClusterSets, _selectedClusterSets);
+    _clusterSetDialogChecksAction.removeAllActions();
+    _clusterSetDialogChecksAction.addAction(&_clusterSetCountInfoAction);
+    _clusterSetImportAction.addAction(&_clusterSetSelectionAction);
+    _clusterSetImportAction.addAction(&_clusterSetDialogChecksAction);
+    auto* preflightStretch = _clusterSetImportAction.addStretch(1);
+    preflightStretch->setConfigurationFlag(mv::gui::WidgetAction::ConfigurationFlag::NoLabelInGroup);
+    updateClusterSetPreflightCheck();
+    layout->addWidget(_clusterSetImportAction.createWidget(&dialog), 1);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    _selectedClusterSets = _clusterSetSelectionAction.selectedClusterSets();
+    _clusterSetSelectionConfigured = true;
+}
+
+void H5ADImportDialog::updateClusterSetPreflightCheck()
+{
+    const auto selectedClusterSets = _clusterSetSelectionAction.selectedClusterSets();
+    std::uint64_t encodedCategoryCount = 0;
+    std::size_t unavailableCount = 0;
+
+    for (const auto& name : selectedClusterSets)
+    {
+        const auto info = _availableClusterSets.value(name);
+        if (info.clusterCountAvailable)
+            encodedCategoryCount += info.clusterCount;
+        else
+            ++unavailableCount;
+    }
+
+    QString description;
+    if (selectedClusterSets.isEmpty())
+        description = tr("No cluster sets are selected.");
+    else if (unavailableCount == 0)
+        description = tr("Selected cluster sets contain %1 encoded categories across %2 sets. Unused categories may not produce clusters.").arg(encodedCategoryCount).arg(selectedClusterSets.size());
+    else if (encodedCategoryCount == 0)
+        description = tr("The cluster count requires scanning values in %1 selected set(s).").arg(unavailableCount);
+    else
+        description = tr("Selected sets contain %1 encoded categories; the count for %2 set(s) requires scanning values. Unused categories may not produce clusters.").arg(encodedCategoryCount).arg(unavailableCount);
+
+    _clusterSetCountInfoAction.setMessage(mv::util::SeverityLevel::Info, tr("Cluster count"), description);
 }
 
 void H5ADImportDialog::configureObsmMatrixStorage(const QString& matrixName, const std::uint64_t rows, const std::uint64_t columns, const mv::pointdata::storage::StorageBackendType storageType)
