@@ -679,6 +679,12 @@ namespace H5AD
 			std::atomic<std::size_t> activeEncoders = 0;
 			std::atomic<std::size_t> maximumActiveEncoders = 0;
 			const auto stagingStart = std::chrono::steady_clock::now();
+			float reportedProgress = 0.0f;
+			auto reportProgress = [&](const float value) {
+				reportedProgress = std::max(reportedProgress, value);
+				if (progress)
+					progress(reportedProgress);
+			};
 			auto updateMaximum = [](std::atomic<std::size_t>& maximum, const std::size_t value) {
 				auto observed = maximum.load(std::memory_order_relaxed);
 				while (observed < value && !maximum.compare_exchange_weak(observed, value, std::memory_order_relaxed))
@@ -693,12 +699,11 @@ namespace H5AD
 				for (const auto& [tileIndex, block] : encoded.blocks)
 				{
 					staging->tiles[tileIndex].block = block;
-					if (progress)
-						progress(static_cast<float>(++completedTileCount) / static_cast<float>(tileCount));
+					++completedTileCount;
 				}
+				reportProgress(0.4f + 0.6f * static_cast<float>(completedTileCount) / static_cast<float>(tileCount));
 			};
-			if (progress)
-				progress(0.0f);
+			reportProgress(0.0f);
 
 			for (std::uint64_t superTileRow = 0; superTileRow < staging->tileRows; superTileRow += chunkTileRows)
 			{
@@ -711,6 +716,7 @@ namespace H5AD
 				auto indices = valueCount > 0 ? readH5ADRange<std::uint64_t>(indicesSet, indptr.front(), valueCount, H5::PredType::NATIVE_UINT64) : std::vector<std::uint64_t>();
 				auto values = valueCount > 0 ? readH5ADRange<float>(dataSet, indptr.front(), valueCount, H5::PredType::NATIVE_FLOAT) : std::vector<float>();
 				hdf5ReadMilliseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStart).count()), std::memory_order_relaxed);
+				reportProgress(0.2f * static_cast<float>(lastTileRow) / static_cast<float>(staging->tileRows));
 
 				const auto activeWorkerCount = std::max<std::size_t>(1, std::min<std::size_t>(effectiveBucketingWorkerCount, static_cast<std::size_t>(superTileRowCount)));
 				std::vector<std::vector<std::vector<SparseTileEntry>>> entriesByWorkerAndColumn(activeWorkerCount, std::vector<std::vector<SparseTileEntry>>(static_cast<std::size_t>(columnSuperTileCount)));
@@ -749,6 +755,7 @@ namespace H5AD
 					std::rethrow_exception(bucketingException);
 				stagedNonZeroCount.fetch_add(valueCount, std::memory_order_relaxed);
 				bucketingWorkerMilliseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - bucketingStart).count()), std::memory_order_relaxed);
+				reportProgress(0.4f * static_cast<float>(lastTileRow) / static_cast<float>(staging->tileRows));
 
 				auto sharedIndices = std::make_shared<std::vector<std::uint64_t>>(std::move(indices));
 				auto sharedValues = std::make_shared<std::vector<float>>(std::move(values));
