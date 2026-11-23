@@ -15,6 +15,8 @@
 #include <PointData/DimensionsPickerAction.h>
 #include <PointData/storage/sparse/SparsePointsStorageBackend.h>
 #include <PointData/storage/tiled/TiledPointsStorageBackend.h>
+#include <util/BlobCodec.h>
+#include <util/CodecRegistry.h>
 #include <util/Serialization.h>
 #include <cmath>
 #include <chrono>
@@ -382,13 +384,17 @@ namespace H5AD
 			return stagingDirectory;
 		}
 
-		mv::util::SharedCodec createStagingCodec()
+		mv::util::SharedCodec createStagingCodec(const QString& codecName)
 		{
-			const auto* currentProject = mv::projects().getCurrentProject();
+			auto* currentProject = mv::projects().getCurrentProject();
 			if (!currentProject)
 				throw std::runtime_error("Unable to create H5AD staging codec without an active project");
 
-			return currentProject->getCompressionAction().createCodec(nullptr);
+			const auto projectCodecName = mv::util::BlobCodec::typeToString(mv::util::codecRegistry().typeFromDisplayName(currentProject->getCompressionAction().getCodecTypeAction().getCurrentText()));
+			if (codecName.isEmpty() || codecName == projectCodecName)
+				return currentProject->getCompressionAction().createCodec(nullptr);
+
+			return mv::util::codecRegistry().createCodec(nullptr, codecName);
 		}
 
 		std::shared_ptr<StagedPointData> stageDenseData(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress)
@@ -405,7 +411,7 @@ namespace H5AD
 			staging->superTileColumns = configuration.superTileColumns;
 			staging->tileRows = (rows + staging->rowTileSize - 1) / staging->rowTileSize;
 			staging->tileColumns = (columns + staging->columnTileSize - 1) / staging->columnTileSize;
-			staging->codec = createStagingCodec();
+			staging->codec = createStagingCodec(configuration.tileCodecName);
 			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, configuration, staging->codec);
 			staging->stagingDirectory = stagingDirectory;
 			const auto tileCount = staging->tileRows * staging->tileColumns;
@@ -489,7 +495,7 @@ namespace H5AD
 						}
 					}
 
-					const auto codec = createStagingCodec();
+					const auto codec = createStagingCodec(configuration.tileCodecName);
 					staging->superTiles.resize(std::max(staging->superTiles.size(), superTileIndex + 1));
 					inFlightBytes += superTileByteCount;
 					encodingJobs.emplace_back(std::async(std::launch::async, [superTileIndex, filePath, tilePayloads = std::move(tilePayloads), codec]() mutable {
@@ -593,6 +599,7 @@ namespace H5AD
 			creation->packedTiles = configuration.packedTiles;
 			creation->superTileRows = configuration.superTileRows;
 			creation->superTileColumns = configuration.superTileColumns;
+			creation->tileCodecName = configuration.tileCodecName;
 			creation->loaderThreadSafe = true;
 			creation->generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t tileRows, const std::uint64_t tileColumns) {
 				return readStagedTile(*staging, rowOffset, columnOffset, tileRows, tileColumns);
@@ -648,7 +655,7 @@ namespace H5AD
 			staging->superTileColumns = configuration.superTileColumns;
 			staging->tileRows = (rows + staging->rowTileSize - 1) / staging->rowTileSize;
 			staging->tileColumns = (columns + staging->columnTileSize - 1) / staging->columnTileSize;
-			staging->codec = createStagingCodec();
+			staging->codec = createStagingCodec(configuration.tileCodecName);
 			const auto stagingDirectory = createStagingDirectory(stagingRoot, rows, columns, elementSize, configuration, staging->codec);
 			staging->stagingDirectory = stagingDirectory;
 			const auto tileCount = staging->tileRows * staging->tileColumns;
@@ -777,7 +784,7 @@ namespace H5AD
 							staging->tiles[tileIndex] = { tileRowOffset, tileColumnOffset, tileRowCount, tileColumnValueCount, superTileIndex, {} };
 						}
 
-					const auto codec = createStagingCodec();
+					const auto codec = createStagingCodec(configuration.tileCodecName);
 					pending.push_back({ std::async(std::launch::async, [&, superTileIndex, superTileRow, lastTileRow, superTileColumn, lastTileColumn, tileColumnCount, filePath, entriesForColumnByWorker = std::move(entriesForColumnByWorker), sharedIndices, sharedValues, codec]() mutable {
 						ActiveCounter activeCounter(activeEncoders);
 						const auto active = activeEncoders.load(std::memory_order_relaxed);

@@ -67,6 +67,7 @@ namespace
 		configuration.packedTiles = values.value("packedTiles", true).toBool();
 		configuration.superTileRows = values.value("superTileRows", 4).toULongLong();
 		configuration.superTileColumns = values.value("superTileColumns", 4).toULongLong();
+		configuration.tileCodecName = values.value("tileCodecName").toString();
 		return configuration;
 	}
 
@@ -79,7 +80,8 @@ namespace
 			{ "cacheCapacityBytes", QVariant::fromValue<qulonglong>(configuration.cacheCapacityBytes) },
 			{ "packedTiles", configuration.packedTiles },
 			{ "superTileRows", QVariant::fromValue<qulonglong>(configuration.superTileRows) },
-			{ "superTileColumns", QVariant::fromValue<qulonglong>(configuration.superTileColumns) }
+			{ "superTileColumns", QVariant::fromValue<qulonglong>(configuration.superTileColumns) },
+			{ "tileCodecName", configuration.tileCodecName }
 		};
 	}
 
