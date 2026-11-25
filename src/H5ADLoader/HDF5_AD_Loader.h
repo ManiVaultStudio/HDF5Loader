@@ -52,6 +52,8 @@ struct H5ADImportOptions
 	std::size_t bucketingThreadCount = 4; /**< Worker limit for distributing sparse CSR entries to output tiles. */
 	std::size_t stagingThreadCount = 4; /**< Worker limit for materializing, compressing, and writing packed tiles. */
 	std::size_t rowChunkTileFactor = 3; /**< Number of tile heights grouped into each sparse CSR staging batch. */
+	int zstdCompressionLevel = 3; /**< Zstandard compression level used for tiled H5AD import, in the codec-supported range [1, 22]. */
+	QString importBenchmarkFilePath; /**< Optional JSON output path for the import benchmark report. */
 };
 
 /**

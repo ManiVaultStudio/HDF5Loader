@@ -11,12 +11,123 @@
 #include <cstddef>
 
 #include <QMap>
+#include <QDateTime>
+#include <QString>
 #include <QStringList>
+
+#include <chrono>
 
 namespace H5AD
 {
+	/** Dense X staging counters captured for an optional import benchmark report. */
+	struct DenseStagingBenchmarkMetrics
+	{
+		QString sourceLayout;
+		QString sourceElementType;
+		QString codecName;
+		int targetElementType = -1;
+		std::uint64_t sourceElementSizeBytes = 0;
+		std::uint64_t elementSizeBytes = 0;
+		std::uint64_t sourceChunkRows = 0;
+		std::uint64_t sourceChunkColumns = 0;
+		std::uint64_t elapsedMilliseconds = 0;
+		std::uint64_t hdf5ReadMilliseconds = 0;
+		std::uint64_t encodeAndWriteWorkerMilliseconds = 0;
+		std::uint64_t stagedBytes = 0;
+		std::uint64_t codecInputBytes = 0;
+		std::uint64_t packedFileBytes = 0;
+		std::uint64_t tileCount = 0;
+		std::uint64_t superTileCount = 0;
+		std::uint64_t rowStripCount = 0;
+		std::uint64_t columnStripCount = 0;
+		std::uint64_t wholeTileEncodeNanoseconds = 0;
+		std::uint64_t wholeTileWriteNanoseconds = 0;
+		std::uint64_t rowStripPreparationNanoseconds = 0;
+		std::uint64_t rowStripEncodeNanoseconds = 0;
+		std::uint64_t rowStripWriteNanoseconds = 0;
+		std::uint64_t columnStripPreparationNanoseconds = 0;
+		std::uint64_t columnStripEncodeNanoseconds = 0;
+		std::uint64_t columnStripWriteNanoseconds = 0;
+		std::uint64_t finalizeNanoseconds = 0;
+		std::uint64_t maximumInFlightBytes = 0;
+		std::size_t maximumActiveEncoders = 0;
+		std::size_t maximumQueuedSuperTiles = 0;
+	};
+
+	/** Sparse-to-tiled staging and point-data backend metrics for an optional import report. */
+	struct SparseStagingBenchmarkMetrics
+	{
+		QString sourceElementType;
+		QString codecName;
+		std::uint64_t storedEntryCount = 0;
+		std::uint64_t inputValueBytes = 0;
+		std::uint64_t inputIndexBytes = 0;
+		std::uint64_t inputPointerBytes = 0;
+		std::uint64_t denseEquivalentBytes = 0;
+		std::uint64_t stagedBytes = 0;
+		std::uint64_t codecInputBytes = 0;
+		std::uint64_t packedFileBytes = 0;
+		std::uint64_t tileCount = 0;
+		std::uint64_t superTileCount = 0;
+		std::uint64_t chunkCount = 0;
+		std::uint64_t rowsPerChunk = 0;
+		std::uint64_t hdf5ReadCalls = 0;
+		std::uint64_t indptrReadCalls = 0;
+		std::uint64_t indicesReadCalls = 0;
+		std::uint64_t valuesReadCalls = 0;
+		std::uint64_t hdf5ReadMilliseconds = 0;
+		std::uint64_t indptrReadMilliseconds = 0;
+		std::uint64_t indicesReadMilliseconds = 0;
+		std::uint64_t valuesReadMilliseconds = 0;
+		std::uint64_t bucketingMilliseconds = 0;
+		std::uint64_t materializationWorkerMilliseconds = 0;
+		std::uint64_t encodeAndWriteWorkerMilliseconds = 0;
+		std::uint64_t rowStripPreparationNanoseconds = 0;
+		std::uint64_t rowStripEncodeNanoseconds = 0;
+		std::uint64_t rowStripWriteNanoseconds = 0;
+		std::uint64_t rowStripWorkerCpuNanoseconds = 0;
+		std::uint64_t rowWriterLockWaitNanoseconds = 0;
+		std::uint64_t rowWriterLockHoldNanoseconds = 0;
+		std::uint64_t columnStripPreparationNanoseconds = 0;
+		std::uint64_t columnStripEncodeNanoseconds = 0;
+		std::uint64_t columnStripWriteNanoseconds = 0;
+		std::uint64_t columnStripWorkerCpuNanoseconds = 0;
+		std::uint64_t columnWriterLockWaitNanoseconds = 0;
+		std::uint64_t columnWriterLockHoldNanoseconds = 0;
+		std::uint64_t pendingFutureWaitNanoseconds = 0;
+		std::uint64_t finalizeNanoseconds = 0;
+		std::uint64_t elapsedMilliseconds = 0;
+		std::uint64_t backendConstructionNanoseconds = 0;
+		std::uint64_t datasetBackendInitializationNanoseconds = 0;
+		std::uint64_t maximumPendingBytes = 0;
+		std::uint64_t pendingByteLimit = 0;
+		std::size_t maximumActiveBucketers = 0;
+		std::size_t maximumActiveEncoders = 0;
+		std::size_t maximumPendingEncoders = 0;
+		std::size_t maximumPendingSuperTiles = 0;
+		std::size_t bucketingWorkers = 0;
+		std::size_t stagingWorkers = 0;
+		std::size_t stripWorkerPoolSize = 0;
+		std::size_t maximumActiveStripWorkers = 0;
+		bool completed = false;
+	};
+
+	/** Shared timing state for one optional H5AD import benchmark report. */
+	struct ImportBenchmarkData
+	{
+		QString outputFilePath;
+		QDateTime startedUtc;
+		std::chrono::steady_clock::time_point startedAt;
+		std::uint64_t pointDataStageMilliseconds = 0;
+		std::uint64_t metadataStageMilliseconds = 0;
+		std::uint64_t publishStageMilliseconds = 0;
+		QMap<QString, std::uint64_t> metadataJobMilliseconds;
+		DenseStagingBenchmarkMetrics denseStaging;
+		SparseStagingBenchmarkMetrics sparseStaging;
+	};
+
 	/** Reports normalized staging progress in the range [0, 1]. */
-	using ProgressCallback = std::function<void(float)>;
+	using ProgressCallback = std::function<void(float, const QString&)>;
 
 	/** Reports normalized metadata progress and the child HDF5 object being processed. */
 	using MetadataProgressCallback = std::function<void(float, const QString&)>;
@@ -35,6 +146,7 @@ namespace H5AD
 	{
 		mv::Dataset<Points>          _pointsDataset;             /**< Point dataset being populated. */
 		QString                      _sourceFileName;            /**< Source H5AD file path. */
+		std::shared_ptr<ImportBenchmarkData> _importBenchmark; /**< Optional instrumentation collected for the import benchmark JSON. */
 		QString                      _stagingDirectory;         /**< Application-managed staging root used for this import. */
 		mv::pointdata::storage::StorageBackendType _storageBackendType = mv::pointdata::storage::StorageBackendType::Tiled; /**< Selected backend for X; sparse input is retained in memory, while tiled input uses packed staging. */
 		int                          _storageType = -3; /**< Selected X element type index or optimized/source-type sentinel. */
@@ -42,6 +154,7 @@ namespace H5AD
 		std::size_t                  _bucketingThreadCount = 4; /**< Worker limit for sparse CSR bucketing. */
 		std::size_t                  _stagingThreadCount = 4; /**< Worker limit for packed tile materialization and encoding. */
 		std::size_t                  _rowChunkTileFactor = 3; /**< Tile-height multiple grouped into each CSR staging batch. */
+		int                          _zstdCompressionLevel = 3; /**< Zstandard compression level selected for the imported X dataset. */
 		mv::pointdata::storage::StorageBackendType _metadataStorageBackendType = mv::pointdata::storage::StorageBackendType::Dense; /**< Storage backend for numeric obsm matrices. */
 		mv::pointdata::storage::StorageBackendConfiguration _metadataTiledStorageConfiguration; /**< Tile settings for numeric obsm matrices. */
 		QString                      _metadataStagingDirectory; /**< Staging directory used for tiled numeric metadata matrices. */

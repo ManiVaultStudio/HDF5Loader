@@ -8,18 +8,31 @@
 #include <workflow/WorkflowOptions.h>
 #include <workflow/WorkflowPlan.h>
 #include <util/Miscellaneous.h>
+#include <util/HardwareSpec.h>
+#include <util/RamComponentSpec.h>
 
 #include <QGuiApplication>
+#include <QDebug>
+#include <QDateTime>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <QSysInfo>
+#include <QThread>
 #include <QtGlobal>
 
 #include <cassert>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <set>
 #include <string>
+#include <thread>
 
 #include <PointData/PointData.h>
 
@@ -67,6 +80,196 @@ bool addGroupPayloadSize(H5::Group& group, std::uint64_t& totalBytes, const std:
 	}
 
 	return true;
+}
+
+QJsonObject createImportBenchmarkJson(const H5AD::ImportBenchmarkData& benchmark, const H5ADImportOptions& options, const QString& sourceFilePath, const std::uint64_t rows, const std::uint64_t columns, const bool sparseInput, const bool succeeded)
+{
+	const auto& dense = benchmark.denseStaging;
+	const auto totalMilliseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - benchmark.startedAt).count());
+	QString targetElementTypeName;
+	const auto targetElementTypeNames = PointData::getElementTypeNames();
+	if (dense.targetElementType >= 0 && static_cast<std::size_t>(dense.targetElementType) < targetElementTypeNames.size())
+		targetElementTypeName = QString::fromLatin1(targetElementTypeNames[static_cast<std::size_t>(dense.targetElementType)]);
+	QJsonObject source {
+		{ QStringLiteral("path"), sourceFilePath },
+		{ QStringLiteral("file_size_bytes"), static_cast<qint64>(QFileInfo(sourceFilePath).size()) },
+		{ QStringLiteral("rows"), static_cast<qint64>(rows) },
+		{ QStringLiteral("columns"), static_cast<qint64>(columns) },
+		{ QStringLiteral("sparse_encoding_detected"), sparseInput }
+	};
+	QJsonObject configuration {
+		{ QStringLiteral("storage_backend"), pointdata::storage::getStorageBackendTypeName(options.storageBackendType) },
+		{ QStringLiteral("requested_storage_type_index"), options.storageType },
+		{ QStringLiteral("bucketing_thread_count"), static_cast<qint64>(options.bucketingThreadCount) },
+		{ QStringLiteral("staging_thread_count_setting"), static_cast<qint64>(options.stagingThreadCount) },
+		{ QStringLiteral("row_chunk_tile_factor"), static_cast<qint64>(options.rowChunkTileFactor) },
+		{ QStringLiteral("optional_metadata"), QJsonArray::fromStringList(options.optionalObjects) },
+		{ QStringLiteral("optional_matrices"), QJsonArray::fromStringList(options.optionalMatrixObjects) }
+	};
+	const auto& tiled = options.tiledStorageConfiguration;
+	configuration.insert(QStringLiteral("tile_rows"), static_cast<qint64>(tiled.rowTileSize));
+	configuration.insert(QStringLiteral("tile_columns"), static_cast<qint64>(tiled.columnTileSize));
+	configuration.insert(QStringLiteral("cache_capacity_tiles"), static_cast<qint64>(tiled.cacheCapacity));
+	configuration.insert(QStringLiteral("cache_capacity_bytes"), static_cast<qint64>(tiled.cacheCapacityBytes));
+	configuration.insert(QStringLiteral("packed_tiles"), tiled.packedTiles);
+	configuration.insert(QStringLiteral("supertile_rows"), static_cast<qint64>(tiled.superTileRows));
+	configuration.insert(QStringLiteral("supertile_columns"), static_cast<qint64>(tiled.superTileColumns));
+	configuration.insert(QStringLiteral("strip_storage"), tiled.experimentalStripStorage);
+	configuration.insert(QStringLiteral("row_strip_height"), static_cast<qint64>(tiled.rowStripHeight));
+	configuration.insert(QStringLiteral("column_strip_width"), static_cast<qint64>(tiled.columnStripWidth));
+	configuration.insert(QStringLiteral("configured_codec"), tiled.tileCodecName);
+	configuration.insert(QStringLiteral("zstd_compression_level"), options.zstdCompressionLevel);
+
+	QJsonObject staging {
+		{ QStringLiteral("instrumentation_available"), dense.tileCount > 0 },
+		{ QStringLiteral("elapsed_ms"), static_cast<qint64>(dense.elapsedMilliseconds) },
+		{ QStringLiteral("source_layout"), dense.sourceLayout },
+		{ QStringLiteral("source_element_type"), dense.sourceElementType },
+		{ QStringLiteral("source_element_size_bytes"), static_cast<qint64>(dense.sourceElementSizeBytes) },
+		{ QStringLiteral("source_chunk_rows"), static_cast<qint64>(dense.sourceChunkRows) },
+		{ QStringLiteral("source_chunk_columns"), static_cast<qint64>(dense.sourceChunkColumns) },
+		{ QStringLiteral("target_element_type_index"), dense.targetElementType },
+		{ QStringLiteral("target_element_type"), targetElementTypeName },
+		{ QStringLiteral("target_element_size_bytes"), static_cast<qint64>(dense.elementSizeBytes) },
+		{ QStringLiteral("codec"), dense.codecName },
+		{ QStringLiteral("tiles_read"), static_cast<qint64>(dense.tileCount) },
+		{ QStringLiteral("hdf5_read_calls"), static_cast<qint64>(dense.tileCount) },
+		{ QStringLiteral("supertiles_written"), static_cast<qint64>(dense.superTileCount) },
+		{ QStringLiteral("staged_bytes"), static_cast<qint64>(dense.stagedBytes) },
+		{ QStringLiteral("codec_input_bytes"), static_cast<qint64>(dense.codecInputBytes) },
+		{ QStringLiteral("packed_file_bytes"), static_cast<qint64>(dense.packedFileBytes) },
+		{ QStringLiteral("hdf5_read_ms"), static_cast<qint64>(dense.hdf5ReadMilliseconds) },
+		{ QStringLiteral("encode_write_worker_ms"), static_cast<qint64>(dense.encodeAndWriteWorkerMilliseconds) },
+		{ QStringLiteral("whole_tile_encode_ms"), static_cast<double>(dense.wholeTileEncodeNanoseconds) / 1.0e6 },
+		{ QStringLiteral("whole_tile_write_ms"), static_cast<double>(dense.wholeTileWriteNanoseconds) / 1.0e6 },
+		{ QStringLiteral("row_strip_count"), static_cast<qint64>(dense.rowStripCount) },
+		{ QStringLiteral("column_strip_count"), static_cast<qint64>(dense.columnStripCount) },
+		{ QStringLiteral("row_strip_prepare_ms"), static_cast<double>(dense.rowStripPreparationNanoseconds) / 1.0e6 },
+		{ QStringLiteral("row_strip_encode_ms"), static_cast<double>(dense.rowStripEncodeNanoseconds) / 1.0e6 },
+		{ QStringLiteral("row_strip_write_ms"), static_cast<double>(dense.rowStripWriteNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_strip_prepare_ms"), static_cast<double>(dense.columnStripPreparationNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_strip_encode_ms"), static_cast<double>(dense.columnStripEncodeNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_strip_write_ms"), static_cast<double>(dense.columnStripWriteNanoseconds) / 1.0e6 },
+		{ QStringLiteral("file_finalize_ms"), static_cast<double>(dense.finalizeNanoseconds) / 1.0e6 },
+		{ QStringLiteral("maximum_active_encoders_observed"), static_cast<qint64>(dense.maximumActiveEncoders) },
+		{ QStringLiteral("maximum_queued_supertiles_observed"), static_cast<qint64>(dense.maximumQueuedSuperTiles) },
+		{ QStringLiteral("maximum_inflight_bytes_observed"), static_cast<qint64>(dense.maximumInFlightBytes) },
+		{ QStringLiteral("dense_hdf5_read_concurrency"), dense.tileCount > 0 ? 1 : 0 },
+		{ QStringLiteral("dense_encoder_queue_limit"), 8 },
+		{ QStringLiteral("dense_encoder_byte_limit"), 256 * 1024 * 1024 }
+	};
+	const auto& sparse = benchmark.sparseStaging;
+	QJsonObject sparseStaging {
+		{ QStringLiteral("instrumentation_available"), sparse.elapsedMilliseconds > 0 },
+		{ QStringLiteral("completed"), sparse.completed },
+		{ QStringLiteral("source_element_type"), sparse.sourceElementType },
+		{ QStringLiteral("codec"), sparse.codecName },
+		{ QStringLiteral("stored_entry_count"), static_cast<qint64>(sparse.storedEntryCount) },
+		{ QStringLiteral("stored_entry_density"), rows != 0 && columns != 0 ? static_cast<double>(sparse.storedEntryCount) / (static_cast<double>(rows) * static_cast<double>(columns)) : 0.0 },
+		{ QStringLiteral("input_value_bytes"), static_cast<qint64>(sparse.inputValueBytes) },
+		{ QStringLiteral("input_index_bytes"), static_cast<qint64>(sparse.inputIndexBytes) },
+		{ QStringLiteral("input_pointer_bytes"), static_cast<qint64>(sparse.inputPointerBytes) },
+		{ QStringLiteral("dense_equivalent_bytes"), static_cast<qint64>(sparse.denseEquivalentBytes) },
+		{ QStringLiteral("staged_bytes"), static_cast<qint64>(sparse.stagedBytes) },
+		{ QStringLiteral("codec_input_bytes"), static_cast<qint64>(sparse.codecInputBytes) },
+		{ QStringLiteral("packed_file_bytes"), static_cast<qint64>(sparse.packedFileBytes) },
+		{ QStringLiteral("tile_count"), static_cast<qint64>(sparse.tileCount) },
+		{ QStringLiteral("supertile_count"), static_cast<qint64>(sparse.superTileCount) },
+		{ QStringLiteral("chunk_count"), static_cast<qint64>(sparse.chunkCount) },
+		{ QStringLiteral("rows_per_chunk"), static_cast<qint64>(sparse.rowsPerChunk) },
+		{ QStringLiteral("hdf5_read_calls"), static_cast<qint64>(sparse.hdf5ReadCalls) },
+		{ QStringLiteral("indptr_read_calls"), static_cast<qint64>(sparse.indptrReadCalls) },
+		{ QStringLiteral("indices_read_calls"), static_cast<qint64>(sparse.indicesReadCalls) },
+		{ QStringLiteral("values_read_calls"), static_cast<qint64>(sparse.valuesReadCalls) },
+		{ QStringLiteral("hdf5_read_ms"), static_cast<qint64>(sparse.hdf5ReadMilliseconds) },
+		{ QStringLiteral("indptr_read_ms"), static_cast<qint64>(sparse.indptrReadMilliseconds) },
+		{ QStringLiteral("indices_read_ms"), static_cast<qint64>(sparse.indicesReadMilliseconds) },
+		{ QStringLiteral("values_read_ms"), static_cast<qint64>(sparse.valuesReadMilliseconds) },
+		{ QStringLiteral("bucketing_ms"), static_cast<qint64>(sparse.bucketingMilliseconds) },
+		{ QStringLiteral("materialization_worker_ms"), static_cast<qint64>(sparse.materializationWorkerMilliseconds) },
+		{ QStringLiteral("encode_write_worker_ms"), static_cast<qint64>(sparse.encodeAndWriteWorkerMilliseconds) },
+		{ QStringLiteral("row_strip_prepare_ms"), static_cast<double>(sparse.rowStripPreparationNanoseconds) / 1.0e6 },
+		{ QStringLiteral("row_strip_encode_ms"), static_cast<double>(sparse.rowStripEncodeNanoseconds) / 1.0e6 },
+		{ QStringLiteral("row_strip_write_ms"), static_cast<double>(sparse.rowStripWriteNanoseconds) / 1.0e6 },
+		{ QStringLiteral("row_strip_worker_cpu_ms"), static_cast<double>(sparse.rowStripWorkerCpuNanoseconds) / 1.0e6 },
+		{ QStringLiteral("row_writer_lock_wait_ms"), static_cast<double>(sparse.rowWriterLockWaitNanoseconds) / 1.0e6 },
+		{ QStringLiteral("row_writer_lock_hold_ms"), static_cast<double>(sparse.rowWriterLockHoldNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_strip_prepare_ms"), static_cast<double>(sparse.columnStripPreparationNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_strip_encode_ms"), static_cast<double>(sparse.columnStripEncodeNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_strip_write_ms"), static_cast<double>(sparse.columnStripWriteNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_strip_worker_cpu_ms"), static_cast<double>(sparse.columnStripWorkerCpuNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_writer_lock_wait_ms"), static_cast<double>(sparse.columnWriterLockWaitNanoseconds) / 1.0e6 },
+		{ QStringLiteral("column_writer_lock_hold_ms"), static_cast<double>(sparse.columnWriterLockHoldNanoseconds) / 1.0e6 },
+		{ QStringLiteral("pending_supertile_future_wait_ms"), static_cast<double>(sparse.pendingFutureWaitNanoseconds) / 1.0e6 },
+		{ QStringLiteral("file_finalize_ms"), static_cast<double>(sparse.finalizeNanoseconds) / 1.0e6 },
+		{ QStringLiteral("elapsed_ms"), static_cast<qint64>(sparse.elapsedMilliseconds) },
+		{ QStringLiteral("backend_construction_ms"), static_cast<double>(sparse.backendConstructionNanoseconds) / 1.0e6 },
+		{ QStringLiteral("dataset_backend_initialization_ms"), static_cast<double>(sparse.datasetBackendInitializationNanoseconds) / 1.0e6 },
+		{ QStringLiteral("maximum_pending_bytes"), static_cast<qint64>(sparse.maximumPendingBytes) },
+		{ QStringLiteral("pending_byte_limit"), static_cast<qint64>(sparse.pendingByteLimit) },
+		{ QStringLiteral("maximum_active_bucketers"), static_cast<qint64>(sparse.maximumActiveBucketers) },
+		{ QStringLiteral("maximum_active_encoders"), static_cast<qint64>(sparse.maximumActiveEncoders) },
+		{ QStringLiteral("staging_queue_limit"), static_cast<qint64>(sparse.maximumPendingEncoders) },
+		{ QStringLiteral("maximum_pending_supertile_jobs"), static_cast<qint64>(sparse.maximumPendingSuperTiles) },
+		{ QStringLiteral("configured_bucketing_workers"), static_cast<qint64>(sparse.bucketingWorkers) },
+		{ QStringLiteral("effective_staging_workers"), static_cast<qint64>(sparse.stagingWorkers) },
+		{ QStringLiteral("strip_worker_pool_size"), static_cast<qint64>(sparse.stripWorkerPoolSize) },
+		{ QStringLiteral("maximum_active_strip_workers"), static_cast<qint64>(sparse.maximumActiveStripWorkers) }
+	};
+	QJsonObject stages {
+		{ QStringLiteral("point_data_staging_ms"), static_cast<qint64>(benchmark.pointDataStageMilliseconds) },
+		{ QStringLiteral("point_data_stage_unattributed_ms"), sparse.elapsedMilliseconds > 0 ? std::max<double>(0.0, static_cast<double>(benchmark.pointDataStageMilliseconds) - sparse.elapsedMilliseconds - static_cast<double>(sparse.backendConstructionNanoseconds) / 1.0e6 - static_cast<double>(sparse.datasetBackendInitializationNanoseconds) / 1.0e6) : 0.0 },
+		{ QStringLiteral("metadata_ms"), static_cast<qint64>(benchmark.metadataStageMilliseconds) },
+		{ QStringLiteral("publish_ms"), static_cast<qint64>(benchmark.publishStageMilliseconds) },
+		{ QStringLiteral("total_workflow_ms"), static_cast<qint64>(totalMilliseconds) }
+	};
+	QJsonObject metadataJobs;
+	for (auto it = benchmark.metadataJobMilliseconds.cbegin(); it != benchmark.metadataJobMilliseconds.cend(); ++it)
+		metadataJobs.insert(it.key(), static_cast<qint64>(it.value()));
+	unsigned int hdf5Major = 0;
+	unsigned int hdf5Minor = 0;
+	unsigned int hdf5Release = 0;
+	H5get_libversion(&hdf5Major, &hdf5Minor, &hdf5Release);
+	const auto& hardware = mv::util::HardwareSpec::getSystemHardwareSpec();
+	const auto ramSpec = hardware.getHardwareComponentSpec<mv::util::RamComponentSpec>(QStringLiteral("RAM"));
+	const auto installedMemoryBytes = ramSpec && ramSpec->isInitialized() ? ramSpec->getNumberOfBytes() : 0;
+	QJsonObject environment {
+		{ QStringLiteral("operating_system"), QSysInfo::prettyProductName() },
+		{ QStringLiteral("logical_processors"), QThread::idealThreadCount() },
+		{ QStringLiteral("hardware_concurrency"), static_cast<qint64>(std::thread::hardware_concurrency()) },
+		{ QStringLiteral("installed_memory_bytes"), static_cast<qint64>(installedMemoryBytes) },
+		{ QStringLiteral("qt_version"), QString::fromLatin1(qVersion()) },
+		{ QStringLiteral("hdf5_version"), QStringLiteral("%1.%2.%3").arg(hdf5Major).arg(hdf5Minor).arg(hdf5Release) }
+	};
+	return {
+		{ QStringLiteral("schema_version"), 1 },
+		{ QStringLiteral("benchmark_type"), QStringLiteral("h5ad_import") },
+		{ QStringLiteral("status"), succeeded ? QStringLiteral("success") : QStringLiteral("failed_or_canceled") },
+		{ QStringLiteral("started_utc"), benchmark.startedUtc.toString(Qt::ISODateWithMs) },
+		{ QStringLiteral("finished_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs) },
+		{ QStringLiteral("source"), source },
+		{ QStringLiteral("configuration"), configuration },
+		{ QStringLiteral("stages"), stages },
+		{ QStringLiteral("dense_staging"), staging },
+		{ QStringLiteral("sparse_staging"), sparseStaging },
+		{ QStringLiteral("metadata_jobs_ms"), metadataJobs },
+		{ QStringLiteral("environment"), environment },
+		{ QStringLiteral("report_path"), benchmark.outputFilePath },
+		{ QStringLiteral("timing_notes"), QStringLiteral("Import durations include current OS and HDF5 cache state. Worker timings may overlap and exceed wall time. Strip worker CPU timings sum CPU time across worker tasks and can be compared with elapsed wall time to estimate aggregate CPU use. Sparse staging reports HDF5 reads, bucketing, tile materialization, encoding and writing, queue/concurrency peaks, output sizes, and backend setup. Dense staging reports tile and strip timings. Byte counts are payload estimates and do not include allocator/container overhead. Peak process memory is not sampled by this report.") }
+	};
+}
+
+void writeImportBenchmark(const H5AD::ImportBenchmarkData& benchmark, const H5ADImportOptions& options, const QString& sourceFilePath, const std::uint64_t rows, const std::uint64_t columns, const bool sparseInput, const bool succeeded)
+{
+	QSaveFile output(benchmark.outputFilePath);
+	if (!output.open(QIODevice::WriteOnly))
+	{
+		qWarning().noquote() << QStringLiteral("H5AD import benchmark: unable to open %1: %2").arg(benchmark.outputFilePath, output.errorString());
+		return;
+	}
+	const auto json = QJsonDocument(createImportBenchmarkJson(benchmark, options, sourceFilePath, rows, columns, sparseInput, succeeded)).toJson(QJsonDocument::Indented);
+	if (output.write(json) != json.size() || !output.commit())
+		qWarning().noquote() << QStringLiteral("H5AD import benchmark: unable to save %1: %2").arg(benchmark.outputFilePath, output.errorString());
 }
 
 }
@@ -1012,6 +1215,16 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		return false;
 	try
 	{
+		const auto [matrixRows, matrixColumns] = getMatrixShape();
+		const auto sparseMatrixInfo = getSparseMatrixInfo();
+		auto importBenchmark = std::shared_ptr<H5AD::ImportBenchmarkData>();
+		if (!options.importBenchmarkFilePath.isEmpty())
+		{
+			importBenchmark = std::make_shared<H5AD::ImportBenchmarkData>();
+			importBenchmark->outputFilePath = options.importBenchmarkFilePath;
+			importBenchmark->startedUtc = QDateTime::currentDateTimeUtc();
+			importBenchmark->startedAt = std::chrono::steady_clock::now();
+		}
 		auto nrOfObjects = _file->getNumObjs();
 		std::map<std::string, std::size_t> objectNameIdx;
 		for (hsize_t fo = 0; fo < nrOfObjects; ++fo)
@@ -1036,6 +1249,7 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		const auto loaderInfo = std::make_shared<H5AD::LoaderInfo>();
 		loaderInfo->_pointsDataset = pointsDataset;
 		loaderInfo->_sourceFileName = _fileName;
+		loaderInfo->_importBenchmark = importBenchmark;
 		loaderInfo->_stagingDirectory = options.stagingDirectory.isEmpty() ? _stagingDirectory : options.stagingDirectory;
 		loaderInfo->_storageBackendType = options.storageBackendType;
 		loaderInfo->_storageType = options.storageType;
@@ -1043,6 +1257,7 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		loaderInfo->_bucketingThreadCount = std::max<std::size_t>(1, options.bucketingThreadCount);
 		loaderInfo->_stagingThreadCount = std::max<std::size_t>(1, options.stagingThreadCount);
 		loaderInfo->_rowChunkTileFactor = std::clamp<std::size_t>(options.rowChunkTileFactor, 1, 256);
+		loaderInfo->_zstdCompressionLevel = std::clamp(options.zstdCompressionLevel, 1, 22);
 		loaderInfo->_metadataStagingDirectory = loaderInfo->_stagingDirectory;
 		loaderInfo->_metadataStorageType = options.metadataStorageType;
 		loaderInfo->_availableClusterSets = options.availableClusterSets;
@@ -1051,25 +1266,62 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 		const auto loader = shared_from_this();
 		auto workflow = std::make_unique<mv::workflow::WorkflowPlan>(QObject::tr("Load H5AD point data"));
+		const auto hasOptionalMetadata = !objectsToProcess.empty();
+		const auto pointDataStageWeight = hasOptionalMetadata ? 80.0 : 99.0;
+		const auto metadataStageWeight = hasOptionalMetadata ? 19.0 : 0.0;
 
 		workflow->addSequentialStage(QObject::tr("Stage HDF5 point data"), [loader, loaderInfo, storageType = options.storageType](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
-			const H5AD::ProgressCallback progress = [executionContext](const float value) {
+			const auto stageStart = std::chrono::steady_clock::now();
+			const H5AD::ProgressCallback progress = [executionContext](const float value, const QString&) {
 				if (const auto task = executionContext->getTask(); task && (task->isAboutToBeAborted() || task->isAborting() || task->isAborted()))
 					throw std::runtime_error("H5AD point-data staging canceled");
 
 				executionContext->setProgress(value);
 			};
 
-			if (!H5AD::load_X(loader->_file, *loaderInfo, storageType, progress))
-				throw std::runtime_error("Unable to stage H5AD point data");
-		}, mv::workflow::WorkflowPlan::JobThreadAffinity::CurrentWorkerThread, 80);
+			try
+			{
+				if (!H5AD::load_X(loader->_file, *loaderInfo, storageType, progress))
+					throw std::runtime_error("Unable to stage H5AD point data");
+			}
+			catch (...)
+			{
+				if (loaderInfo->_importBenchmark)
+					loaderInfo->_importBenchmark->pointDataStageMilliseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stageStart).count());
+				throw;
+			}
+			if (loaderInfo->_importBenchmark)
+				loaderInfo->_importBenchmark->pointDataStageMilliseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stageStart).count());
+		}, mv::workflow::WorkflowPlan::JobThreadAffinity::CurrentWorkerThread, pointDataStageWeight);
 
 		workflow->addNestedWorkflowStage(QObject::tr("Create point-data metadata"), [loader, loaderInfo, objectsToProcess, optionalMatricesToProcess, objectNameIdx, options](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
 			auto metadataWorkflow = std::make_unique<mv::workflow::WorkflowPlan>(QObject::tr("Load optional H5AD metadata"));
 			mv::workflow::WorkflowPlan::Jobs metadataJobs;
 
-			const auto addMetadataJob = [&metadataJobs](const QString& name, mv::workflow::WorkflowPlan::JobFunction function) {
-				metadataJobs.emplace_back(name, std::move(function), mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread);
+			const auto addMetadataJob = [&metadataJobs, benchmark = loaderInfo->_importBenchmark](const QString& name, mv::workflow::WorkflowPlan::JobFunction function) {
+				metadataJobs.emplace_back(name, [benchmark, name, function = std::move(function)](const mv::workflow::WorkflowPlan::Job& job, const mv::workflow::SharedWorkflowExecutionContext& executionContext) {
+					const auto stageStart = std::chrono::steady_clock::now();
+					try
+					{
+						function(job, executionContext);
+					}
+					catch (...)
+					{
+						if (benchmark)
+						{
+							const auto elapsed = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stageStart).count());
+							benchmark->metadataStageMilliseconds += elapsed;
+							benchmark->metadataJobMilliseconds.insert(name, elapsed);
+						}
+						throw;
+					}
+					if (benchmark)
+					{
+						const auto elapsed = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stageStart).count());
+						benchmark->metadataStageMilliseconds += elapsed;
+						benchmark->metadataJobMilliseconds.insert(name, elapsed);
+					}
+				}, mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread);
 			};
 
 			const auto nrOfObjects = loader->_file->getNumObjs();
@@ -1173,23 +1425,29 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 
 			metadataWorkflow->addSequentialStage(QObject::tr("Load discovered metadata"), std::move(metadataJobs), 1.0);
 			return metadataWorkflow;
-		}, mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread, 19);
+		}, mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread, metadataStageWeight);
 
 		workflow->addSequentialStage(QObject::tr("Publish point-data metadata"), [loaderInfo, stagingPolicy = options.projectOpenStagingPolicy](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext&) {
+			const auto stageStart = std::chrono::steady_clock::now();
 			loaderInfo->_pointsDataset->setProjectResourceStagingPolicy(stagingPolicy);
 			events().notifyDatasetDataChanged(loaderInfo->_pointsDataset);
 			loaderInfo->_pointsDataset->getDataHierarchyItem().setVisible(true);
+			if (loaderInfo->_importBenchmark)
+				loaderInfo->_importBenchmark->publishStageMilliseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stageStart).count());
 		}, mv::workflow::WorkflowPlan::JobThreadAffinity::GuiThread, 1);
 
-		mv::workflow::WorkflowOptions options;
-		options.cancellation.enabled = true;
-		options.reporting.progress = true;
-		options.reporting.finishedNotification = true;
-		options.profiling.sinkType = mv::workflow::WorkflowProfilingOptions::SinkType::ChromeTracing;
-		auto future = mv::Application::getWorkflowPlanExecutor().execute(std::move(workflow), nullptr, options);
-		future.onFinished(_workflowReceiver, [pointsDataset](const mv::workflow::SharedWorkflowResult& result) {
-			if (!result || result->getStatus() != mv::workflow::WorkflowResultBase::Status::Success)
+		mv::workflow::WorkflowOptions workflowOptions;
+		workflowOptions.cancellation.enabled = true;
+		workflowOptions.reporting.progress = true;
+		workflowOptions.reporting.finishedNotification = true;
+		workflowOptions.profiling.sinkType = mv::workflow::WorkflowProfilingOptions::SinkType::ChromeTracing;
+		auto future = mv::Application::getWorkflowPlanExecutor().execute(std::move(workflow), nullptr, workflowOptions);
+		future.onFinished(_workflowReceiver, [pointsDataset, importBenchmark, importOptions = options, sourceFilePath = _fileName, matrixRows, matrixColumns, sparseInput = sparseMatrixInfo.available](const mv::workflow::SharedWorkflowResult& result) {
+			const auto succeeded = result && result->getStatus() == mv::workflow::WorkflowResultBase::Status::Success;
+			if (!succeeded)
 				mv::data().removeDataset(pointsDataset);
+			if (importBenchmark)
+				writeImportBenchmark(*importBenchmark, importOptions, sourceFilePath, matrixRows, matrixColumns, sparseInput, succeeded);
 		});
 
 		return true;
