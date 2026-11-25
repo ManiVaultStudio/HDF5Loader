@@ -6,7 +6,9 @@
 #include <CoreInterface.h>
 
 #include <QApplication>
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QString>
 #include <QStringList>
@@ -53,6 +55,9 @@ namespace
 		const QString bucketingThreadCountKey("bucketingThreadCount");
 		const QString stagingThreadCountKey("stagingThreadCount");
 		const QString rowChunkTileFactorKey("rowChunkTileFactor");
+		const QString zstdCompressionLevelKey("zstdCompressionLevel");
+		const QString optionalMetadataObjectsKey("optionalMetadataObjects");
+		const QString importBenchmarkDirectoryKey("importBenchmarkDirectory");
 		const QString fileNameKey("fileName");
 		const QString selectedNameFilterKey("selectedNameFilter");
 	}
@@ -66,8 +71,8 @@ namespace
 		configuration.cacheCapacityBytes = values.value("cacheCapacityBytes", 64U * 1024U * 1024U).toULongLong();
 		configuration.packedTiles = values.value("packedTiles", true).toBool();
 		configuration.experimentalStripStorage = values.value("experimentalStripStorage", false).toBool();
-		configuration.rowStripHeight = values.value("rowStripHeight", 8).toULongLong();
-		configuration.columnStripWidth = values.value("columnStripWidth", 8).toULongLong();
+		configuration.rowStripHeight = values.value("rowStripHeight", 32).toULongLong();
+		configuration.columnStripWidth = values.value("columnStripWidth", 32).toULongLong();
 		configuration.superTileRows = values.value("superTileRows", 4).toULongLong();
 		configuration.superTileColumns = values.value("superTileColumns", 4).toULongLong();
 		configuration.tileCodecName = values.value("tileCodecName").toString();
@@ -102,8 +107,8 @@ H5ADLoader::H5ADLoader(PluginFactory* factory)
 	_tiledStorageConfiguration.cacheCapacity = 8;
 	_tiledStorageConfiguration.cacheCapacityBytes = 64U * 1024U * 1024U;
 	_tiledStorageConfiguration.packedTiles = true;
-	_tiledStorageConfiguration.rowStripHeight = 8;
-	_tiledStorageConfiguration.columnStripWidth = 8;
+	_tiledStorageConfiguration.rowStripHeight = 32;
+	_tiledStorageConfiguration.columnStripWidth = 32;
 	_tiledStorageConfiguration.superTileRows = 4;
 	_tiledStorageConfiguration.superTileColumns = 4;
 }
@@ -137,6 +142,9 @@ void H5ADLoader::loadData()
 	auto bucketingThreadCount = static_cast<std::size_t>(getSetting(Keys::bucketingThreadCountKey, 0).toULongLong());
 	auto stagingThreadCount = static_cast<std::size_t>(getSetting(Keys::stagingThreadCountKey, 0).toULongLong());
 	auto rowChunkTileFactor = static_cast<std::size_t>(getSetting(Keys::rowChunkTileFactorKey, 0).toULongLong());
+	auto zstdCompressionLevel = getSetting(Keys::zstdCompressionLevelKey, 3).toInt();
+	auto selectedOptionalMetadata = getSetting(Keys::optionalMetadataObjectsKey, QStringList { "obs" }).toStringList();
+	auto importBenchmarkDirectory = getSetting(Keys::importBenchmarkDirectoryKey, QDir::homePath()).toString();
 
 	const auto selectedNameFilterSetting = getSetting(Keys::selectedNameFilterKey, QVariant());
 	if (selectedNameFilterSetting.isValid())
@@ -168,7 +176,8 @@ void H5ADLoader::loadData()
 
 		const auto [rows, columns] = loader->getMatrixShape();
 		const auto sparseMatrixInfo = loader->getSparseMatrixInfo();
-		H5ADImportDialog dialog(fileName, stagingDirectory, loader->getOptionalObjects(), rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, bucketingThreadCount, stagingThreadCount, rowChunkTileFactor, loader, QApplication::activeWindow());
+		const auto availableOptionalMetadata = loader->getOptionalObjects();
+		H5ADImportDialog dialog(fileName, stagingDirectory, availableOptionalMetadata, selectedOptionalMetadata, importBenchmarkDirectory, rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, bucketingThreadCount, stagingThreadCount, rowChunkTileFactor, zstdCompressionLevel, loader, QApplication::activeWindow());
 		if (dialog.exec() != QDialog::Accepted)
 			continue;
 
@@ -179,12 +188,24 @@ void H5ADLoader::loadData()
 		bucketingThreadCount = options.bucketingThreadCount;
 		stagingThreadCount = options.stagingThreadCount;
 		rowChunkTileFactor = options.rowChunkTileFactor;
+		zstdCompressionLevel = options.zstdCompressionLevel;
+		if (!options.importBenchmarkFilePath.isEmpty())
+			importBenchmarkDirectory = QFileInfo(options.importBenchmarkFilePath).absolutePath();
+		for (const auto& availableObject : availableOptionalMetadata)
+		{
+			selectedOptionalMetadata.removeAll(availableObject);
+			if (options.optionalObjects.contains(availableObject))
+				selectedOptionalMetadata.append(availableObject);
+		}
 		setSetting(Keys::storageValueKey, storageTypeIndex);
 		setSetting(Keys::storageBackendKey, backendType);
 		setSetting(Keys::storageBackendConfigurationKey, toTiledConfigurationVariantMap(_tiledStorageConfiguration));
 		setSetting(Keys::bucketingThreadCountKey, QVariant::fromValue<qulonglong>(bucketingThreadCount));
 		setSetting(Keys::stagingThreadCountKey, QVariant::fromValue<qulonglong>(stagingThreadCount));
 		setSetting(Keys::rowChunkTileFactorKey, QVariant::fromValue<qulonglong>(rowChunkTileFactor));
+		setSetting(Keys::zstdCompressionLevelKey, zstdCompressionLevel);
+		setSetting(Keys::optionalMetadataObjectsKey, selectedOptionalMetadata);
+		setSetting(Keys::importBenchmarkDirectoryKey, importBenchmarkDirectory);
 		loader->load(options);
 	}
 }

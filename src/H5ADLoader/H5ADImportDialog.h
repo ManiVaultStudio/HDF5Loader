@@ -7,6 +7,7 @@
 
 #include <PointData/StorageBackendConfiguratorAction.h>
 #include <actions/IntegralAction.h>
+#include <actions/HorizontalGroupAction.h>
 #include <actions/MessageCardAction.h>
 #include <actions/OptionsAction.h>
 #include <actions/StringAction.h>
@@ -38,6 +39,7 @@ public:
      * @param fileName H5AD file whose X and metadata will be imported.
      * @param stagingDirectory App-managed staging directory for tiled imports.
      * @param optionalObjects Importable optional HDF5 objects.
+     * @param selectedOptionalObjects Optional objects selected in the previous import dialog.
      * @param rows Logical row count of X.
      * @param columns Logical column count of X.
      * @param storageTypeIndex Initial data-type option index.
@@ -47,10 +49,11 @@ public:
      * @param bucketingThreadCount Sparse CSR bucketing worker limit, or zero to use the default.
      * @param stagingThreadCount Packed tile staging worker limit, or zero to use the default.
      * @param rowChunkTileFactor Number of tile rows grouped into sparse staging batches, or zero to use the default.
+     * @param zstdCompressionLevel Zstandard compression level in [1, 22], with lower levels favoring encoding speed.
      * @param loader Shared loader retained for matrix analysis and import checks.
      * @param parent Optional parent dialog.
      */
-    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::size_t bucketingThreadCount, std::size_t stagingThreadCount, std::size_t rowChunkTileFactor, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
+    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::size_t bucketingThreadCount, std::size_t stagingThreadCount, std::size_t rowChunkTileFactor, int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
 
     /** Returns current import choices; callers should use them after acceptance. */
     H5ADImportOptions options();
@@ -64,6 +67,9 @@ public:
 private:
     /** Enables import only when analysis, memory, and dataset-name checks permit it. */
     void updateImportActionState();
+
+    /** Enables the import compression-level control when tiled storage uses Zstandard. */
+    void updateCompressionLevelAvailability();
 
     /** Recomputes the import preflight messages for the current settings. */
     void updateImportChecks();
@@ -107,6 +113,7 @@ private:
     mv::gui::StringAction            _datasetNameAction;        /**< Editable name assigned to the imported dataset. */
     TargetElementTypeAction          _storageTypeAction;        /**< Selects the target element type and requests its estimate. */
     StorageBackendConfiguratorAction _backendSelector;          /**< Selects the destination storage backend and opens its configuration. */
+    mv::gui::IntegralAction          _zstdCompressionLevelAction; /**< Zstandard compression level [1, 22]; lower levels favor encoding speed. */
     QString                          _stagingDirectory;         /**< App-managed staging directory used by this import. */
     std::size_t                      _bucketingThreadCount = 4; /**< Maximum parallel workers used to bucket sparse entries. */
     std::size_t                      _stagingThreadCount = 4;   /**< Maximum parallel workers used to materialize and encode output tiles. */
@@ -119,6 +126,11 @@ private:
     mv::gui::MessageCardAction   _dataSummaryCheckAction;  /**< Matrix analysis summary and optional full-scan callback. */
 
     mv::gui::OptionsAction       _optionalObjectsAction;  /**< Optional HDF5 metadata objects selected for import. */
+    mv::gui::HorizontalGroupAction _benchmarkOutputAction; /**< Optional import-benchmark report path selection. */
+    mv::gui::StringAction _benchmarkPathAction; /**< Displays the selected import-benchmark report filename. */
+    mv::gui::TriggerAction _chooseBenchmarkPathAction; /**< Chooses the import-benchmark JSON output path. */
+    QString _benchmarkDirectory; /**< Initial directory for choosing import-benchmark output files. */
+    QString _benchmarkFilePath; /**< Selected import-benchmark output file path; empty disables report output. */
     mv::gui::VerticalGroupAction _clusterSetImportAction; /**< Root action for the obs cluster-set configuration dialog. */
     ClusterSetSelectionAction _clusterSetSelectionAction; /**< Selects categorical fields under obs for cluster creation. */
     mv::gui::VerticalGroupAction _clusterSetDialogChecksAction; /**< Pre-flight checks shown beneath the cluster-set table. */
