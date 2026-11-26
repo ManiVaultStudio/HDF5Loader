@@ -13,6 +13,7 @@
 #include <QString>
 #include <QStringList>
 
+#include <algorithm>
 #include <memory>
 
 Q_PLUGIN_METADATA(IID "nl.lumc.H5ADLoader")
@@ -70,12 +71,12 @@ namespace
 		configuration.cacheCapacity = values.value("cacheCapacity", 8).toULongLong();
 		configuration.cacheCapacityBytes = values.value("cacheCapacityBytes", 64U * 1024U * 1024U).toULongLong();
 		configuration.packedTiles = values.value("packedTiles", true).toBool();
-		configuration.experimentalStripStorage = values.value("experimentalStripStorage", false).toBool();
 		configuration.rowStripHeight = values.value("rowStripHeight", 32).toULongLong();
 		configuration.columnStripWidth = values.value("columnStripWidth", 32).toULongLong();
-		configuration.superTileRows = values.value("superTileRows", 4).toULongLong();
-		configuration.superTileColumns = values.value("superTileColumns", 4).toULongLong();
+		configuration.superTileRows = values.value("superTileRows", 8).toULongLong();
+		configuration.superTileColumns = values.value("superTileColumns", 8).toULongLong();
 		configuration.tileCodecName = values.value("tileCodecName").toString();
+		configuration.tileCompressionLevel = values.value("tileCompressionLevel", 3).toInt();
 		return configuration;
 	}
 
@@ -87,12 +88,12 @@ namespace
 			{ "cacheCapacity", QVariant::fromValue<qulonglong>(configuration.cacheCapacity) },
 			{ "cacheCapacityBytes", QVariant::fromValue<qulonglong>(configuration.cacheCapacityBytes) },
 			{ "packedTiles", configuration.packedTiles },
-			{ "experimentalStripStorage", configuration.experimentalStripStorage },
 			{ "rowStripHeight", QVariant::fromValue<qulonglong>(configuration.rowStripHeight) },
 			{ "columnStripWidth", QVariant::fromValue<qulonglong>(configuration.columnStripWidth) },
 			{ "superTileRows", QVariant::fromValue<qulonglong>(configuration.superTileRows) },
 			{ "superTileColumns", QVariant::fromValue<qulonglong>(configuration.superTileColumns) },
-			{ "tileCodecName", configuration.tileCodecName }
+			{ "tileCodecName", configuration.tileCodecName },
+			{ "tileCompressionLevel", configuration.tileCompressionLevel }
 		};
 	}
 
@@ -109,8 +110,8 @@ H5ADLoader::H5ADLoader(PluginFactory* factory)
 	_tiledStorageConfiguration.packedTiles = true;
 	_tiledStorageConfiguration.rowStripHeight = 32;
 	_tiledStorageConfiguration.columnStripWidth = 32;
-	_tiledStorageConfiguration.superTileRows = 4;
-	_tiledStorageConfiguration.superTileColumns = 4;
+	_tiledStorageConfiguration.superTileRows = 8;
+	_tiledStorageConfiguration.superTileColumns = 8;
 }
 
 H5ADLoader::~H5ADLoader(void)
@@ -142,7 +143,8 @@ void H5ADLoader::loadData()
 	auto bucketingThreadCount = static_cast<std::size_t>(getSetting(Keys::bucketingThreadCountKey, 0).toULongLong());
 	auto stagingThreadCount = static_cast<std::size_t>(getSetting(Keys::stagingThreadCountKey, 0).toULongLong());
 	auto rowChunkTileFactor = static_cast<std::size_t>(getSetting(Keys::rowChunkTileFactorKey, 0).toULongLong());
-	auto zstdCompressionLevel = getSetting(Keys::zstdCompressionLevelKey, 3).toInt();
+	auto zstdCompressionLevel = getSetting(Keys::zstdCompressionLevelKey, _tiledStorageConfiguration.tileCompressionLevel).toInt();
+	_tiledStorageConfiguration.tileCompressionLevel = std::clamp(zstdCompressionLevel, 1, 22);
 	auto selectedOptionalMetadata = getSetting(Keys::optionalMetadataObjectsKey, QStringList { "obs" }).toStringList();
 	auto importBenchmarkDirectory = getSetting(Keys::importBenchmarkDirectoryKey, QDir::homePath()).toString();
 

@@ -6,17 +6,21 @@
 #include <PointData/storage/tiled/TiledStorageBackendConfigurationAction.h>
 #include <PointData/storage/interface/PointsStorageBackendTypes.h>
 #include <actions/GroupAction.h>
+#include <actions/DirectoryPickerAction.h>
+#include <actions/IntegralAction.h>
 #include <actions/MessageCardAction.h>
+#include <actions/OptionAction.h>
+#include <actions/ToggleAction.h>
+#include <actions/VerticalGroupAction.h>
 #include <util/HardwareSpec.h>
 #include <util/Miscellaneous.h>
 #include <util/RamComponentSpec.h>
 #include <util/StyledIcon.h>
 
 #include <QFileInfo>
-#include <QFileDialog>
-#include <QDir>
-#include <QDateTime>
 #include <QDialogButtonBox>
+#include <QDateTime>
+#include <QDir>
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -51,15 +55,82 @@ public:
     ObsmTiledStorageBackendConfigurationAction(QObject* parent, const std::uint64_t rows, const std::uint64_t columns, const std::size_t elementSize, const mv::pointdata::storage::StorageBackendConfiguration& configuration, const bool initializeFromConfiguration, const std::uint32_t elementTypeIndex) :
         TiledStorageBackendConfigurationAction(parent, rows, columns, elementSize, configuration, initializeFromConfiguration, elementTypeIndex)
     {
-        for (auto* action : getActions())
+        for (auto* groupAction : getGroupActions())
         {
-            if (!action->isVisible() && dynamic_cast<mv::gui::MessageCardAction*>(action))
+            for (auto* action : groupAction->getActions())
             {
-                removeAction(action);
-                break;
+                if (!action->isVisible() && dynamic_cast<mv::gui::MessageCardAction*>(action))
+                {
+                    groupAction->removeAction(action);
+                    return;
+                }
             }
         }
     }
+};
+
+class H5ADTiledStorageBackendConfigurationAction final : public mv::gui::TiledStorageBackendConfigurationAction
+{
+public:
+    H5ADTiledStorageBackendConfigurationAction(QObject* parent, const std::uint64_t rows, const std::uint64_t columns, const std::size_t elementSize,
+        const mv::pointdata::storage::StorageBackendConfiguration& configuration, const std::size_t bucketingThreads, const std::size_t stagingThreads,
+        const std::size_t chunkTileHeightFactor, const QString& stagingDirectory,
+        const QString& benchmarkDirectory, const QString& benchmarkFilePath) :
+        TiledStorageBackendConfigurationAction(parent, rows, columns, elementSize, configuration, true, std::nullopt, true, stagingDirectory),
+        _hdf5Options(this, "HDF5"),
+        _bucketingThreads(&_hdf5Options, "Bucketing threads", 1, 32, static_cast<std::int32_t>(std::clamp<std::size_t>(bucketingThreads, 1, 32))),
+        _stagingThreads(&_hdf5Options, "Staging threads", 1, 32, static_cast<std::int32_t>(std::clamp<std::size_t>(stagingThreads, 1, 32))),
+        _chunkTileHeightFactor(&_hdf5Options, "Chunk tile-height factor", 1, 256, static_cast<std::int32_t>(std::clamp<std::size_t>(chunkTileHeightFactor, 1, 256))),
+        _benchmarkEnabled(&_hdf5Options, "Enable import benchmarking", !benchmarkFilePath.isEmpty()),
+        _benchmarkLocation(&_hdf5Options, "Import benchmark location", benchmarkDirectory.isEmpty() && !benchmarkFilePath.isEmpty() ? QFileInfo(benchmarkFilePath).absolutePath() : benchmarkDirectory)
+    {
+        _hdf5Options.setIconByName("code");
+        _hdf5Options.setDescription("<p>Options used only while importing HDF5 data.</p>");
+        _bucketingThreads.setDescription("<p>Maximum number of workers used to bucket sparse HDF5 entries. More workers may improve import speed while using more CPU and memory.</p>");
+        _stagingThreads.setDescription("<p>Maximum number of workers used to encode staged tile data. More workers may improve import speed while using more CPU and memory.</p>");
+        _chunkTileHeightFactor.setDescription("<p>Controls how many tile heights are grouped into each sparse CSR import chunk. Larger chunks can improve throughput but need more temporary memory.</p>");
+        _benchmarkEnabled.setDescription("<p>Write a JSON report with timing and worker metrics for the next HDF5 import.</p>");
+        _benchmarkLocation.setDescription("<p>Directory where the optional HDF5 import benchmark report is written.</p>");
+        _benchmarkLocation.setEnabled(_benchmarkEnabled.isChecked());
+        _hdf5Options.addAction(&_bucketingThreads);
+        _hdf5Options.addAction(&_stagingThreads);
+        _hdf5Options.addAction(&_chunkTileHeightFactor);
+        _hdf5Options.addAction(&_benchmarkEnabled);
+        _hdf5Options.addAction(&_benchmarkLocation);
+        _hdf5Options.setSubText(QObject::tr("Developer-only"));
+        addGroupAction(&_hdf5Options, false);
+        setGroupActionVisibility(&_hdf5Options, mv::settings().getDeveloperSettingsAction().getEnableDeveloperAddonsAction().isChecked());
+        connect(&mv::settings().getDeveloperSettingsAction().getEnableDeveloperAddonsAction(), &mv::gui::ToggleAction::toggled, this, [this](bool enabled) {
+            setGroupActionVisibility(&_hdf5Options, enabled);
+        });
+        const auto notifyHdf5OptionsChanged = [this] { notifyOptionsChanged(); };
+        connect(&_bucketingThreads, &mv::gui::IntegralAction::valueChanged, this, notifyHdf5OptionsChanged);
+        connect(&_stagingThreads, &mv::gui::IntegralAction::valueChanged, this, notifyHdf5OptionsChanged);
+        connect(&_chunkTileHeightFactor, &mv::gui::IntegralAction::valueChanged, this, notifyHdf5OptionsChanged);
+        connect(&_benchmarkEnabled, &mv::gui::ToggleAction::toggled, &_benchmarkLocation, &mv::gui::DirectoryPickerAction::setEnabled);
+        connect(&_benchmarkEnabled, &mv::gui::ToggleAction::toggled, this, notifyHdf5OptionsChanged);
+        connect(&_benchmarkLocation, &mv::gui::DirectoryPickerAction::directoryChanged, this, notifyHdf5OptionsChanged);
+    }
+
+    std::size_t bucketingThreadCount() const { return static_cast<std::size_t>(_bucketingThreads.getValue()); }
+    std::size_t stagingThreadCount() const { return static_cast<std::size_t>(_stagingThreads.getValue()); }
+    std::size_t chunkTileHeightFactor() const { return static_cast<std::size_t>(_chunkTileHeightFactor.getValue()); }
+    QString benchmarkDirectory() const { return _benchmarkLocation.getDirectory(); }
+    QString benchmarkFilePath() const
+    {
+        if (!_benchmarkEnabled.isChecked() || !_benchmarkLocation.isValid())
+            return {};
+        const auto timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+        return QDir(_benchmarkLocation.getDirectory()).filePath(QStringLiteral("h5ad-import-benchmark-%1.json").arg(timestamp));
+    }
+
+private:
+    mv::gui::VerticalGroupAction _hdf5Options;
+    mv::gui::IntegralAction _bucketingThreads;
+    mv::gui::IntegralAction _stagingThreads;
+    mv::gui::IntegralAction _chunkTileHeightFactor;
+    mv::gui::ToggleAction _benchmarkEnabled;
+    mv::gui::DirectoryPickerAction _benchmarkLocation;
 };
 
 std::int32_t getDefaultStagingWorkerCount()
@@ -88,19 +159,16 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _datasetNameAction(&_settingsAction, "Dataset name", QFileInfo(fileName).baseName()),
     _storageTypeAction(&_settingsAction, "Data type"),
     _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Dense", "Tiled", "Sparse" } : QStringList { "Dense", "Tiled" }, "Tiled"),
-    _zstdCompressionLevelAction(&_settingsAction, "Zstandard compression level", 1, 22, zstdCompressionLevel),
+    _projectOpenFileStagingAction(&_settingsAction, "Project-open file staging", { "Inherit", "Read ranges on demand", "Stage on first read", "Stage immediately" }, "Inherit"),
     _stagingDirectory(stagingDirectory),
     _bucketingThreadCount(bucketingThreadCount > 0 ? bucketingThreadCount : static_cast<std::size_t>(getDefaultStagingWorkerCount())),
     _stagingThreadCount(stagingThreadCount > 0 ? stagingThreadCount : static_cast<std::size_t>(getDefaultStagingWorkerCount())),
     _rowChunkTileFactor(rowChunkTileFactor > 0 ? rowChunkTileFactor : 3),
+    _zstdCompressionLevel(std::clamp(zstdCompressionLevel, 1, 22)),
     _checksAction(&_settingsAction, "Pre-flight checks", true),
     _memoryCheckAction(&_checksAction),
-    _precisionCheckAction(&_checksAction),
     _dataSummaryCheckAction(&_checksAction),
     _optionalObjectsAction(&_settingsAction, "Optional metadata", optionalObjects),
-    _benchmarkOutputAction(this, "Import benchmark (optional)"),
-    _benchmarkPathAction(&_benchmarkOutputAction, "Report file", tr("Not selected")),
-    _chooseBenchmarkPathAction(&_benchmarkOutputAction, "Choose JSON file..."),
     _benchmarkDirectory(benchmarkDirectory),
     _clusterSetImportAction(nullptr, "obs cluster-set import"),
     _clusterSetSelectionAction(this),
@@ -125,27 +193,30 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _rows(rows),
     _columns(columns)
 {
+    _tiledConfiguration.tileCompressionLevel = _zstdCompressionLevel;
     setWindowTitle(tr("Import H5AD"));
     setWindowIcon(mv::util::StyledIcon("file-import"));
 
     _settingsAction.setShowLabels(true);
     _settingsAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
     _settingsAction.setLabelSizingType(mv::gui::GroupAction::LabelSizingType::Fixed);
-    _settingsAction.setLabelWidthFixed(180);
+    _settingsAction.setLabelWidthFixed(160);
     _memoryCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
-    _precisionCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
     _dataSummaryCheckAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
     _obsmMemoryInfoAction.setDisplayMode(mv::gui::MessageCardAction::DisplayMode::Compact);
     _fileAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
+    _fileAction.setTextElideMode(Qt::ElideMiddle);
+    _fileAction.setStretch(1);
+    _fileAction.setToolTip(QFileInfo(fileName).absoluteFilePath());
     _matrixAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
     _datasetNameAction.setDefaultWidgetFlags(mv::gui::StringAction::LineEdit);
     _datasetNameAction.setToolTip(tr("Tiled imports append the selected tile, supertile, strip, cache, codec, and Zstandard level settings to this dataset name for comparison."));
     _storageTypeAction.getTypeAction().setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
-    _zstdCompressionLevelAction.setDefaultWidgetFlags(mv::gui::IntegralAction::SpinBox);
-    _zstdCompressionLevelAction.setToolTip(tr("Zstandard levels range from 1 (faster, larger output) to 22 (slower, smaller output). Level 3 is the codec default."));
+    _projectOpenFileStagingAction.setDefaultWidgetFlags(mv::gui::OptionAction::ComboBox);
+    _projectOpenFileStagingAction.setDescription(tr("<p>Controls when this dataset's file-backed data is staged after a saved project is opened. This policy is stored with the dataset and does not affect the current HDF5 import.</p>"));
     _optionalObjectsAction.setDefaultWidgetFlags(mv::gui::OptionsAction::Tags);
-    _benchmarkPathAction.setDefaultWidgetFlags(mv::gui::StringAction::Label);
-    _benchmarkOutputAction.setToolTip(tr("Optionally save import timings, staging layout, codec and Zstandard level, queue limits, and observed encoder concurrency to a JSON report."));
+    _optionalObjectsAction.setDescription(tr("<p>Select additional AnnData metadata to import alongside the primary matrix. Importing more metadata can increase memory use, disk usage, and import time. Some entries, such as <i>obsm</i> and categorical <i>obs</i> fields, have additional selection settings.</p>"));
+    _importInfoAction.setDescription(tr("<p>Preflight estimates and data checks for this import. Memory figures are estimates; warnings describe potential storage, precision, or resource considerations and do not necessarily prevent importing.</p>"));
     _checksAction.setShowLabels(false);
     _checksAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
     _buttonsAction.setShowLabels(false);
@@ -192,12 +263,25 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         _obsmStorageTypes.insert(name, mv::pointdata::storage::StorageBackendType::Dense);
     updateImportActionState();
 
-    _settingsAction.addAction(&_fileAction);
+    _settingsAction.addAction(&_fileAction, -1, [](mv::gui::WidgetAction*, QWidget* widget) {
+        auto* fileLabel = widget->objectName() == QStringLiteral("Label")
+            ? qobject_cast<QLabel*>(widget)
+            : widget->findChild<QLabel*>(QStringLiteral("Label"));
+        if (!fileLabel)
+            return;
+
+        widget->setMinimumWidth(0);
+        widget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        fileLabel->setMinimumWidth(0);
+        fileLabel->setMaximumWidth(QWIDGETSIZE_MAX);
+        fileLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        fileLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    });
     _settingsAction.addAction(&_matrixAction);
     _settingsAction.addAction(&_datasetNameAction);
     _settingsAction.addAction(&_storageTypeAction);
     _settingsAction.addAction(&_backendSelector);
-    _settingsAction.addAction(&_zstdCompressionLevelAction);
+    _settingsAction.addAction(&_projectOpenFileStagingAction);
     _settingsAction.addAction(&_optionalObjectsAction, -1, [this](mv::gui::WidgetAction*, QWidget* widget) {
         auto* tableView = widget->findChild<QTableView*>(QStringLiteral("TableView"));
         if (!tableView)
@@ -211,15 +295,9 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         widget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
         widget->setMaximumHeight(widget->sizeHint().height());
     });
-    _benchmarkOutputAction.setShowLabels(false);
-    _benchmarkOutputAction.addAction(&_benchmarkPathAction);
-    _benchmarkOutputAction.addAction(&_chooseBenchmarkPathAction, mv::gui::TriggerAction::Text);
-    _settingsAction.addAction(&_benchmarkOutputAction);
     _importInfoAction.setShowLabels(false);
     _importInfoAction.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
-    _importInfoAction.addAction(&_obsmMemoryInfoAction);
     _checksAction.addAction(&_memoryCheckAction);
-    _checksAction.addAction(&_precisionCheckAction);
     _checksAction.addAction(&_dataSummaryCheckAction);
     _importInfoAction.addAction(&_checksAction);
     _settingsAction.addAction(&_importInfoAction);
@@ -235,13 +313,13 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _backendSelector.getConfigureAction().setIconByName("gear");
     connect(&_backendSelector, &StorageBackendConfiguratorAction::backendTypeChanged, this, [this](const QString& type) {
         _backendSelector.setConfigureEnabled(type == "Tiled");
-        updateCompressionLevelAvailability();
+        _projectOpenFileStagingAction.setEnabled(type == "Tiled");
         updateImportChecks();
     });
     const auto initialBackendType = sparseMatrixInfo.available || backendType != "Sparse" ? backendType : QStringLiteral("Tiled");
     _backendSelector.setBackendType(initialBackendType);
     _backendSelector.setConfigureEnabled(initialBackendType == "Tiled");
-    updateCompressionLevelAvailability();
+    _projectOpenFileStagingAction.setEnabled(initialBackendType == "Tiled");
     connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, &H5ADImportDialog::configureTiledStorage);
     connect(&_datasetNameAction, &mv::gui::StringAction::stringChanged, this, [this] {
         updateImportActionState();
@@ -256,27 +334,13 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     connect(&_storageTypeAction, &TargetElementTypeAction::estimateRequested, this, &H5ADImportDialog::estimateTargetElementType);
     connect(&_importAction, &mv::gui::TriggerAction::triggered, this, &QDialog::accept);
     connect(&_cancelAction, &mv::gui::TriggerAction::triggered, this, &QDialog::reject);
-    connect(&_chooseBenchmarkPathAction, &mv::gui::TriggerAction::triggered, this, [this, fileName] {
-        const auto timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
-        const auto suggestedName = QStringLiteral("%1-import-benchmark-%2.json").arg(QFileInfo(fileName).completeBaseName(), timestamp);
-        const auto suggestedPath = QDir(_benchmarkDirectory.isEmpty() ? QDir::homePath() : _benchmarkDirectory).filePath(suggestedName);
-        const auto selectedPath = QFileDialog::getSaveFileName(this, tr("Save H5AD import benchmark"), suggestedPath, tr("JSON files (*.json)"));
-        if (selectedPath.isEmpty())
-            return;
-
-        _benchmarkFilePath = selectedPath;
-        _benchmarkDirectory = QFileInfo(selectedPath).absolutePath();
-        _benchmarkPathAction.setString(QFileInfo(selectedPath).fileName());
-        _benchmarkPathAction.setToolTip(selectedPath);
-    });
-
     _dataSummarySeverity = mv::util::SeverityLevel::Warning;
     _dataSummaryDescription = tr("Estimating target type and sparsity from a bounded sample...");
     updateDataSummaryCard();
     updateImportChecks();
     updateObsmImportInfo(_selectedObsmMatrices);
     QTimer::singleShot(0, this, [this] { estimateTargetElementType(); });
-    resize(600, 450);
+    resize(520, 490);
 }
 
 H5ADImportOptions H5ADImportDialog::options()
@@ -287,11 +351,11 @@ H5ADImportOptions H5ADImportDialog::options()
     result.metadataStorageType = result.storageType;
     result.storageBackendType = mv::pointdata::storage::getStorageBackendType(backendType()).value_or(mv::pointdata::storage::StorageBackendType::Tiled);
     result.tiledStorageConfiguration = _tiledConfiguration;
-    result.projectOpenStagingPolicy = _projectOpenStagingPolicy;
+    result.projectOpenStagingPolicy = mv::util::projectResourceStagingPolicyFromName(_projectOpenFileStagingAction.getCurrentText());
     result.bucketingThreadCount = _bucketingThreadCount;
     result.stagingThreadCount = _stagingThreadCount;
     result.rowChunkTileFactor = _rowChunkTileFactor;
-    result.zstdCompressionLevel = _zstdCompressionLevelAction.getValue();
+    result.zstdCompressionLevel = _zstdCompressionLevel;
     result.importBenchmarkFilePath = _benchmarkFilePath;
     result.optionalObjects = _optionalObjectsAction.getSelectedOptions();
     result.availableClusterSets = _availableClusterSets;
@@ -328,8 +392,7 @@ H5ADImportOptions H5ADImportDialog::options()
         if (configuration.packedTiles)
             settings.append(QStringLiteral("super %1x%2").arg(configuration.superTileRows).arg(configuration.superTileColumns));
 
-        if (configuration.experimentalStripStorage)
-            settings.append(QStringLiteral("strips %1x%2").arg(configuration.rowStripHeight).arg(configuration.columnStripWidth));
+        settings.append(QStringLiteral("row/column strips %1x%2").arg(configuration.rowStripHeight).arg(configuration.columnStripWidth));
 
         auto codecName = configuration.tileCodecName;
         if (codecName.isEmpty())
@@ -343,7 +406,7 @@ H5ADImportOptions H5ADImportDialog::options()
                 codecName = QStringLiteral("default");
         }
         if (codecName == QStringLiteral("zstd"))
-            settings.append(QStringLiteral("zstd level %1").arg(_zstdCompressionLevelAction.getValue()));
+            settings.append(QStringLiteral("zstd level %1").arg(_zstdCompressionLevel));
         else
             settings.append(codecName);
         result.datasetName += QStringLiteral(" [%1]").arg(settings.join(QStringLiteral(", ")));
@@ -458,10 +521,18 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
 void H5ADImportDialog::updateDataSummaryCard()
 {
     mv::gui::MessageCardAction::ButtonActions buttonActions;
+    if (_recommendedTypeIndex >= 0 && _storageTypeAction.getTypeAction().getCurrentIndex() != _recommendedTypeIndex)
+        buttonActions.append({ tr("Reset type"), [this] { _storageTypeAction.setRecommendedTypeIndex(_recommendedTypeIndex); } });
     if (!_analysisRunning && !_fullScanComplete)
         buttonActions.append({ tr("Full scan"), [this] { analyzeTargetElementType(true); } });
 
-    _dataSummaryCheckAction.setMessage(_dataSummarySeverity, tr("Data summary"), _dataSummaryDescription, buttonActions);
+    auto description = _dataSummaryDescription;
+    if (!_precisionDescription.isEmpty())
+        description += tr("\n\nPrecision: %1").arg(_precisionDescription);
+    const auto severity = _dataSummarySeverity == mv::util::SeverityLevel::Warning || _precisionSeverity == mv::util::SeverityLevel::Warning
+        ? mv::util::SeverityLevel::Warning
+        : _dataSummarySeverity;
+    _dataSummaryCheckAction.setMessage(severity, tr("Data summary"), description, buttonActions);
 }
 
 void H5ADImportDialog::updateObsmImportInfo(const QStringList& selectedMatrices)
@@ -493,25 +564,39 @@ void H5ADImportDialog::updateObsmImportInfo(const QStringList& selectedMatrices)
     const auto description = !_optionalObjectsAction.isOptionSelected("obsm") || selectedMatrices.isEmpty() ?
         tr("No obsm matrices selected for import.") :
         tr("Selected obsm matrices have an estimated uncompressed size of %1. Dense storage may use additional working memory during import.").arg(sizeAvailable ? mv::util::getNoBytesHumanReadable(totalBytes) : tr("at least the maximum representable size"));
-    _obsmMemoryInfoAction.setMessage(sizeAvailable ? mv::util::SeverityLevel::Info : mv::util::SeverityLevel::Warning, tr("obsm memory estimate"), description);
+    _obsmMemoryInfoSeverity = sizeAvailable ? mv::util::SeverityLevel::Info : mv::util::SeverityLevel::Warning;
+    _obsmMemoryInfoDescription = description;
+    _obsmMemoryInfoAction.setMessage(_obsmMemoryInfoSeverity, tr("obsm memory estimate"), _obsmMemoryInfoDescription);
+    updateMemoryCheck(_memoryCheckSeverity, _memoryCheckDescription, _memoryCheckOfferTiledStorage);
 }
 
 void H5ADImportDialog::updateMemoryCheck(const mv::util::SeverityLevel severity, const QString& description, const bool offerTiledStorage)
 {
+    _memoryCheckSeverity = severity;
+    _memoryCheckDescription = description;
+    _memoryCheckOfferTiledStorage = offerTiledStorage;
+
     mv::gui::MessageCardAction::ButtonActions buttonActions;
     if (offerTiledStorage)
         buttonActions.append({ tr("Use tiled storage"), [this] { _backendSelector.setBackendType("Tiled"); } });
 
-    _memoryCheckAction.setMessage(severity, tr("Memory"), description, buttonActions);
+    auto combinedDescription = description;
+    if (!_obsmMemoryInfoDescription.isEmpty())
+        combinedDescription += tr("\n\nOBSM memory estimate: %1").arg(_obsmMemoryInfoDescription);
+
+    const auto combinedSeverity = severity == mv::util::SeverityLevel::Error || _obsmMemoryInfoSeverity == mv::util::SeverityLevel::Error
+        ? mv::util::SeverityLevel::Error
+        : severity == mv::util::SeverityLevel::Warning || _obsmMemoryInfoSeverity == mv::util::SeverityLevel::Warning
+            ? mv::util::SeverityLevel::Warning
+            : mv::util::SeverityLevel::Info;
+    _memoryCheckAction.setMessage(combinedSeverity, tr("Memory"), combinedDescription, buttonActions);
 }
 
 void H5ADImportDialog::updatePrecisionCheck(const mv::util::SeverityLevel severity, const QString& description)
 {
-    mv::gui::MessageCardAction::ButtonActions buttonActions;
-    if (_recommendedTypeIndex >= 0 && _storageTypeAction.getTypeAction().getCurrentIndex() != _recommendedTypeIndex)
-        buttonActions.append({ tr("Reset type"), [this] { _storageTypeAction.setRecommendedTypeIndex(_recommendedTypeIndex); } });
-
-    _precisionCheckAction.setMessage(severity, tr("Precision"), description, buttonActions);
+    _precisionSeverity = severity;
+    _precisionDescription = description;
+    updateDataSummaryCard();
 }
 
 QString H5ADImportDialog::backendType()
@@ -687,34 +772,21 @@ void H5ADImportDialog::configureTiledStorage()
         default: break;
     }
 
-    auto configurationAction = std::make_unique<mv::gui::TiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, elementSize, _tiledConfiguration, true, std::nullopt, true, _bucketingThreadCount, _stagingThreadCount, _rowChunkTileFactor, true, _stagingDirectory, _projectOpenStagingPolicy);
+    auto configurationAction = std::make_unique<H5ADTiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, elementSize, _tiledConfiguration,
+        _bucketingThreadCount, _stagingThreadCount, _rowChunkTileFactor, _stagingDirectory, _benchmarkDirectory, _benchmarkFilePath);
     auto* configurationActionPtr = configurationAction.get();
     StorageBackendConfigurationDialog dialog(std::move(configurationAction), StorageBackendConfigurationDialog::Purpose::Import, this);
     if (dialog.exec() != QDialog::Accepted)
         return;
 
     _tiledConfiguration = configurationActionPtr->getConfiguration();
-    _bucketingThreadCount = configurationActionPtr->getBucketingThreadCount();
-    _stagingThreadCount = configurationActionPtr->getStagingThreadCount();
-    _rowChunkTileFactor = configurationActionPtr->getRowChunkTileFactor();
-    _projectOpenStagingPolicy = configurationActionPtr->getProjectResourceStagingPolicy();
-    updateCompressionLevelAvailability();
+    _bucketingThreadCount = configurationActionPtr->bucketingThreadCount();
+    _stagingThreadCount = configurationActionPtr->stagingThreadCount();
+    _rowChunkTileFactor = configurationActionPtr->chunkTileHeightFactor();
+    _zstdCompressionLevel = _tiledConfiguration.tileCompressionLevel;
+    _benchmarkDirectory = configurationActionPtr->benchmarkDirectory();
+    _benchmarkFilePath = configurationActionPtr->benchmarkFilePath();
     updateImportChecks();
-}
-
-void H5ADImportDialog::updateCompressionLevelAvailability()
-{
-    auto codecName = _tiledConfiguration.tileCodecName;
-    if (codecName.isEmpty())
-    {
-        if (auto* project = mv::projects().getCurrentProject())
-        {
-            const auto codecType = mv::util::codecRegistry().typeFromDisplayName(project->getCompressionAction().getCodecTypeAction().getCurrentText());
-            codecName = mv::util::BlobCodec::typeToString(codecType);
-        }
-    }
-
-    _zstdCompressionLevelAction.setEnabled(backendType() == "Tiled" && codecName == QStringLiteral("zstd"));
 }
 
 void H5ADImportDialog::updateImportActionState()

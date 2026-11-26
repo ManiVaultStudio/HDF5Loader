@@ -6,9 +6,9 @@
 #include "actions/TargetElementTypeAction.h"
 
 #include <PointData/StorageBackendConfiguratorAction.h>
-#include <actions/IntegralAction.h>
 #include <actions/HorizontalGroupAction.h>
 #include <actions/MessageCardAction.h>
+#include <actions/OptionAction.h>
 #include <actions/OptionsAction.h>
 #include <actions/StringAction.h>
 #include <actions/TriggerAction.h>
@@ -68,19 +68,16 @@ private:
     /** Enables import only when analysis, memory, and dataset-name checks permit it. */
     void updateImportActionState();
 
-    /** Enables the import compression-level control when tiled storage uses Zstandard. */
-    void updateCompressionLevelAvailability();
-
     /** Recomputes the import preflight messages for the current settings. */
     void updateImportChecks();
 
-    /** Recomputes the memory card for selected obsm matrices. */
+    /** Updates the obsm estimate card and refreshes the combined import memory card. */
     void updateObsmImportInfo(const QStringList& selectedMatrices);
 
     /** Updates the memory card and optionally offers switching to tiled storage. */
     void updateMemoryCheck(mv::util::SeverityLevel severity, const QString& description, bool offerTiledStorage = false);
 
-    /** Updates the precision card and offers resetting to the recommended type when applicable. */
+    /** Updates the precision guidance shown inside the data summary card. */
     void updatePrecisionCheck(mv::util::SeverityLevel severity, const QString& description);
 
     /** Starts the bounded sample analysis requested by the estimate control. */
@@ -113,22 +110,17 @@ private:
     mv::gui::StringAction            _datasetNameAction;        /**< Editable name assigned to the imported dataset. */
     TargetElementTypeAction          _storageTypeAction;        /**< Selects the target element type and requests its estimate. */
     StorageBackendConfiguratorAction _backendSelector;          /**< Selects the destination storage backend and opens its configuration. */
-    mv::gui::IntegralAction          _zstdCompressionLevelAction; /**< Zstandard compression level [1, 22]; lower levels favor encoding speed. */
+    mv::gui::OptionAction            _projectOpenFileStagingAction; /**< Dataset policy for file staging when a saved project is opened. */
     QString                          _stagingDirectory;         /**< App-managed staging directory used by this import. */
     std::size_t                      _bucketingThreadCount = 4; /**< Maximum parallel workers used to bucket sparse entries. */
     std::size_t                      _stagingThreadCount = 4;   /**< Maximum parallel workers used to materialize and encode output tiles. */
     std::size_t                      _rowChunkTileFactor = 3;   /**< Tile-height multiple used to batch sparse CSR staging work. */
-    mv::util::ProjectResourceStagingPolicy _projectOpenStagingPolicy = mv::util::ProjectResourceStagingPolicy::Inherit; /**< Dataset-level override used only when opening a saved project. */
-
+    int                              _zstdCompressionLevel = 3;  /**< Zstandard level restored from and returned to import settings. */
     mv::gui::VerticalGroupAction _checksAction;            /**< Vertical group containing the import-check cards. */
     mv::gui::MessageCardAction   _memoryCheckAction;       /**< Memory estimate and optional tiled-storage callback. */
-    mv::gui::MessageCardAction   _precisionCheckAction;    /**< Precision warning and optional type-reset callback. */
     mv::gui::MessageCardAction   _dataSummaryCheckAction;  /**< Matrix analysis summary and optional full-scan callback. */
 
     mv::gui::OptionsAction       _optionalObjectsAction;  /**< Optional HDF5 metadata objects selected for import. */
-    mv::gui::HorizontalGroupAction _benchmarkOutputAction; /**< Optional import-benchmark report path selection. */
-    mv::gui::StringAction _benchmarkPathAction; /**< Displays the selected import-benchmark report filename. */
-    mv::gui::TriggerAction _chooseBenchmarkPathAction; /**< Chooses the import-benchmark JSON output path. */
     QString _benchmarkDirectory; /**< Initial directory for choosing import-benchmark output files. */
     QString _benchmarkFilePath; /**< Selected import-benchmark output file path; empty disables report output. */
     mv::gui::VerticalGroupAction _clusterSetImportAction; /**< Root action for the obs cluster-set configuration dialog. */
@@ -163,6 +155,13 @@ private:
     bool                    _sourceMayLosePrecision   = false;                          /**< Whether conversion from the source representation may lose precision. */
     mv::util::SeverityLevel _dataSummarySeverity      = mv::util::SeverityLevel::Info;  /**< Severity currently assigned to the data summary. */
     QString                 _dataSummaryDescription;                                    /**< Current matrix type and sparsity summary. */
+    mv::util::SeverityLevel _precisionSeverity        = mv::util::SeverityLevel::Info;  /**< Severity currently assigned to precision guidance. */
+    QString                 _precisionDescription;                                      /**< Current precision and sample-bound guidance. */
+    mv::util::SeverityLevel _memoryCheckSeverity      = mv::util::SeverityLevel::Info;  /**< Base severity for the main matrix memory estimate. */
+    QString                 _memoryCheckDescription;                                    /**< Base memory estimate description. */
+    bool                    _memoryCheckOfferTiledStorage = false;                     /**< Whether the combined memory card offers tiled storage. */
+    mv::util::SeverityLevel _obsmMemoryInfoSeverity   = mv::util::SeverityLevel::Info;  /**< Severity assigned to the selected obsm matrices' memory estimate. */
+    QString                 _obsmMemoryInfoDescription;                                 /**< Selected obsm matrices' memory estimate description. */
     int                     _recommendedTypeIndex     = -1;                             /**< Recommended option index, or -1 before analysis completes. */
     bool                    _fullScanComplete         = false;                          /**< Whether an exhaustive matrix-value scan completed successfully. */
     bool                    _analysisRunning          = false;                          /**< Whether a matrix sampling or full-scan workflow is active. */
