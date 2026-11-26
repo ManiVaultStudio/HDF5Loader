@@ -114,7 +114,7 @@ QJsonObject createImportBenchmarkJson(const H5AD::ImportBenchmarkData& benchmark
 	configuration.insert(QStringLiteral("packed_tiles"), tiled.packedTiles);
 	configuration.insert(QStringLiteral("supertile_rows"), static_cast<qint64>(tiled.superTileRows));
 	configuration.insert(QStringLiteral("supertile_columns"), static_cast<qint64>(tiled.superTileColumns));
-	configuration.insert(QStringLiteral("strip_storage"), tiled.experimentalStripStorage);
+	configuration.insert(QStringLiteral("storage_layout"), QStringLiteral("row_column_strips"));
 	configuration.insert(QStringLiteral("row_strip_height"), static_cast<qint64>(tiled.rowStripHeight));
 	configuration.insert(QStringLiteral("column_strip_width"), static_cast<qint64>(tiled.columnStripWidth));
 	configuration.insert(QStringLiteral("configured_codec"), tiled.tileCodecName);
@@ -140,8 +140,6 @@ QJsonObject createImportBenchmarkJson(const H5AD::ImportBenchmarkData& benchmark
 		{ QStringLiteral("packed_file_bytes"), static_cast<qint64>(dense.packedFileBytes) },
 		{ QStringLiteral("hdf5_read_ms"), static_cast<qint64>(dense.hdf5ReadMilliseconds) },
 		{ QStringLiteral("encode_write_worker_ms"), static_cast<qint64>(dense.encodeAndWriteWorkerMilliseconds) },
-		{ QStringLiteral("whole_tile_encode_ms"), static_cast<double>(dense.wholeTileEncodeNanoseconds) / 1.0e6 },
-		{ QStringLiteral("whole_tile_write_ms"), static_cast<double>(dense.wholeTileWriteNanoseconds) / 1.0e6 },
 		{ QStringLiteral("row_strip_count"), static_cast<qint64>(dense.rowStripCount) },
 		{ QStringLiteral("column_strip_count"), static_cast<qint64>(dense.columnStripCount) },
 		{ QStringLiteral("row_strip_prepare_ms"), static_cast<double>(dense.rowStripPreparationNanoseconds) / 1.0e6 },

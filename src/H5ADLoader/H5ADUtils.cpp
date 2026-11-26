@@ -402,7 +402,6 @@ namespace H5AD
 			std::uint64_t rows = 0;
 			std::uint64_t columns = 0;
 			std::size_t superTileIndex = 0;
-			mv::util::PackedBlobBlock block;
 			struct Strip
 			{
 				std::uint64_t rowOffset = 0;
@@ -448,19 +447,16 @@ namespace H5AD
 			std::uint64_t columnStripCpuNanoseconds = 0;
 			std::uint64_t columnWriterLockWaitNanoseconds = 0;
 			std::uint64_t columnWriterLockHoldNanoseconds = 0;
-			std::uint64_t wholeTileEncodeNanoseconds = 0;
-			std::uint64_t wholeTileWriteNanoseconds = 0;
 			struct EncodedTile
 			{
 				std::size_t tileIndex = 0;
-				mv::util::PackedBlobBlock block;
 				std::vector<StagedPackedTile::Strip> rowStrips;
 				std::vector<StagedPackedTile::Strip> columnStrips;
 			};
 			std::vector<EncodedTile> blocks;
 		};
 
-		DenseSuperTileResult encodeDenseSuperTile(const std::size_t superTileIndex, const QString& filePath, std::vector<DenseTilePayload> tiles, const mv::util::SharedCodec& codec, const mv::util::SharedCodec& rowCodec, const mv::util::SharedCodec& columnCodec, const bool stripStorage, const std::uint64_t rowStripHeight, const std::uint64_t columnStripWidth, const std::function<void(std::uint64_t)>& onEncodedStrips = {}, StripWorkerPool* stripWorkerPool = nullptr)
+			DenseSuperTileResult encodeDenseSuperTile(const std::size_t superTileIndex, const QString& filePath, std::vector<DenseTilePayload> tiles, const mv::util::SharedCodec& codec, const mv::util::SharedCodec& rowCodec, const mv::util::SharedCodec& columnCodec, const std::uint64_t rowStripHeight, const std::uint64_t columnStripWidth, const std::function<void(std::uint64_t)>& onEncodedStrips = {}, StripWorkerPool* stripWorkerPool = nullptr)
 		{
 			const auto startTime = std::chrono::steady_clock::now();
 			mv::util::PackedBlobFileWriter writer(filePath, codec);
@@ -469,230 +465,213 @@ namespace H5AD
 			result.path = filePath;
 			result.blocks.resize(tiles.size());
 
-			if (stripStorage)
-			{
-				if (rowStripHeight == 0 || columnStripWidth == 0 || !rowCodec || !columnCodec)
-					throw std::runtime_error("Invalid strip encoding configuration");
+			if (rowStripHeight == 0 || columnStripWidth == 0 || !rowCodec || !columnCodec)
+				throw std::runtime_error("Invalid strip encoding configuration");
 
-				for (std::size_t tileIndex = 0; tileIndex < tiles.size(); ++tileIndex)
+			for (std::size_t tileIndex = 0; tileIndex < tiles.size(); ++tileIndex)
+			{
+				const auto& tile = tiles[tileIndex];
+				if (tile.elementSize == 0 || tile.rows * tile.columns * tile.elementSize != static_cast<std::uint64_t>(tile.bytes.size()))
+					throw std::runtime_error("Invalid tile payload geometry for row/column strip encoding");
+
+				auto& encodedTile = result.blocks[tileIndex];
+				encodedTile.tileIndex = tile.tileIndex;
+				encodedTile.rowStrips.reserve(static_cast<std::size_t>(tile.rows / rowStripHeight + (tile.rows % rowStripHeight != 0)));
+				encodedTile.columnStrips.reserve(static_cast<std::size_t>(tile.columns / columnStripWidth + (tile.columns % columnStripWidth != 0)));
+				result.uncompressedBytes += static_cast<std::uint64_t>(tile.bytes.size()) * 3;
+			}
+
+			// Reuse one worker per orientation across the complete supertile.
+			std::mutex writerMutex;
+			constexpr std::size_t encodedStripBatchCapacity = 8 * 1024 * 1024;
+			struct PendingStrip
+			{
+				std::size_t tileIndex = 0;
+				std::uint64_t first = 0;
+				std::uint64_t extent = 0;
+				std::uint64_t uncompressedBytes = 0;
+				QByteArray encodedBytes;
+			};
+			struct StripWorkerMetrics
+			{
+				bool rowOriented = false;
+				std::uint64_t preparationNanoseconds = 0;
+				std::uint64_t encodeNanoseconds = 0;
+				std::uint64_t writeNanoseconds = 0;
+				std::uint64_t lockWaitNanoseconds = 0;
+				std::uint64_t lockHoldNanoseconds = 0;
+				std::uint64_t cpuNanoseconds = 0;
+			};
+			auto encodeRows = [&](const std::size_t firstTile, const std::size_t lastTile) {
+				StripWorkerMetrics workerMetrics;
+				workerMetrics.rowOriented = true;
+				const auto cpuStart = getCurrentThreadCpuTimeNanoseconds();
+				std::vector<PendingStrip> batch;
+				batch.reserve(64);
+				std::size_t batchBytes = 0;
+				auto appendBatch = [&]() {
+					if (batch.empty())
+						return;
+					const auto encodedStripCount = static_cast<std::uint64_t>(batch.size());
+
+					{
+						const auto lockWaitStart = std::chrono::steady_clock::now();
+						std::unique_lock lock(writerMutex);
+						const auto lockAcquired = std::chrono::steady_clock::now();
+						workerMetrics.lockWaitNanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(lockAcquired - lockWaitStart).count());
+						for (const auto& strip : batch)
+						{
+							mv::util::PackedBlobAppendTimings timings;
+							const auto block = writer.appendEncoded(strip.encodedBytes, static_cast<std::size_t>(strip.uncompressedBytes), timings);
+							workerMetrics.writeNanoseconds += timings.writeNanoseconds;
+							const auto& tile = tiles[strip.tileIndex];
+							result.blocks[strip.tileIndex].rowStrips.push_back({ strip.first, 0, strip.extent, tile.columns, block });
+						}
+						workerMetrics.lockHoldNanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - lockAcquired).count());
+					}
+					if (onEncodedStrips)
+						onEncodedStrips(encodedStripCount);
+
+					batch.clear();
+					batchBytes = 0;
+				};
+				for (std::size_t tileIndex = firstTile; tileIndex < lastTile; ++tileIndex)
 				{
 					const auto& tile = tiles[tileIndex];
-					if (tile.elementSize == 0 || tile.rows * tile.columns * tile.elementSize != static_cast<std::uint64_t>(tile.bytes.size()))
-						throw std::runtime_error("Invalid tile payload geometry for experimental strip encoding");
-
-					auto& encodedTile = result.blocks[tileIndex];
-					encodedTile.tileIndex = tile.tileIndex;
-					encodedTile.rowStrips.reserve(static_cast<std::size_t>(tile.rows / rowStripHeight + (tile.rows % rowStripHeight != 0)));
-					encodedTile.columnStrips.reserve(static_cast<std::size_t>(tile.columns / columnStripWidth + (tile.columns % columnStripWidth != 0)));
-					result.uncompressedBytes += static_cast<std::uint64_t>(tile.bytes.size()) * 3;
-				}
-
-				// Reuse one worker per orientation across the complete supertile.
-				std::mutex writerMutex;
-				constexpr std::size_t encodedStripBatchCapacity = 8 * 1024 * 1024;
-				struct PendingStrip
-				{
-					std::size_t tileIndex = 0;
-					std::uint64_t first = 0;
-					std::uint64_t extent = 0;
-					std::uint64_t uncompressedBytes = 0;
-					QByteArray encodedBytes;
-				};
-				struct StripWorkerMetrics
-				{
-					bool rowOriented = false;
-					std::uint64_t preparationNanoseconds = 0;
-					std::uint64_t encodeNanoseconds = 0;
-					std::uint64_t writeNanoseconds = 0;
-					std::uint64_t lockWaitNanoseconds = 0;
-					std::uint64_t lockHoldNanoseconds = 0;
-					std::uint64_t cpuNanoseconds = 0;
-				};
-				auto encodeRows = [&](const std::size_t firstTile, const std::size_t lastTile) {
-					StripWorkerMetrics workerMetrics;
-					workerMetrics.rowOriented = true;
-					const auto cpuStart = getCurrentThreadCpuTimeNanoseconds();
-					std::vector<PendingStrip> batch;
-					batch.reserve(64);
-					std::size_t batchBytes = 0;
-					auto appendBatch = [&]() {
-						if (batch.empty())
-							return;
-						const auto encodedStripCount = static_cast<std::uint64_t>(batch.size());
-
-						{
-							const auto lockWaitStart = std::chrono::steady_clock::now();
-							std::unique_lock lock(writerMutex);
-							const auto lockAcquired = std::chrono::steady_clock::now();
-							workerMetrics.lockWaitNanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(lockAcquired - lockWaitStart).count());
-							for (const auto& strip : batch)
-							{
-								mv::util::PackedBlobAppendTimings timings;
-								const auto block = writer.appendEncoded(strip.encodedBytes, static_cast<std::size_t>(strip.uncompressedBytes), timings);
-								workerMetrics.writeNanoseconds += timings.writeNanoseconds;
-								const auto& tile = tiles[strip.tileIndex];
-								result.blocks[strip.tileIndex].rowStrips.push_back({ strip.first, 0, strip.extent, tile.columns, block });
-							}
-							workerMetrics.lockHoldNanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - lockAcquired).count());
-						}
-						if (onEncodedStrips)
-							onEncodedStrips(encodedStripCount);
-
-						batch.clear();
-						batchBytes = 0;
-					};
-					for (std::size_t tileIndex = firstTile; tileIndex < lastTile; ++tileIndex)
+					for (std::uint64_t firstRow = 0; firstRow < tile.rows; firstRow += rowStripHeight)
 					{
-						const auto& tile = tiles[tileIndex];
-						for (std::uint64_t firstRow = 0; firstRow < tile.rows; firstRow += rowStripHeight)
-						{
-							const auto preparationStart = std::chrono::steady_clock::now();
-							const auto stripRows = std::min(rowStripHeight, tile.rows - firstRow);
-							const auto byteOffset = firstRow * tile.columns * tile.elementSize;
-							const auto byteCount = stripRows * tile.columns * tile.elementSize;
-							QByteArray stripBytes(tile.bytes.constData() + byteOffset, static_cast<qsizetype>(byteCount));
-							const auto preparationNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - preparationStart).count());
-							const auto encodeStart = std::chrono::steady_clock::now();
-							auto encodedBytes = rowCodec->encode(stripBytes);
-							const auto encodeNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - encodeStart).count());
-							workerMetrics.preparationNanoseconds += preparationNanoseconds;
-							workerMetrics.encodeNanoseconds += encodeNanoseconds;
-							batchBytes += static_cast<std::size_t>(encodedBytes.size()) + sizeof(std::uint64_t) * 2;
-							batch.push_back({ tileIndex, firstRow, stripRows, byteCount, std::move(encodedBytes) });
-							if (batchBytes >= encodedStripBatchCapacity)
-								appendBatch();
-						}
-					}
-					appendBatch();
-					workerMetrics.cpuNanoseconds = getCurrentThreadCpuTimeNanoseconds() - cpuStart;
-					return workerMetrics;
-				};
-				auto encodeColumns = [&](const std::size_t firstTile, const std::size_t lastTile) {
-					StripWorkerMetrics workerMetrics;
-					const auto cpuStart = getCurrentThreadCpuTimeNanoseconds();
-					std::vector<PendingStrip> batch;
-					batch.reserve(64);
-					std::size_t batchBytes = 0;
-					auto appendBatch = [&]() {
-						if (batch.empty())
-							return;
-						const auto encodedStripCount = static_cast<std::uint64_t>(batch.size());
-
-						{
-							const auto lockWaitStart = std::chrono::steady_clock::now();
-							std::unique_lock lock(writerMutex);
-							const auto lockAcquired = std::chrono::steady_clock::now();
-							workerMetrics.lockWaitNanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(lockAcquired - lockWaitStart).count());
-							for (const auto& strip : batch)
-							{
-								mv::util::PackedBlobAppendTimings timings;
-								const auto block = writer.appendEncoded(strip.encodedBytes, static_cast<std::size_t>(strip.uncompressedBytes), timings);
-								workerMetrics.writeNanoseconds += timings.writeNanoseconds;
-								const auto& tile = tiles[strip.tileIndex];
-								result.blocks[strip.tileIndex].columnStrips.push_back({ 0, strip.first, tile.rows, strip.extent, block });
-							}
-							workerMetrics.lockHoldNanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - lockAcquired).count());
-						}
-						if (onEncodedStrips)
-							onEncodedStrips(encodedStripCount);
-
-						batch.clear();
-						batchBytes = 0;
-					};
-					for (std::size_t tileIndex = firstTile; tileIndex < lastTile; ++tileIndex)
-					{
-						const auto& tile = tiles[tileIndex];
-						for (std::uint64_t firstColumn = 0; firstColumn < tile.columns; firstColumn += columnStripWidth)
-						{
-							const auto preparationStart = std::chrono::steady_clock::now();
-							const auto stripColumns = std::min(columnStripWidth, tile.columns - firstColumn);
-							QByteArray stripBytes(static_cast<qsizetype>(tile.rows * stripColumns * tile.elementSize), Qt::Uninitialized);
-							for (std::uint64_t row = 0; row < tile.rows; ++row)
-							{
-								const auto sourceOffset = (row * tile.columns + firstColumn) * tile.elementSize;
-								const auto destinationOffset = row * stripColumns * tile.elementSize;
-								std::memcpy(stripBytes.data() + destinationOffset, tile.bytes.constData() + sourceOffset, static_cast<std::size_t>(stripColumns * tile.elementSize));
-							}
-							const auto preparationNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - preparationStart).count());
-							const auto encodeStart = std::chrono::steady_clock::now();
-							auto encodedBytes = columnCodec->encode(stripBytes);
-							const auto encodeNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - encodeStart).count());
-							workerMetrics.preparationNanoseconds += preparationNanoseconds;
-							workerMetrics.encodeNanoseconds += encodeNanoseconds;
-							batchBytes += static_cast<std::size_t>(encodedBytes.size()) + sizeof(std::uint64_t) * 2;
-							batch.push_back({ tileIndex, firstColumn, stripColumns, static_cast<std::uint64_t>(stripBytes.size()), std::move(encodedBytes) });
-							if (batchBytes >= encodedStripBatchCapacity)
-								appendBatch();
-						}
-					}
-					appendBatch();
-					workerMetrics.cpuNanoseconds = getCurrentThreadCpuTimeNanoseconds() - cpuStart;
-					return workerMetrics;
-				};
-				std::vector<std::future<StripWorkerMetrics>> stripJobs;
-				constexpr std::size_t tilesPerStripJob = 16;
-				if (stripWorkerPool)
-				{
-					stripJobs.reserve(((tiles.size() + tilesPerStripJob - 1) / tilesPerStripJob) * 2);
-					for (std::size_t firstTile = 0; firstTile < tiles.size(); firstTile += tilesPerStripJob)
-					{
-						const auto lastTile = std::min(tiles.size(), firstTile + tilesPerStripJob);
-						stripJobs.push_back(stripWorkerPool->submit([&, firstTile, lastTile]() { return encodeRows(firstTile, lastTile); }));
-						stripJobs.push_back(stripWorkerPool->submit([&, firstTile, lastTile]() { return encodeColumns(firstTile, lastTile); }));
+						const auto preparationStart = std::chrono::steady_clock::now();
+						const auto stripRows = std::min(rowStripHeight, tile.rows - firstRow);
+						const auto byteOffset = firstRow * tile.columns * tile.elementSize;
+						const auto byteCount = stripRows * tile.columns * tile.elementSize;
+						QByteArray stripBytes(tile.bytes.constData() + byteOffset, static_cast<qsizetype>(byteCount));
+						const auto preparationNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - preparationStart).count());
+						const auto encodeStart = std::chrono::steady_clock::now();
+						auto encodedBytes = rowCodec->encode(stripBytes);
+						const auto encodeNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - encodeStart).count());
+						workerMetrics.preparationNanoseconds += preparationNanoseconds;
+						workerMetrics.encodeNanoseconds += encodeNanoseconds;
+						batchBytes += static_cast<std::size_t>(encodedBytes.size()) + sizeof(std::uint64_t) * 2;
+						batch.push_back({ tileIndex, firstRow, stripRows, byteCount, std::move(encodedBytes) });
+						if (batchBytes >= encodedStripBatchCapacity)
+							appendBatch();
 					}
 				}
-				else
+				appendBatch();
+				workerMetrics.cpuNanoseconds = getCurrentThreadCpuTimeNanoseconds() - cpuStart;
+				return workerMetrics;
+			};
+			auto encodeColumns = [&](const std::size_t firstTile, const std::size_t lastTile) {
+				StripWorkerMetrics workerMetrics;
+				const auto cpuStart = getCurrentThreadCpuTimeNanoseconds();
+				std::vector<PendingStrip> batch;
+				batch.reserve(64);
+				std::size_t batchBytes = 0;
+				auto appendBatch = [&]() {
+					if (batch.empty())
+						return;
+					const auto encodedStripCount = static_cast<std::uint64_t>(batch.size());
+
+					{
+						const auto lockWaitStart = std::chrono::steady_clock::now();
+						std::unique_lock lock(writerMutex);
+						const auto lockAcquired = std::chrono::steady_clock::now();
+						workerMetrics.lockWaitNanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(lockAcquired - lockWaitStart).count());
+						for (const auto& strip : batch)
+						{
+							mv::util::PackedBlobAppendTimings timings;
+							const auto block = writer.appendEncoded(strip.encodedBytes, static_cast<std::size_t>(strip.uncompressedBytes), timings);
+							workerMetrics.writeNanoseconds += timings.writeNanoseconds;
+							const auto& tile = tiles[strip.tileIndex];
+							result.blocks[strip.tileIndex].columnStrips.push_back({ 0, strip.first, tile.rows, strip.extent, block });
+						}
+						workerMetrics.lockHoldNanoseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - lockAcquired).count());
+					}
+					if (onEncodedStrips)
+						onEncodedStrips(encodedStripCount);
+
+					batch.clear();
+					batchBytes = 0;
+				};
+				for (std::size_t tileIndex = firstTile; tileIndex < lastTile; ++tileIndex)
 				{
-					stripJobs.reserve(2);
-					stripJobs.push_back(std::async(std::launch::async, [&]() { return encodeRows(0, tiles.size()); }));
-					stripJobs.push_back(std::async(std::launch::async, [&]() { return encodeColumns(0, tiles.size()); }));
+					const auto& tile = tiles[tileIndex];
+					for (std::uint64_t firstColumn = 0; firstColumn < tile.columns; firstColumn += columnStripWidth)
+					{
+						const auto preparationStart = std::chrono::steady_clock::now();
+						const auto stripColumns = std::min(columnStripWidth, tile.columns - firstColumn);
+						QByteArray stripBytes(static_cast<qsizetype>(tile.rows * stripColumns * tile.elementSize), Qt::Uninitialized);
+						for (std::uint64_t row = 0; row < tile.rows; ++row)
+						{
+							const auto sourceOffset = (row * tile.columns + firstColumn) * tile.elementSize;
+							const auto destinationOffset = row * stripColumns * tile.elementSize;
+							std::memcpy(stripBytes.data() + destinationOffset, tile.bytes.constData() + sourceOffset, static_cast<std::size_t>(stripColumns * tile.elementSize));
+						}
+						const auto preparationNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - preparationStart).count());
+						const auto encodeStart = std::chrono::steady_clock::now();
+						auto encodedBytes = columnCodec->encode(stripBytes);
+						const auto encodeNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - encodeStart).count());
+						workerMetrics.preparationNanoseconds += preparationNanoseconds;
+						workerMetrics.encodeNanoseconds += encodeNanoseconds;
+						batchBytes += static_cast<std::size_t>(encodedBytes.size()) + sizeof(std::uint64_t) * 2;
+						batch.push_back({ tileIndex, firstColumn, stripColumns, static_cast<std::uint64_t>(stripBytes.size()), std::move(encodedBytes) });
+						if (batchBytes >= encodedStripBatchCapacity)
+							appendBatch();
+					}
 				}
-				std::exception_ptr stripEncodingException;
-				for (auto& stripJob : stripJobs)
-					try
-					{
-						const auto workerMetrics = stripJob.get();
-						if (workerMetrics.rowOriented)
-						{
-							result.rowStripPreparationNanoseconds += workerMetrics.preparationNanoseconds;
-							result.rowStripEncodeNanoseconds += workerMetrics.encodeNanoseconds;
-							result.rowStripWriteNanoseconds += workerMetrics.writeNanoseconds;
-							result.rowWriterLockWaitNanoseconds += workerMetrics.lockWaitNanoseconds;
-							result.rowWriterLockHoldNanoseconds += workerMetrics.lockHoldNanoseconds;
-							result.rowStripCpuNanoseconds += workerMetrics.cpuNanoseconds;
-						}
-						else
-						{
-							result.columnStripPreparationNanoseconds += workerMetrics.preparationNanoseconds;
-							result.columnStripEncodeNanoseconds += workerMetrics.encodeNanoseconds;
-							result.columnStripWriteNanoseconds += workerMetrics.writeNanoseconds;
-							result.columnWriterLockWaitNanoseconds += workerMetrics.lockWaitNanoseconds;
-							result.columnWriterLockHoldNanoseconds += workerMetrics.lockHoldNanoseconds;
-							result.columnStripCpuNanoseconds += workerMetrics.cpuNanoseconds;
-						}
-					}
-					catch (...)
-					{
-						if (!stripEncodingException)
-							stripEncodingException = std::current_exception();
-					}
-				if (stripEncodingException)
-					std::rethrow_exception(stripEncodingException);
+				appendBatch();
+				workerMetrics.cpuNanoseconds = getCurrentThreadCpuTimeNanoseconds() - cpuStart;
+				return workerMetrics;
+			};
+			std::vector<std::future<StripWorkerMetrics>> stripJobs;
+			constexpr std::size_t tilesPerStripJob = 16;
+			if (stripWorkerPool)
+			{
+				stripJobs.reserve(((tiles.size() + tilesPerStripJob - 1) / tilesPerStripJob) * 2);
+				for (std::size_t firstTile = 0; firstTile < tiles.size(); firstTile += tilesPerStripJob)
+				{
+					const auto lastTile = std::min(tiles.size(), firstTile + tilesPerStripJob);
+					stripJobs.push_back(stripWorkerPool->submit([&, firstTile, lastTile]() { return encodeRows(firstTile, lastTile); }));
+					stripJobs.push_back(stripWorkerPool->submit([&, firstTile, lastTile]() { return encodeColumns(firstTile, lastTile); }));
+				}
 			}
 			else
 			{
-				for (std::size_t tileIndex = 0; tileIndex < tiles.size(); ++tileIndex)
-				{
-					const auto& tile = tiles[tileIndex];
-					auto& encodedTile = result.blocks[tileIndex];
-					result.uncompressedBytes += static_cast<std::uint64_t>(tile.bytes.size());
-					encodedTile.tileIndex = tile.tileIndex;
-					mv::util::PackedBlobAppendTimings timings;
-					encodedTile.block = writer.append(tile.bytes, timings);
-					result.wholeTileEncodeNanoseconds += timings.encodeNanoseconds;
-					result.wholeTileWriteNanoseconds += timings.writeNanoseconds;
-				}
+				stripJobs.reserve(2);
+				stripJobs.push_back(std::async(std::launch::async, [&]() { return encodeRows(0, tiles.size()); }));
+				stripJobs.push_back(std::async(std::launch::async, [&]() { return encodeColumns(0, tiles.size()); }));
 			}
+			std::exception_ptr stripEncodingException;
+			for (auto& stripJob : stripJobs)
+				try
+				{
+					const auto workerMetrics = stripJob.get();
+					if (workerMetrics.rowOriented)
+					{
+						result.rowStripPreparationNanoseconds += workerMetrics.preparationNanoseconds;
+						result.rowStripEncodeNanoseconds += workerMetrics.encodeNanoseconds;
+						result.rowStripWriteNanoseconds += workerMetrics.writeNanoseconds;
+						result.rowWriterLockWaitNanoseconds += workerMetrics.lockWaitNanoseconds;
+						result.rowWriterLockHoldNanoseconds += workerMetrics.lockHoldNanoseconds;
+						result.rowStripCpuNanoseconds += workerMetrics.cpuNanoseconds;
+					}
+					else
+					{
+						result.columnStripPreparationNanoseconds += workerMetrics.preparationNanoseconds;
+						result.columnStripEncodeNanoseconds += workerMetrics.encodeNanoseconds;
+						result.columnStripWriteNanoseconds += workerMetrics.writeNanoseconds;
+						result.columnWriterLockWaitNanoseconds += workerMetrics.lockWaitNanoseconds;
+						result.columnWriterLockHoldNanoseconds += workerMetrics.lockHoldNanoseconds;
+						result.columnStripCpuNanoseconds += workerMetrics.cpuNanoseconds;
+					}
+				}
+				catch (...)
+				{
+					if (!stripEncodingException)
+						stripEncodingException = std::current_exception();
+				}
+			if (stripEncodingException)
+				std::rethrow_exception(stripEncodingException);
 
 			const auto finalizeStart = std::chrono::steady_clock::now();
 			writer.close();
@@ -758,9 +737,8 @@ namespace H5AD
 		std::size_t columnTileSize = tiledColumnSize;
 			std::uint64_t tileRows = 0;
 			std::uint64_t tileColumns = 0;
-			std::size_t superTileRows = 4;
-			std::size_t superTileColumns = 4;
-			bool experimentalStripStorage = false;
+			std::size_t superTileRows = 8;
+			std::size_t superTileColumns = 8;
 			std::size_t rowStripHeight = 32;
 			std::size_t columnStripWidth = 32;
 			mv::util::SharedCodec codec;
@@ -805,8 +783,8 @@ namespace H5AD
 			stream << "ColumnTileSize=" << configuration.columnTileSize << "\n";
 			stream << "SuperTileRows=" << configuration.superTileRows << "\n";
 			stream << "SuperTileColumns=" << configuration.superTileColumns << "\n";
-			stream << "Storage=PackedTileFiles\n";
-			stream << "ExperimentalStripStorage=" << (configuration.experimentalStripStorage ? "true" : "false") << "\n";
+			stream << "Storage=PackedRowColumnStripFiles\n";
+			stream << "StorageLayout=RowColumnStrips\n";
 			stream << "RowStripHeight=" << configuration.rowStripHeight << "\n";
 			stream << "ColumnStripWidth=" << configuration.columnStripWidth << "\n";
 			stream << "Codec=" << codec->getName() << "\n";
@@ -848,10 +826,9 @@ namespace H5AD
 			staging->columnTileSize = configuration.columnTileSize;
 			staging->superTileRows = configuration.superTileRows;
 			staging->superTileColumns = configuration.superTileColumns;
-			staging->experimentalStripStorage = configuration.experimentalStripStorage;
 			staging->rowStripHeight = configuration.rowStripHeight;
 			staging->columnStripWidth = configuration.columnStripWidth;
-			staging->stripCache.capacityBytes = configuration.experimentalStripStorage ? std::min<std::uint64_t>(configuration.cacheCapacityBytes, 256ull * 1024ull * 1024ull) : 0;
+			staging->stripCache.capacityBytes = std::min<std::uint64_t>(configuration.cacheCapacityBytes, 256ull * 1024ull * 1024ull);
 			staging->tileRows = (rows + staging->rowTileSize - 1) / staging->rowTileSize;
 			staging->tileColumns = (columns + staging->columnTileSize - 1) / staging->columnTileSize;
 			staging->codec = createStagingCodec(configuration.tileCodecName, zstdCompressionLevel);
@@ -872,8 +849,6 @@ namespace H5AD
 			std::uint64_t columnStripPreparationNanoseconds = 0;
 			std::uint64_t columnStripEncodeNanoseconds = 0;
 			std::uint64_t columnStripWriteNanoseconds = 0;
-			std::uint64_t wholeTileEncodeNanoseconds = 0;
-			std::uint64_t wholeTileWriteNanoseconds = 0;
 			std::uint64_t finalizeNanoseconds = 0;
 			std::atomic<std::size_t> activeEncoders = 0;
 			std::atomic<std::size_t> maximumActiveEncoders = 0;
@@ -913,14 +888,11 @@ namespace H5AD
 				columnStripPreparationNanoseconds += encoded.columnStripPreparationNanoseconds;
 				columnStripEncodeNanoseconds += encoded.columnStripEncodeNanoseconds;
 				columnStripWriteNanoseconds += encoded.columnStripWriteNanoseconds;
-				wholeTileEncodeNanoseconds += encoded.wholeTileEncodeNanoseconds;
-				wholeTileWriteNanoseconds += encoded.wholeTileWriteNanoseconds;
 				finalizeNanoseconds += encoded.finalizeNanoseconds;
 				staging->superTiles[encoded.superTileIndex] = { encoded.path };
 				for (auto& encodedTile : encoded.blocks)
 				{
 					auto& tile = staging->tiles[encodedTile.tileIndex];
-					tile.block = encodedTile.block;
 					tile.rowStrips = std::move(encodedTile.rowStrips);
 					tile.columnStrips = std::move(encodedTile.columnStrips);
 				}
@@ -950,7 +922,7 @@ namespace H5AD
 						}
 					}
 
-					const auto encodedSuperTileByteCount = superTileByteCount * (staging->experimentalStripStorage ? 3 : 1);
+				const auto encodedSuperTileByteCount = superTileByteCount * 3;
 					while (!encodingJobs.empty() && (encodingJobs.size() >= maxInFlightSuperTiles || inFlightBytes >= maxInFlightBytes || encodedSuperTileByteCount > maxInFlightBytes - inFlightBytes))
 						collectEncodedSuperTile();
 
@@ -980,15 +952,14 @@ namespace H5AD
 					}
 
 					const auto codec = createStagingCodec(configuration.tileCodecName, zstdCompressionLevel);
-					const auto rowCodec = staging->experimentalStripStorage ? createStagingCodec(configuration.tileCodecName, zstdCompressionLevel) : mv::util::SharedCodec{};
-					const auto columnCodec = staging->experimentalStripStorage ? createStagingCodec(configuration.tileCodecName, zstdCompressionLevel) : mv::util::SharedCodec{};
+					const auto rowCodec = createStagingCodec(configuration.tileCodecName, zstdCompressionLevel);
+					const auto columnCodec = createStagingCodec(configuration.tileCodecName, zstdCompressionLevel);
 					staging->superTiles.resize(std::max(staging->superTiles.size(), superTileIndex + 1));
 					inFlightBytes += encodedSuperTileByteCount;
 					maximumInFlightBytes = std::max(maximumInFlightBytes, inFlightBytes);
-					const auto stripStorage = staging->experimentalStripStorage;
 					const auto rowStripHeight = static_cast<std::uint64_t>(staging->rowStripHeight);
 					const auto columnStripWidth = static_cast<std::uint64_t>(staging->columnStripWidth);
-					encodingJobs.emplace_back(std::async(std::launch::async, [superTileIndex, filePath, tilePayloads = std::move(tilePayloads), codec, rowCodec, columnCodec, stripStorage, rowStripHeight, columnStripWidth, &activeEncoders, &maximumActiveEncoders]() mutable {
+					encodingJobs.emplace_back(std::async(std::launch::async, [superTileIndex, filePath, tilePayloads = std::move(tilePayloads), codec, rowCodec, columnCodec, rowStripHeight, columnStripWidth, &activeEncoders, &maximumActiveEncoders]() mutable {
 						struct ActiveEncoder
 						{
 							std::atomic<std::size_t>& active;
@@ -999,7 +970,7 @@ namespace H5AD
 						auto observed = maximumActiveEncoders.load(std::memory_order_relaxed);
 						while (observed < active && !maximumActiveEncoders.compare_exchange_weak(observed, active, std::memory_order_relaxed))
 						{}
-						return encodeDenseSuperTile(superTileIndex, filePath, std::move(tilePayloads), codec, rowCodec, columnCodec, stripStorage, rowStripHeight, columnStripWidth);
+						return encodeDenseSuperTile(superTileIndex, filePath, std::move(tilePayloads), codec, rowCodec, columnCodec, rowStripHeight, columnStripWidth);
 					}));
 					if (benchmarkMetrics)
 						benchmarkMetrics->maximumQueuedSuperTiles = std::max(benchmarkMetrics->maximumQueuedSuperTiles, encodingJobs.size());
@@ -1044,8 +1015,8 @@ namespace H5AD
 				rowStripCount += tile.rowStrips.size();
 				columnStripCount += tile.columnStrips.size();
 			}
-			const auto appendCount = staging->experimentalStripStorage ? rowStripCount + columnStripCount : tileCount;
-			const auto codecInputBytes = stagedBytes * (staging->experimentalStripStorage ? 2ull : 1ull);
+			const auto appendCount = rowStripCount + columnStripCount;
+			const auto codecInputBytes = stagedBytes * 2ull;
 			if (benchmarkMetrics)
 			{
 				benchmarkMetrics->sourceLayout = sourceLayout;
@@ -1064,8 +1035,6 @@ namespace H5AD
 				benchmarkMetrics->superTileCount = staging->superTiles.size();
 				benchmarkMetrics->rowStripCount = rowStripCount;
 				benchmarkMetrics->columnStripCount = columnStripCount;
-				benchmarkMetrics->wholeTileEncodeNanoseconds = wholeTileEncodeNanoseconds;
-				benchmarkMetrics->wholeTileWriteNanoseconds = wholeTileWriteNanoseconds;
 				benchmarkMetrics->rowStripPreparationNanoseconds = rowStripPreparationNanoseconds;
 				benchmarkMetrics->rowStripEncodeNanoseconds = rowStripEncodeNanoseconds;
 				benchmarkMetrics->rowStripWriteNanoseconds = rowStripWriteNanoseconds;
@@ -1076,7 +1045,7 @@ namespace H5AD
 				benchmarkMetrics->maximumInFlightBytes = maximumInFlightBytes;
 				benchmarkMetrics->maximumActiveEncoders = maximumActiveEncoders.load(std::memory_order_relaxed);
 			}
-			qInfo().noquote() << QStringLiteral("H5AD dense staging: %1 MiB in %2 ms; HDF5 reads %3 ms; encode/write %4 worker-ms; row strips: prepare %5 worker-ms, codec %6 worker-ms, write %7 worker-ms; column strips: prepare %8 worker-ms, codec %9 worker-ms, write %10 worker-ms; whole tiles: codec %11 worker-ms, write %12 worker-ms; file finalize %13 worker-ms; encoder peak %14/%15; source %16; %17 tiles; %18 packed MiB; format %19 (%20 row and %21 column strips); matrix %22x%23; tile %24x%25; supertile %26x%27; codec %28; codec input %29 MiB; append calls %30; Zstandard level %31")
+			qInfo().noquote() << QStringLiteral("H5AD dense staging: %1 MiB in %2 ms; HDF5 reads %3 ms; encode/write %4 worker-ms; row strips: prepare %5 worker-ms, codec %6 worker-ms, write %7 worker-ms; column strips: prepare %8 worker-ms, codec %9 worker-ms, write %10 worker-ms; file finalize %11 worker-ms; encoder peak %12/%13; source %14; %15 tiles; %16 packed MiB; strip size %17; %18 row and %19 column strips; matrix %20x%21; tile %22x%23; supertile %24x%25; codec %26; codec input %27 MiB; append calls %28; Zstandard level %29")
 				.arg(static_cast<double>(stagedBytes) / (1024.0 * 1024.0), 0, 'f', 1)
 				.arg(totalMilliseconds)
 				.arg(readMilliseconds)
@@ -1087,15 +1056,13 @@ namespace H5AD
 				.arg(static_cast<double>(columnStripPreparationNanoseconds) / 1.0e6, 0, 'f', 1)
 				.arg(static_cast<double>(columnStripEncodeNanoseconds) / 1.0e6, 0, 'f', 1)
 				.arg(static_cast<double>(columnStripWriteNanoseconds) / 1.0e6, 0, 'f', 1)
-				.arg(static_cast<double>(wholeTileEncodeNanoseconds) / 1.0e6, 0, 'f', 1)
-				.arg(static_cast<double>(wholeTileWriteNanoseconds) / 1.0e6, 0, 'f', 1)
 				.arg(static_cast<double>(finalizeNanoseconds) / 1.0e6, 0, 'f', 1)
 				.arg(maximumActiveEncoders.load(std::memory_order_relaxed))
 				.arg(maxInFlightSuperTiles)
 				.arg(sourceLayout)
 				.arg(tileCount)
 				.arg(static_cast<double>(packedFileBytes) / (1024.0 * 1024.0), 0, 'f', 1)
-				.arg(staging->experimentalStripStorage ? QStringLiteral("%1x%2 experimental strip").arg(staging->rowStripHeight).arg(staging->columnStripWidth) : QStringLiteral("whole tile"))
+				.arg(QStringLiteral("%1x%2").arg(staging->rowStripHeight).arg(staging->columnStripWidth))
 				.arg(rowStripCount)
 				.arg(columnStripCount)
 				.arg(rows)
@@ -1203,7 +1170,7 @@ namespace H5AD
 				const auto tileFirstColumn = std::max(firstColumn, tile.columnOffset);
 				const auto tileLastColumn = std::min(lastColumn, tile.columnOffset + tile.columns);
 				if (tile.rowStrips.empty() || tile.columnStrips.empty())
-					throw std::runtime_error("Experimental strip metadata is missing for an H5AD tile");
+					throw std::runtime_error("Row/column strip metadata is missing for an H5AD tile");
 
 				std::uint64_t rowCost = 0;
 				for (const auto& strip : tile.rowStrips)
@@ -1290,34 +1257,7 @@ namespace H5AD
 				throw std::out_of_range("Requested tile does not match H5AD packed staging geometry");
 			if (tile.superTileIndex >= staging.superTiles.size())
 				throw std::out_of_range("Requested tile references a missing H5AD packed super-tile");
-			if (staging.experimentalStripStorage)
-				return readStagedRange(staging, rowOffset, rows, columnOffset, columns);
-
-			return readStagedBlock(staging, tile.superTileIndex, tile.block);
-		}
-
-		mv::pointdata::storage::TiledStorageBackendCreationOptions::PackedTileSource createPackedTileSource(const std::shared_ptr<StagedPointData>& staging)
-		{
-			mv::pointdata::storage::TiledStorageBackendCreationOptions::PackedTileSource packedSource;
-			packedSource.filePaths.reserve(static_cast<qsizetype>(staging->superTiles.size()));
-			for (const auto& superTile : staging->superTiles)
-				packedSource.filePaths.push_back(superTile.path);
-
-			packedSource.offsets.reserve(staging->tiles.size());
-			packedSource.compressedSizes.reserve(staging->tiles.size());
-			packedSource.uncompressedSizes.reserve(staging->tiles.size());
-			packedSource.superTileIndices.reserve(staging->tiles.size());
-			for (const auto& tile : staging->tiles)
-			{
-				packedSource.offsets.push_back(tile.block.offset);
-				packedSource.compressedSizes.push_back(tile.block.compressedSize);
-				packedSource.uncompressedSizes.push_back(tile.block.uncompressedSize);
-				packedSource.superTileIndices.push_back(tile.superTileIndex);
-			}
-
-			packedSource.codecName = staging->codec->getName();
-			packedSource.sourceLifetime = staging;
-			return packedSource;
+			return readStagedRange(staging, rowOffset, rows, columnOffset, columns);
 		}
 
 		std::unique_ptr<mv::pointdata::storage::PointsStorageBackend> createStagedTiledBackend(const std::uint64_t rows, const std::uint64_t columns, const Points::ElementTypeSpecifier elementType, const mv::pointdata::storage::StorageBackendConfiguration& configuration, const std::shared_ptr<StagedPointData>& staging)
@@ -1339,16 +1279,11 @@ namespace H5AD
 			creation->generator = [staging](const std::uint64_t rowOffset, const std::uint64_t columnOffset, const std::uint64_t tileRows, const std::uint64_t tileColumns) {
 				return readStagedTile(*staging, rowOffset, columnOffset, tileRows, tileColumns);
 			};
-			// PackedTileSource is accepted only when the backend itself is configured for packed tiles.
-			if (configuration.packedTiles && !configuration.experimentalStripStorage)
-				creation->packedSource = createPackedTileSource(staging);
-
 			auto tiledStorage = mv::pointdata::storage::TiledPointsStorageBackend::create(*creation);
 			auto tiledBackend = std::make_unique<mv::pointdata::storage::TiledPointsStorageBackend>(tiledStorage, static_cast<std::uint32_t>(elementType));
-			if (configuration.experimentalStripStorage)
-				tiledBackend->setRangeLoader([staging](const std::uint64_t firstRow, const std::uint64_t rowCount, const std::uint64_t firstColumn, const std::uint64_t columnCount) {
-					return readStagedRange(*staging, firstRow, rowCount, firstColumn, columnCount);
-				});
+			tiledBackend->setRangeLoader([staging](const std::uint64_t firstRow, const std::uint64_t rowCount, const std::uint64_t firstColumn, const std::uint64_t columnCount) {
+				return readStagedRange(*staging, firstRow, rowCount, firstColumn, columnCount);
+			});
 			return tiledBackend;
 		}
 
@@ -1395,22 +1330,17 @@ namespace H5AD
 			const auto sourceIndexElementSize = indicesSet.getDataType().getSize();
 			const auto sourcePointerElementSize = indptrSet.getDataType().getSize();
 			std::uint64_t totalEncodedStripCount = 0;
-			if (configuration.experimentalStripStorage)
+			const auto configuredTileRows = (rows + configuration.rowTileSize - 1) / configuration.rowTileSize;
+			const auto configuredTileColumns = (columns + configuration.columnTileSize - 1) / configuration.columnTileSize;
+			for (std::uint64_t tileRow = 0; tileRow < configuredTileRows; ++tileRow)
 			{
-				const auto rowStripHeight = static_cast<std::uint64_t>(configuration.rowStripHeight);
-				const auto columnStripWidth = static_cast<std::uint64_t>(configuration.columnStripWidth);
-				const auto tileRows = (rows + configuration.rowTileSize - 1) / configuration.rowTileSize;
-				const auto tileColumns = (columns + configuration.columnTileSize - 1) / configuration.columnTileSize;
-				for (std::uint64_t tileRow = 0; tileRow < tileRows; ++tileRow)
-				{
-					const auto tileHeight = std::min<std::uint64_t>(configuration.rowTileSize, rows - tileRow * configuration.rowTileSize);
-					totalEncodedStripCount += (tileHeight / rowStripHeight + (tileHeight % rowStripHeight != 0)) * tileColumns;
-				}
-				for (std::uint64_t tileColumn = 0; tileColumn < tileColumns; ++tileColumn)
-				{
-					const auto tileWidth = std::min<std::uint64_t>(configuration.columnTileSize, columns - tileColumn * configuration.columnTileSize);
-					totalEncodedStripCount += (tileWidth / columnStripWidth + (tileWidth % columnStripWidth != 0)) * tileRows;
-				}
+				const auto tileHeight = std::min<std::uint64_t>(configuration.rowTileSize, rows - tileRow * configuration.rowTileSize);
+				totalEncodedStripCount += (tileHeight / configuration.rowStripHeight + (tileHeight % configuration.rowStripHeight != 0)) * configuredTileColumns;
+			}
+			for (std::uint64_t tileColumn = 0; tileColumn < configuredTileColumns; ++tileColumn)
+			{
+				const auto tileWidth = std::min<std::uint64_t>(configuration.columnTileSize, columns - tileColumn * configuration.columnTileSize);
+				totalEncodedStripCount += (tileWidth / configuration.columnStripWidth + (tileWidth % configuration.columnStripWidth != 0)) * configuredTileRows;
 			}
 			std::atomic<std::uint64_t> completedEncodedStripCount = 0;
 			const auto staging = std::make_shared<StagedPointData>();
@@ -1421,10 +1351,9 @@ namespace H5AD
 			staging->columnTileSize = configuration.columnTileSize;
 			staging->superTileRows = configuration.superTileRows;
 			staging->superTileColumns = configuration.superTileColumns;
-			staging->experimentalStripStorage = configuration.experimentalStripStorage;
 			staging->rowStripHeight = configuration.rowStripHeight;
 			staging->columnStripWidth = configuration.columnStripWidth;
-			staging->stripCache.capacityBytes = configuration.experimentalStripStorage ? std::min<std::uint64_t>(configuration.cacheCapacityBytes, 256ull * 1024ull * 1024ull) : 0;
+			staging->stripCache.capacityBytes = std::min<std::uint64_t>(configuration.cacheCapacityBytes, 256ull * 1024ull * 1024ull);
 			staging->tileRows = (rows + staging->rowTileSize - 1) / staging->rowTileSize;
 			staging->tileColumns = (columns + staging->columnTileSize - 1) / staging->columnTileSize;
 			staging->codec = createStagingCodec(configuration.tileCodecName, zstdCompressionLevel);
@@ -1436,8 +1365,8 @@ namespace H5AD
 			const auto effectiveBucketingWorkerCount = std::max<std::size_t>(1, bucketingThreadCount);
 			const auto maxPendingEncoders = std::max<std::size_t>(1, stagingThreadCount);
 			const auto detectedWorkerCount = std::thread::hardware_concurrency();
-			const auto stripWorkerCount = staging->experimentalStripStorage ? std::max<std::size_t>(1, std::min<std::size_t>(64, detectedWorkerCount == 0 ? 1 : detectedWorkerCount)) : 0;
-			auto stripWorkerPool = stripWorkerCount > 0 ? std::make_unique<StripWorkerPool>(stripWorkerCount) : nullptr;
+			const auto stripWorkerCount = std::max<std::size_t>(1, std::min<std::size_t>(64, detectedWorkerCount == 0 ? 1 : detectedWorkerCount));
+			auto stripWorkerPool = std::make_unique<StripWorkerPool>(stripWorkerCount);
 			const auto requestedChunkTileRows = std::max<std::size_t>(staging->superTileRows, rowChunkTileFactor);
 			const auto chunkTileRows = ((requestedChunkTileRows + staging->superTileRows - 1) / staging->superTileRows) * staging->superTileRows;
 			constexpr std::uint64_t maxPendingTileBytes = 8ull * 1024ull * 1024ull * 1024ull;
@@ -1492,7 +1421,7 @@ namespace H5AD
 				benchmark->inputPointerBytes = (rows + 1) * sourcePointerElementSize;
 				benchmark->denseEquivalentBytes = rows * columns * elementSize;
 				benchmark->stagedBytes = benchmark->denseEquivalentBytes;
-				benchmark->codecInputBytes = rows * columns * elementSize * (staging->experimentalStripStorage ? 2ull : 1ull);
+				benchmark->codecInputBytes = rows * columns * elementSize * 2ull;
 				benchmark->packedFileBytes = packedFileBytes;
 				benchmark->tileCount = staging->tiles.size();
 				benchmark->superTileCount = staging->superTiles.size();
@@ -1637,7 +1566,6 @@ namespace H5AD
 				for (auto& encodedTile : encoded.blocks)
 				{
 					auto& tile = staging->tiles[encodedTile.tileIndex];
-					tile.block = encodedTile.block;
 					tile.rowStrips = std::move(encodedTile.rowStrips);
 					tile.columnStrips = std::move(encodedTile.columnStrips);
 					++completedTileCount;
@@ -1732,7 +1660,7 @@ namespace H5AD
 					for (auto tileRow = superTileRow; tileRow < lastTileRow; ++tileRow)
 						for (auto tileColumn = superTileColumn; tileColumn < lastTileColumn; ++tileColumn)
 							outputBytes += std::min<std::uint64_t>(staging->rowTileSize, rows - tileRow * staging->rowTileSize) * std::min<std::uint64_t>(staging->columnTileSize, columns - tileColumn * staging->columnTileSize) * elementSize;
-					const auto encodedOutputBytes = outputBytes * (configuration.experimentalStripStorage ? 3 : 1);
+					const auto encodedOutputBytes = outputBytes * 3;
 					while (!pending.empty() && (pending.size() >= maxPendingEncoders || pendingBytes + encodedOutputBytes > maxPendingTileBytes))
 						collectReady();
 
@@ -1754,8 +1682,8 @@ namespace H5AD
 						}
 
 					const auto codec = createStagingCodec(configuration.tileCodecName, zstdCompressionLevel);
-					const auto rowCodec = staging->experimentalStripStorage ? createStagingCodec(configuration.tileCodecName, zstdCompressionLevel) : mv::util::SharedCodec{};
-					const auto columnCodec = staging->experimentalStripStorage ? createStagingCodec(configuration.tileCodecName, zstdCompressionLevel) : mv::util::SharedCodec{};
+					const auto rowCodec = createStagingCodec(configuration.tileCodecName, zstdCompressionLevel);
+					const auto columnCodec = createStagingCodec(configuration.tileCodecName, zstdCompressionLevel);
 					const auto rowStripHeight = static_cast<std::uint64_t>(staging->rowStripHeight);
 					const auto columnStripWidth = static_cast<std::uint64_t>(staging->columnStripWidth);
 					pending.push_back({ std::async(std::launch::async, [&, superTileIndex, superTileRow, lastTileRow, superTileColumn, lastTileColumn, tileColumnCount, filePath, entriesForColumnByWorker = std::move(entriesForColumnByWorker), sharedIndices, sharedValues, codec, rowCodec, columnCodec, rowStripHeight, columnStripWidth]() mutable {
@@ -1793,7 +1721,7 @@ namespace H5AD
 								const auto tileIndex = static_cast<std::size_t>(tileRow * staging->tileColumns + tileColumn);
 								payloads.push_back({ tileIndex, std::move(tileBuffers[static_cast<std::size_t>((tileRow - superTileRow) * tileColumnCount + tileColumn - superTileColumn)]), staging->tiles[tileIndex].rows, staging->tiles[tileIndex].columns, elementSize });
 							}
-						auto result = encodeDenseSuperTile(superTileIndex, filePath, std::move(payloads), codec, rowCodec, columnCodec, staging->experimentalStripStorage, rowStripHeight, columnStripWidth, [&](const std::uint64_t encodedStripCount) {
+						auto result = encodeDenseSuperTile(superTileIndex, filePath, std::move(payloads), codec, rowCodec, columnCodec, rowStripHeight, columnStripWidth, [&](const std::uint64_t encodedStripCount) {
 							completedEncodedStripCount.fetch_add(encodedStripCount, std::memory_order_relaxed);
 						}, stripWorkerPool.get());
 						return result;
@@ -1817,23 +1745,21 @@ namespace H5AD
 				rowStripCount += tile.rowStrips.size();
 				columnStripCount += tile.columnStrips.size();
 			}
-			const auto appendCount = staging->experimentalStripStorage ? rowStripCount + columnStripCount : staging->tiles.size();
-			const auto codecInputBytes = rows * columns * elementSize * (staging->experimentalStripStorage ? 2ull : 1ull);
+				const auto appendCount = rowStripCount + columnStripCount;
+				const auto codecInputBytes = rows * columns * elementSize * 2ull;
 			stagingCompleted = true;
-			if (staging->experimentalStripStorage)
 				qInfo().noquote() << QStringLiteral("H5AD strip synchronization: row writer lock wait/hold %1/%2 ms; column writer lock wait/hold %3/%4 ms; pending supertile future wait %5 ms")
 					.arg(static_cast<double>(rowWriterLockWaitNanoseconds.load(std::memory_order_relaxed)) / 1.0e6, 0, 'f', 1)
 					.arg(static_cast<double>(rowWriterLockHoldNanoseconds.load(std::memory_order_relaxed)) / 1.0e6, 0, 'f', 1)
 					.arg(static_cast<double>(columnWriterLockWaitNanoseconds.load(std::memory_order_relaxed)) / 1.0e6, 0, 'f', 1)
 					.arg(static_cast<double>(columnWriterLockHoldNanoseconds.load(std::memory_order_relaxed)) / 1.0e6, 0, 'f', 1)
 					.arg(static_cast<double>(pendingFutureWaitNanoseconds.load(std::memory_order_relaxed)) / 1.0e6, 0, 'f', 1);
-			if (staging->experimentalStripStorage)
 				qInfo().noquote() << QStringLiteral("H5AD strip worker pool: %1 threads, maximum active %2; row worker CPU %3 ms; column worker CPU %4 ms")
 					.arg(stripWorkerCount)
 					.arg(stripWorkerPool ? stripWorkerPool->maximumActiveWorkers() : 0)
 					.arg(static_cast<double>(rowStripWorkerCpuNanoseconds.load(std::memory_order_relaxed)) / 1.0e6, 0, 'f', 1)
 					.arg(static_cast<double>(columnStripWorkerCpuNanoseconds.load(std::memory_order_relaxed)) / 1.0e6, 0, 'f', 1);
-			qInfo().noquote() << QStringLiteral("H5AD sparse CSR staging: %1 nonzero values across %2 tiles in %3 chunks (%4 tile rows each); HDF5 reads %5 ms; bucketing %6 worker-ms; tile materialization %7 worker-ms; compression/write %8 worker-ms; row strips: prepare %9 worker-ms, codec %10 worker-ms, write %11 worker-ms; column strips: prepare %12 worker-ms, codec %13 worker-ms, write %14 worker-ms; file finalize %15 worker-ms; maximum concurrent bucketers %16/%17; encoders %18/%19; elapsed %20 ms; %21 packed MiB; format %22 (%23 row and %24 column strips); matrix %25x%26; tile %27x%28; supertile %29x%30; codec %31; dense codec input %32 MiB; append calls %33; Zstandard level %34")
+			qInfo().noquote() << QStringLiteral("H5AD sparse CSR staging: %1 nonzero values across %2 tiles in %3 chunks (%4 tile rows each); HDF5 reads %5 ms; bucketing %6 worker-ms; tile materialization %7 worker-ms; compression/write %8 worker-ms; row strips: prepare %9 worker-ms, codec %10 worker-ms, write %11 worker-ms; column strips: prepare %12 worker-ms, codec %13 worker-ms, write %14 worker-ms; file finalize %15 worker-ms; maximum concurrent bucketers %16/%17; encoders %18/%19; elapsed %20 ms; %21 packed MiB; strip size %22; %23 row and %24 column strips; matrix %25x%26; tile %27x%28; supertile %29x%30; codec %31; dense codec input %32 MiB; append calls %33; Zstandard level %34")
 				.arg(stagedNonZeroCount.load(std::memory_order_relaxed))
 				.arg(staging->tiles.size())
 				.arg((staging->tileRows + chunkTileRows - 1) / chunkTileRows)
@@ -1855,7 +1781,7 @@ namespace H5AD
 				.arg(maxPendingEncoders)
 				.arg(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - stagingStart).count())
 				.arg(static_cast<double>(packedFileBytes) / (1024.0 * 1024.0), 0, 'f', 1)
-				.arg(staging->experimentalStripStorage ? QStringLiteral("%1x%2 experimental strip").arg(staging->rowStripHeight).arg(staging->columnStripWidth) : QStringLiteral("whole tile"))
+					.arg(QStringLiteral("%1x%2 strip").arg(staging->rowStripHeight).arg(staging->columnStripWidth))
 				.arg(rowStripCount)
 				.arg(columnStripCount)
 				.arg(rows)

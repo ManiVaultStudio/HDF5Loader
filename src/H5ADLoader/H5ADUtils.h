@@ -40,8 +40,6 @@ namespace H5AD
 		std::uint64_t superTileCount = 0;
 		std::uint64_t rowStripCount = 0;
 		std::uint64_t columnStripCount = 0;
-		std::uint64_t wholeTileEncodeNanoseconds = 0;
-		std::uint64_t wholeTileWriteNanoseconds = 0;
 		std::uint64_t rowStripPreparationNanoseconds = 0;
 		std::uint64_t rowStripEncodeNanoseconds = 0;
 		std::uint64_t rowStripWriteNanoseconds = 0;
