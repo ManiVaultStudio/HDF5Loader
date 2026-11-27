@@ -149,6 +149,7 @@ namespace H5AD
 		mv::pointdata::storage::StorageBackendType _storageBackendType = mv::pointdata::storage::StorageBackendType::Tiled; /**< Selected backend for X; sparse input is retained in memory, while tiled input uses packed staging. */
 		int                          _storageType = -3; /**< Selected X element type index or optimized/source-type sentinel. */
 		mv::pointdata::storage::StorageBackendConfiguration _tiledStorageConfiguration; /**< Selected tiled geometry and cache settings for X. */
+		mv::pointdata::storage::SparseStorageBackendConfiguration _sparseStorageConfiguration; /**< Selected CSR/CSC indexes for sparse X. */
 		std::size_t                  _bucketingThreadCount = 4; /**< Worker limit for sparse CSR bucketing. */
 		std::size_t                  _stagingThreadCount = 4; /**< Worker limit for packed tile materialization and encoding. */
 		std::size_t                  _rowChunkTileFactor = 3; /**< Tile-height multiple grouped into each CSR staging batch. */
@@ -161,6 +162,7 @@ namespace H5AD
 		QStringList                  _selectedClusterSets; /**< Selected categorical sets to create while importing obs. */
 		bool                         _filterClusterSets = false; /**< Whether the current obs import should restrict cluster creation. */
 		std::vector<QString>         _originalDimensionNames;    /**< Dimension names discovered from var. */
+		std::vector<std::int32_t>    _selectedDimensionIndices;  /**< Selected source X columns, in output order. */
 		QVariantList                 _sampleNames;               /**< Sample names discovered from obs. */
 		std::vector<bool>            _enabledDimensions;         /**< Optional dimension-selection mask. */
 		std::vector<std::ptrdiff_t>  _selectedDimensionsLUT;     /**< Optional lookup from selected to source dimensions. */

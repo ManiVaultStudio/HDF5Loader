@@ -53,6 +53,7 @@ namespace
 		const QString storageValueKey("storageValue");
 		const QString storageBackendKey("storageBackend");
 		const QString storageBackendConfigurationKey("storageBackendConfiguration");
+		const QString sparseStorageConfigurationKey("sparseStorageConfiguration");
 		const QString bucketingThreadCountKey("bucketingThreadCount");
 		const QString stagingThreadCountKey("stagingThreadCount");
 		const QString rowChunkTileFactorKey("rowChunkTileFactor");
@@ -97,6 +98,20 @@ namespace
 		};
 	}
 
+	mv::pointdata::storage::SparseStorageBackendConfiguration getSparseConfiguration(const QVariantMap& values, const bool sourceColumnCompressed)
+	{
+		mv::pointdata::storage::SparseStorageBackendConfiguration configuration;
+		configuration.storeRowCompressed = values.contains("storeRowCompressed") ? values.value("storeRowCompressed").toBool() : !sourceColumnCompressed;
+		configuration.storeColumnCompressed = values.contains("storeColumnCompressed") ? values.value("storeColumnCompressed").toBool() : sourceColumnCompressed;
+		configuration.columnCompressed = !configuration.storeRowCompressed;
+		return configuration;
+	}
+
+	QVariantMap toSparseConfigurationVariantMap(const mv::pointdata::storage::SparseStorageBackendConfiguration& configuration)
+	{
+		return { { "storeRowCompressed", configuration.storeRowCompressed }, { "storeColumnCompressed", configuration.storeColumnCompressed } };
+	}
+
 }	// Unnamed namespace
 
 
@@ -138,6 +153,7 @@ void H5ADLoader::loadData()
 	LockGuard lockGuard(Hdf5Lock());
 
 	auto backendType = getSetting(Keys::storageBackendKey, "Tiled").toString();
+	auto sparseConfiguration = getSparseConfiguration(getSetting(Keys::sparseStorageConfigurationKey, QVariantMap()).toMap(), false);
 	auto storageTypeIndex = getSetting(Keys::storageValueKey, 0).toInt();
 	_tiledStorageConfiguration = getTiledConfiguration(getSetting(Keys::storageBackendConfigurationKey, QVariantMap()).toMap());
 	auto bucketingThreadCount = static_cast<std::size_t>(getSetting(Keys::bucketingThreadCountKey, 0).toULongLong());
@@ -178,8 +194,10 @@ void H5ADLoader::loadData()
 
 		const auto [rows, columns] = loader->getMatrixShape();
 		const auto sparseMatrixInfo = loader->getSparseMatrixInfo();
+		if (!getSetting(Keys::sparseStorageConfigurationKey, QVariantMap()).toMap().contains("storeRowCompressed"))
+			sparseConfiguration = getSparseConfiguration({}, sparseMatrixInfo.columnCompressed);
 		const auto availableOptionalMetadata = loader->getOptionalObjects();
-		H5ADImportDialog dialog(fileName, stagingDirectory, availableOptionalMetadata, selectedOptionalMetadata, importBenchmarkDirectory, rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, bucketingThreadCount, stagingThreadCount, rowChunkTileFactor, zstdCompressionLevel, loader, QApplication::activeWindow());
+		H5ADImportDialog dialog(fileName, stagingDirectory, availableOptionalMetadata, selectedOptionalMetadata, importBenchmarkDirectory, rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, sparseConfiguration, bucketingThreadCount, stagingThreadCount, rowChunkTileFactor, zstdCompressionLevel, loader, QApplication::activeWindow());
 		if (dialog.exec() != QDialog::Accepted)
 			continue;
 
@@ -187,6 +205,7 @@ void H5ADLoader::loadData()
 		backendType = dialog.backendType();
 		storageTypeIndex = dialog.storageTypeIndex();
 		_tiledStorageConfiguration = options.tiledStorageConfiguration;
+		sparseConfiguration = options.sparseStorageConfiguration;
 		bucketingThreadCount = options.bucketingThreadCount;
 		stagingThreadCount = options.stagingThreadCount;
 		rowChunkTileFactor = options.rowChunkTileFactor;
@@ -202,6 +221,7 @@ void H5ADLoader::loadData()
 		setSetting(Keys::storageValueKey, storageTypeIndex);
 		setSetting(Keys::storageBackendKey, backendType);
 		setSetting(Keys::storageBackendConfigurationKey, toTiledConfigurationVariantMap(_tiledStorageConfiguration));
+		setSetting(Keys::sparseStorageConfigurationKey, toSparseConfigurationVariantMap(sparseConfiguration));
 		setSetting(Keys::bucketingThreadCountKey, QVariant::fromValue<qulonglong>(bucketingThreadCount));
 		setSetting(Keys::stagingThreadCountKey, QVariant::fromValue<qulonglong>(stagingThreadCount));
 		setSetting(Keys::rowChunkTileFactorKey, QVariant::fromValue<qulonglong>(rowChunkTileFactor));

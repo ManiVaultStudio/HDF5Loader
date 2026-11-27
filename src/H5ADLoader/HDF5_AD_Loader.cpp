@@ -32,6 +32,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <stdexcept>
 #include <thread>
 
 #include <PointData/PointData.h>
@@ -1252,6 +1253,7 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		loaderInfo->_storageBackendType = options.storageBackendType;
 		loaderInfo->_storageType = options.storageType;
 		loaderInfo->_tiledStorageConfiguration = options.tiledStorageConfiguration;
+		loaderInfo->_sparseStorageConfiguration = options.sparseStorageConfiguration;
 		loaderInfo->_bucketingThreadCount = std::max<std::size_t>(1, options.bucketingThreadCount);
 		loaderInfo->_stagingThreadCount = std::max<std::size_t>(1, options.stagingThreadCount);
 		loaderInfo->_rowChunkTileFactor = std::clamp<std::size_t>(options.rowChunkTileFactor, 1, 256);
@@ -1261,6 +1263,18 @@ bool HDF5_AD_Loader::load(const H5ADImportOptions& options)
 		loaderInfo->_availableClusterSets = options.availableClusterSets;
 		loaderInfo->_selectedClusterSets = options.selectedClusterSets;
 		loaderInfo->_originalDimensionNames = _dimensionNames;
+		loaderInfo->_selectedDimensionIndices = options.selectedDimensionIndices;
+		if (!options.selectedDimensionIndices.empty() && options.selectedDimensionIndices.size() < _dimensionNames.size())
+		{
+			loaderInfo->_selectedDimensionsLUT.assign(_dimensionNames.size(), -1);
+			for (std::size_t destination = 0; destination < options.selectedDimensionIndices.size(); ++destination)
+			{
+				const auto source = options.selectedDimensionIndices[destination];
+				if (source < 0 || static_cast<std::size_t>(source) >= _dimensionNames.size())
+					throw std::out_of_range("Selected H5AD dimension index is out of range");
+				loaderInfo->_selectedDimensionsLUT[static_cast<std::size_t>(source)] = static_cast<std::ptrdiff_t>(destination);
+			}
+		}
 		loaderInfo->_sampleNames = QVariantList(_sampleNames.cbegin(), _sampleNames.cend());
 		const auto loader = shared_from_this();
 		auto workflow = std::make_unique<mv::workflow::WorkflowPlan>(QObject::tr("Load H5AD point data"));

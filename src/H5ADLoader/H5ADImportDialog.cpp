@@ -3,6 +3,7 @@
 #include <PointData/PointData.h>
 #include <PointData/storage/dense/DenseStorageBackendConversionAction.h>
 #include <PointData/storage/interface/StorageBackendConfigurationDialog.h>
+#include <PointData/storage/sparse/SparseStorageBackendConversionAction.h>
 #include <PointData/storage/tiled/TiledStorageBackendConfigurationAction.h>
 #include <PointData/storage/interface/PointsStorageBackendTypes.h>
 #include <actions/GroupAction.h>
@@ -18,6 +19,7 @@
 #include <util/StyledIcon.h>
 
 #include <QFileInfo>
+#include <QPointer>
 #include <QDialogButtonBox>
 #include <QDateTime>
 #include <QDir>
@@ -151,12 +153,15 @@ bool isPotentiallyLossyStorageType(const int storageType, const bool sourceMayLo
 
 }
 
-H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, const int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
+H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const mv::pointdata::storage::SparseStorageBackendConfiguration& sparseConfiguration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, const int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
     QDialog(parent),
     _settingsAction(this, "Import settings"),
     _fileAction(&_settingsAction, "File", QFileInfo(fileName).fileName()),
     _matrixAction(&_settingsAction, "Matrix", rows > 0 && columns > 0 ? tr("%1 rows × %2 columns").arg(rows).arg(columns) : tr("Unknown")),
     _datasetNameAction(&_settingsAction, "Dataset name", QFileInfo(fileName).baseName()),
+    _dimensionSelectionGroup(&_settingsAction, "Dimension selection", true),
+    _dimensionSelectionAction(this),
+    _dimensionSelectionTrigger(&_dimensionSelectionGroup, "Select dimensions…"),
     _storageTypeAction(&_settingsAction, "Data type"),
     _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Dense", "Tiled", "Sparse" } : QStringList { "Dense", "Tiled" }, "Tiled"),
     _projectOpenFileStagingAction(&_settingsAction, "Project-open file staging", { "Inherit", "Read ranges on demand", "Stage on first read", "Stage immediately" }, "Inherit"),
@@ -187,6 +192,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _cancelAction(&_buttonsAction, "Cancel"),
     _importAction(&_buttonsAction, "Import"),
     _tiledConfiguration(tiledConfiguration),
+    _sparseConfiguration(sparseConfiguration),
     _sparseMatrixInfo(sparseMatrixInfo),
     _sourceMayLosePrecision(loader && loader->sourceMayLosePrecision()),
     _loader(std::move(loader)),
@@ -279,6 +285,12 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     });
     _settingsAction.addAction(&_matrixAction);
     _settingsAction.addAction(&_datasetNameAction);
+    _dimensionSelectionGroup.setDescription(tr("<p>Choose which matrix dimensions to import. This selection applies to Dense, Sparse, and Tiled storage.</p>"));
+    _dimensionSelectionGroup.setExpanded(false);
+    _dimensionSelectionAction.setDimensions(static_cast<std::uint32_t>(columns), _loader ? _loader->getDimensionNames() : std::vector<QString>{});
+    _dimensionSelectionTrigger.setToolTip(tr("Choose which matrix dimensions to include in the imported dataset."));
+    _dimensionSelectionGroup.addAction(&_dimensionSelectionTrigger);
+    _settingsAction.addAction(&_dimensionSelectionGroup);
     _settingsAction.addAction(&_storageTypeAction);
     _settingsAction.addAction(&_backendSelector);
     _settingsAction.addAction(&_projectOpenFileStagingAction);
@@ -312,15 +324,20 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
 
     _backendSelector.getConfigureAction().setIconByName("gear");
     connect(&_backendSelector, &StorageBackendConfiguratorAction::backendTypeChanged, this, [this](const QString& type) {
-        _backendSelector.setConfigureEnabled(type == "Tiled");
+        _backendSelector.setConfigureEnabled(type == "Tiled" || type == "Sparse");
         _projectOpenFileStagingAction.setEnabled(type == "Tiled");
         updateImportChecks();
     });
     const auto initialBackendType = sparseMatrixInfo.available || backendType != "Sparse" ? backendType : QStringLiteral("Tiled");
     _backendSelector.setBackendType(initialBackendType);
-    _backendSelector.setConfigureEnabled(initialBackendType == "Tiled");
+    _backendSelector.setConfigureEnabled(initialBackendType == "Tiled" || initialBackendType == "Sparse");
     _projectOpenFileStagingAction.setEnabled(initialBackendType == "Tiled");
-    connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, &H5ADImportDialog::configureTiledStorage);
+    connect(&_backendSelector, &StorageBackendConfiguratorAction::configureRequested, this, [this] {
+        if (_backendSelector.getBackendType() == "Sparse")
+            configureSparseStorage();
+        else
+            configureTiledStorage();
+    });
     connect(&_datasetNameAction, &mv::gui::StringAction::stringChanged, this, [this] {
         updateImportActionState();
     });
@@ -332,6 +349,15 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
         updateImportChecks();
     });
     connect(&_storageTypeAction, &TargetElementTypeAction::estimateRequested, this, &H5ADImportDialog::estimateTargetElementType);
+    connect(&_dimensionSelectionAction, &DimensionSelectionAction::selectedDimensionsChanged, this, [this] {
+        updateImportActionState();
+        updateImportChecks();
+        const auto selectedCount = static_cast<int>(_dimensionSelectionAction.selectedDimensions().size());
+        _dimensionSelectionGroup.setSubText(selectedCount == static_cast<int>(_columns)
+            ? QString()
+            : tr("%1 of %2 selected").arg(selectedCount).arg(_columns));
+    });
+    connect(&_dimensionSelectionTrigger, &mv::gui::TriggerAction::triggered, this, &H5ADImportDialog::selectDimensions);
     connect(&_importAction, &mv::gui::TriggerAction::triggered, this, &QDialog::accept);
     connect(&_cancelAction, &mv::gui::TriggerAction::triggered, this, &QDialog::reject);
     _dataSummarySeverity = mv::util::SeverityLevel::Warning;
@@ -347,10 +373,15 @@ H5ADImportOptions H5ADImportDialog::options()
 {
     H5ADImportOptions result;
     result.datasetName = _datasetNameAction.getString().trimmed();
+    const auto selectedDimensions = _dimensionSelectionAction.selectedDimensions();
+    result.selectedDimensionIndices.reserve(selectedDimensions.size());
+    for (const auto dimensionIndex : selectedDimensions)
+        result.selectedDimensionIndices.push_back(dimensionIndex);
     result.storageType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
     result.metadataStorageType = result.storageType;
     result.storageBackendType = mv::pointdata::storage::getStorageBackendType(backendType()).value_or(mv::pointdata::storage::StorageBackendType::Tiled);
     result.tiledStorageConfiguration = _tiledConfiguration;
+    result.sparseStorageConfiguration = _sparseConfiguration;
     result.projectOpenStagingPolicy = mv::util::projectResourceStagingPolicyFromName(_projectOpenFileStagingAction.getCurrentText());
     result.bucketingThreadCount = _bucketingThreadCount;
     result.stagingThreadCount = _stagingThreadCount;
@@ -772,7 +803,8 @@ void H5ADImportDialog::configureTiledStorage()
         default: break;
     }
 
-    auto configurationAction = std::make_unique<H5ADTiledStorageBackendConfigurationAction>(nullptr, _rows, _columns, elementSize, _tiledConfiguration,
+    const auto selectedColumns = static_cast<std::uint64_t>(_dimensionSelectionAction.selectedDimensions().size());
+    auto configurationAction = std::make_unique<H5ADTiledStorageBackendConfigurationAction>(nullptr, _rows, selectedColumns, elementSize, _tiledConfiguration,
         _bucketingThreadCount, _stagingThreadCount, _rowChunkTileFactor, _stagingDirectory, _benchmarkDirectory, _benchmarkFilePath);
     auto* configurationActionPtr = configurationAction.get();
     StorageBackendConfigurationDialog dialog(std::move(configurationAction), StorageBackendConfigurationDialog::Purpose::Import, this);
@@ -789,9 +821,62 @@ void H5ADImportDialog::configureTiledStorage()
     updateImportChecks();
 }
 
+void H5ADImportDialog::selectDimensions()
+{
+    const auto previousSelection = _dimensionSelectionAction.selectedDimensions();
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Select dimensions"));
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* description = new QLabel(tr("Choose the matrix dimensions to include in the imported dataset."), &dialog);
+    description->setWordWrap(true);
+    layout->addWidget(description);
+
+    layout->addWidget(_dimensionSelectionAction.createWidget(&dialog), 1);
+    auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttonBox);
+    dialog.resize(720, 560);
+
+    if (dialog.exec() != QDialog::Accepted)
+        _dimensionSelectionAction.selectDimensions(previousSelection);
+
+    const auto selectedCount = static_cast<int>(_dimensionSelectionAction.selectedDimensions().size());
+    _dimensionSelectionGroup.setSubText(selectedCount == static_cast<int>(_columns)
+        ? QString()
+        : tr("%1 of %2 selected").arg(selectedCount).arg(_columns));
+    updateImportActionState();
+    updateImportChecks();
+}
+
 void H5ADImportDialog::updateImportActionState()
 {
-    _importAction.setEnabled(!_analysisRunning && !_denseMemoryLimitExceeded && !_datasetNameAction.getString().trimmed().isEmpty());
+    _importAction.setEnabled(!_analysisRunning && !_denseMemoryLimitExceeded && !_datasetNameAction.getString().trimmed().isEmpty() && !_dimensionSelectionAction.selectedDimensions().empty());
+}
+
+void H5ADImportDialog::configureSparseStorage()
+{
+    auto selectedElementType = _storageTypeAction.getTypeAction().getCurrentIndex() - 3;
+    if (selectedElementType < 0)
+        selectedElementType = _recommendedTypeIndex >= 0 ? _recommendedTypeIndex : static_cast<int>(PointData::ElementTypeSpecifier::float32);
+
+    const auto selectedColumns = static_cast<std::uint64_t>(_dimensionSelectionAction.selectedDimensions().size());
+    auto configurationAction = std::make_unique<mv::gui::SparseStorageBackendConversionAction>(nullptr, _rows, selectedColumns,
+        static_cast<std::uint32_t>(selectedElementType), false, 4, 128,
+        _sparseConfiguration.storeRowCompressed, _sparseConfiguration.storeColumnCompressed);
+    auto* configurationActionPtr = configurationAction.get();
+    StorageBackendConfigurationDialog dialog(std::move(configurationAction), StorageBackendConfigurationDialog::Purpose::Import, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    const auto options = std::dynamic_pointer_cast<const mv::pointdata::storage::SparseStorageBackendConfiguration>(dialog.getConversionOptions());
+    if (!options)
+        return;
+
+    _sparseConfiguration = *options;
+    if (const auto elementType = configurationActionPtr->getTargetElementTypeIndex())
+        _storageTypeAction.getTypeAction().setCurrentIndex(static_cast<std::int32_t>(*elementType) + 3);
+    updateImportChecks();
 }
 
 void H5ADImportDialog::updateImportChecks()
@@ -815,11 +900,12 @@ void H5ADImportDialog::updateImportChecks()
         tr("The selected element type does not introduce a known precision reduction for this source format.");
     updatePrecisionCheck(precisionSeverity, precisionDescription);
 
-    bool hasMatrixEstimate = _rows > 0 && _columns > 0;
+    const auto selectedColumns = static_cast<std::uint64_t>(_dimensionSelectionAction.selectedDimensions().size());
+    bool hasMatrixEstimate = _rows > 0 && selectedColumns > 0;
     std::uint64_t matrixBytes = 0;
-    if (hasMatrixEstimate && _rows <= std::numeric_limits<std::uint64_t>::max() / _columns)
+    if (hasMatrixEstimate && _rows <= std::numeric_limits<std::uint64_t>::max() / selectedColumns)
     {
-        const auto elementCount = _rows * _columns;
+        const auto elementCount = _rows * selectedColumns;
         if (elementCount <= std::numeric_limits<std::uint64_t>::max() / elementSize)
             matrixBytes = elementCount * elementSize;
         else
@@ -864,10 +950,15 @@ void H5ADImportDialog::updateImportChecks()
     bool storageEstimateAvailable = true;
     if (sparse)
     {
-        const auto compressedCount = _sparseMatrixInfo.columnCompressed ? _columns : _rows;
-        const auto pointerCount    = compressedCount == std::numeric_limits<std::uint64_t>::max() ? 0 : compressedCount + 1;
-        const auto bytesPerEntry   = sizeof(std::uint64_t) + elementSize + sizeof(float);
-        if (pointerCount == 0 || pointerCount > std::numeric_limits<std::uint64_t>::max() / sizeof(std::uint64_t) ||
+        const auto storeRows = _sparseConfiguration.storeRowCompressed && !_sparseConfiguration.columnCompressed;
+        const auto storeColumns = _sparseConfiguration.storeColumnCompressed || _sparseConfiguration.columnCompressed;
+        const auto rowPointerCount = storeRows && _rows < std::numeric_limits<std::uint64_t>::max() ? _rows + 1 : 0;
+        const auto columnPointerCount = storeColumns && selectedColumns < std::numeric_limits<std::uint64_t>::max() ? selectedColumns + 1 : 0;
+        const auto orientationCount = static_cast<std::uint64_t>(storeRows) + static_cast<std::uint64_t>(storeColumns);
+        const auto pointerCountOverflow = rowPointerCount > std::numeric_limits<std::uint64_t>::max() - columnPointerCount;
+        const auto pointerCount = pointerCountOverflow ? 0 : rowPointerCount + columnPointerCount;
+        const auto bytesPerEntry = orientationCount * (sizeof(std::uint64_t) + elementSize) + sizeof(float);
+        if (pointerCountOverflow || pointerCount == 0 || pointerCount > std::numeric_limits<std::uint64_t>::max() / sizeof(std::uint64_t) || bytesPerEntry == 0 ||
             _sparseMatrixInfo.storedEntryCount > (std::numeric_limits<std::uint64_t>::max() - pointerCount * sizeof(std::uint64_t)) / bytesPerEntry)
             storageEstimateAvailable = false;
         else

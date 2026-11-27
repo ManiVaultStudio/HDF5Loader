@@ -6,6 +6,8 @@ set(H5AD_ACTIONS
 	actions/ClusterSetSelectionAction.cpp
 	actions/ClusterSetTableViewAction.h
 	actions/ClusterSetTableViewAction.cpp
+	actions/DimensionSelectionAction.h
+	actions/DimensionSelectionAction.cpp
 	actions/TargetElementTypeAction.h
 	actions/TargetElementTypeAction.cpp
 	actions/ObsmMatrixConfigurationAction.h
@@ -51,6 +53,8 @@ source_group(Actions FILES
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/ClusterSetSelectionAction.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/ClusterSetTableViewAction.h
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/ClusterSetTableViewAction.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/actions/DimensionSelectionAction.h
+	${CMAKE_CURRENT_SOURCE_DIR}/actions/DimensionSelectionAction.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/TargetElementTypeAction.h
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/TargetElementTypeAction.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/ObsmMatrixConfigurationAction.h

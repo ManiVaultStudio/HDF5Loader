@@ -35,6 +35,7 @@ namespace mv
 struct H5ADImportOptions
 {
 	QString datasetName; /**< Name assigned to the imported point dataset. */
+	std::vector<std::int32_t> selectedDimensionIndices; /**< Source X columns selected in the import dialog, in original order. */
 	QStringList optionalObjects; /**< Optional top-level metadata objects selected for import. */
 	QMap<QString, H5ADClusterSetInfo> availableClusterSets; /**< Categorical sets discovered in obs, keyed by import name. */
 	QStringList selectedClusterSets; /**< Selected obs cluster sets, used when cluster-set filtering is enabled. */
@@ -48,6 +49,7 @@ struct H5ADImportOptions
 	int metadataStorageType = -3; /**< Target numeric type choice applied to obsm matrices. */
 	mv::pointdata::storage::StorageBackendType storageBackendType = mv::pointdata::storage::StorageBackendType::Tiled; /**< Backend for X. Sparse retains CSR/CSC arrays in memory and requires a supported sparse X group. */
 	mv::pointdata::storage::StorageBackendConfiguration tiledStorageConfiguration; /**< Tile geometry and cache configuration used when tiled storage is selected. */
+	mv::pointdata::storage::SparseStorageBackendConfiguration sparseStorageConfiguration; /**< CSR/CSC indexes retained for sparse X imports. */
 	mv::util::ProjectResourceStagingPolicy projectOpenStagingPolicy = mv::util::ProjectResourceStagingPolicy::Inherit; /**< Dataset override applied when a saved project containing this dataset is opened; does not affect import staging. */
 	std::size_t bucketingThreadCount = 4; /**< Worker limit for distributing sparse CSR entries to output tiles. */
 	std::size_t stagingThreadCount = 4; /**< Worker limit for materializing, compressing, and writing packed tiles. */

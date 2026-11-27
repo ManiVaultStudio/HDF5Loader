@@ -395,6 +395,54 @@ namespace H5AD
 			return bytes;
 		}
 
+		QByteArray readH5ADSelectedTile(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rowOffset, const std::vector<std::int32_t>& selectedColumns, const std::uint64_t destinationColumnOffset, const std::uint64_t rows, const std::uint64_t columns)
+		{
+			const auto elementSize = getTiledElementSize(elementType);
+			QByteArray bytes(static_cast<qsizetype>(rows * columns * elementSize), Qt::Uninitialized);
+			std::vector<hsize_t> coordinates(static_cast<std::size_t>(rows * columns) * 2);
+			for (std::uint64_t row = 0; row < rows; ++row)
+				for (std::uint64_t column = 0; column < columns; ++column)
+				{
+					const auto sourceColumn = selectedColumns[static_cast<std::size_t>(destinationColumnOffset + column)];
+					if (sourceColumn < 0)
+						throw std::out_of_range("Selected H5AD dimension index is out of range");
+					const auto coordinate = static_cast<std::size_t>((row * columns + column) * 2);
+					coordinates[coordinate] = static_cast<hsize_t>(rowOffset + row);
+					coordinates[coordinate + 1] = static_cast<hsize_t>(sourceColumn);
+				}
+			H5::DataSpace fileSpace = dataset.getSpace();
+			fileSpace.selectElements(H5S_SELECT_SET, static_cast<hsize_t>(rows * columns), coordinates.data());
+			const hsize_t memoryDimensions[] = { rows, columns };
+			H5::DataSpace memorySpace(2, memoryDimensions);
+			auto readValues = [&](auto* destination, const H5::DataType& readType) {
+				dataset.read(destination, readType, memorySpace, fileSpace);
+			};
+			if (elementType == PointData::ElementTypeSpecifier::bfloat16)
+			{
+				std::vector<float> values(static_cast<std::size_t>(rows * columns));
+				readValues(values.data(), H5::PredType::NATIVE_FLOAT);
+				auto* destination = reinterpret_cast<biovault::bfloat16_t*>(bytes.data());
+				for (std::size_t index = 0; index < values.size(); ++index)
+					destination[index] = values[index];
+			}
+			else
+			{
+				const auto readType = getTiledReadType(elementType);
+				switch (elementType)
+				{
+				case PointData::ElementTypeSpecifier::float32: readValues(reinterpret_cast<float*>(bytes.data()), readType); break;
+				case PointData::ElementTypeSpecifier::int32: readValues(reinterpret_cast<std::int32_t*>(bytes.data()), readType); break;
+				case PointData::ElementTypeSpecifier::uint32: readValues(reinterpret_cast<std::uint32_t*>(bytes.data()), readType); break;
+				case PointData::ElementTypeSpecifier::int16: readValues(reinterpret_cast<std::int16_t*>(bytes.data()), readType); break;
+				case PointData::ElementTypeSpecifier::uint16: readValues(reinterpret_cast<std::uint16_t*>(bytes.data()), readType); break;
+				case PointData::ElementTypeSpecifier::int8: readValues(reinterpret_cast<std::int8_t*>(bytes.data()), readType); break;
+				case PointData::ElementTypeSpecifier::uint8: readValues(reinterpret_cast<std::uint8_t*>(bytes.data()), readType); break;
+				default: throw std::runtime_error("Unsupported tiled H5AD element type");
+				}
+			}
+			return bytes;
+		}
+
 		struct StagedPackedTile
 		{
 			std::uint64_t rowOffset = 0;
@@ -814,9 +862,10 @@ namespace H5AD
 			return mv::util::codecRegistry().createCodec(nullptr, codecName);
 		}
 
-		std::shared_ptr<StagedPointData> stageDenseData(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress, H5AD::DenseStagingBenchmarkMetrics* benchmarkMetrics = nullptr, const int zstdCompressionLevel = 3)
+		std::shared_ptr<StagedPointData> stageDenseData(const H5::DataSet& dataset, const PointData::ElementTypeSpecifier elementType, const std::uint64_t rows, const std::uint64_t sourceColumns, const QString& stagingRoot, const pointdata::storage::StorageBackendConfiguration& configuration, const H5AD::ProgressCallback& progress, H5AD::DenseStagingBenchmarkMetrics* benchmarkMetrics = nullptr, const int zstdCompressionLevel = 3, const std::vector<std::int32_t>& selectedColumns = {})
 		{
 			const auto stagingStartTime = std::chrono::steady_clock::now();
+			const auto columns = selectedColumns.empty() ? sourceColumns : static_cast<std::uint64_t>(selectedColumns.size());
 			const auto elementSize = getTiledElementSize(elementType);
 			const auto staging = std::make_shared<StagedPointData>();
 			staging->rows = rows;
@@ -940,7 +989,9 @@ namespace H5AD
 							const auto tileRows = std::min<std::uint64_t>(staging->rowTileSize, rows - rowOffset);
 							const auto tileColumns = std::min<std::uint64_t>(staging->columnTileSize, columns - columnOffset);
 							const auto readStartTime = std::chrono::steady_clock::now();
-							const auto bytes = readH5ADTile(dataset, elementType, rowOffset, columnOffset, tileRows, tileColumns);
+							const auto bytes = selectedColumns.empty()
+								? readH5ADTile(dataset, elementType, rowOffset, columnOffset, tileRows, tileColumns)
+								: readH5ADSelectedTile(dataset, elementType, rowOffset, selectedColumns, columnOffset, tileRows, tileColumns);
 							readMilliseconds += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStartTime).count());
 							stagedBytes += static_cast<std::uint64_t>(bytes.size());
 
@@ -1300,7 +1351,7 @@ namespace H5AD
 			return values;
 		}
 
-		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const QString& stagingRoot, const PointData::ElementTypeSpecifier elementType, const pointdata::storage::StorageBackendConfiguration& configuration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, const H5AD::ProgressCallback& progress, const int zstdCompressionLevel, H5AD::SparseStagingBenchmarkMetrics* benchmark)
+		std::shared_ptr<StagedPointData> stageSparseData(const H5::DataSet& dataSet, const H5::DataSet& indicesSet, const H5::DataSet& indptrSet, const std::uint64_t rows, const std::uint64_t columns, const std::uint64_t sourceColumns, const std::vector<std::int32_t>& selectedDimensions, const QString& stagingRoot, const PointData::ElementTypeSpecifier elementType, const pointdata::storage::StorageBackendConfiguration& configuration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, const H5AD::ProgressCallback& progress, const int zstdCompressionLevel, H5AD::SparseStagingBenchmarkMetrics* benchmark)
 		{
 			struct SparseTileEntry
 			{
@@ -1325,6 +1376,18 @@ namespace H5AD
 			};
 
 			const auto elementSize = getTiledElementSize(elementType);
+			std::vector<std::int64_t> columnRemap;
+			if (!selectedDimensions.empty() && selectedDimensions.size() < sourceColumns)
+			{
+				columnRemap.assign(static_cast<std::size_t>(sourceColumns), -1);
+				for (std::size_t destination = 0; destination < selectedDimensions.size(); ++destination)
+				{
+					const auto source = selectedDimensions[destination];
+					if (source < 0 || static_cast<std::uint64_t>(source) >= sourceColumns)
+						throw std::out_of_range("Selected H5AD dimension index is out of range");
+					columnRemap[static_cast<std::size_t>(source)] = static_cast<std::int64_t>(destination);
+				}
+			}
 			const auto sourceValueCount = static_cast<std::uint64_t>(dataSet.getSpace().getSimpleExtentNpoints());
 			const auto sourceValueElementSize = dataSet.getDataType().getSize();
 			const auto sourceIndexElementSize = indicesSet.getDataType().getSize();
@@ -1627,7 +1690,21 @@ namespace H5AD
 							const auto end = indptr[static_cast<std::size_t>(row + 1)] - indptr.front();
 							for (auto index = begin; index < end; ++index)
 							{
-								const auto column = indices[static_cast<std::size_t>(index)];
+								auto& column = indices[static_cast<std::size_t>(index)];
+								if (!columnRemap.empty())
+								{
+									if (column >= columnRemap.size())
+										throw std::runtime_error("CSR H5AD column index exceeds matrix dimensions");
+									const auto mappedColumn = columnRemap[static_cast<std::size_t>(column)];
+									if (mappedColumn < 0)
+									{
+										column = std::numeric_limits<std::uint64_t>::max();
+										continue;
+									}
+									column = static_cast<std::uint64_t>(mappedColumn);
+								}
+								if (column == std::numeric_limits<std::uint64_t>::max())
+									continue;
 								if (column >= columns)
 									throw std::runtime_error("CSR H5AD column index exceeds matrix dimensions");
 								const auto tileColumn = column / staging->columnTileSize;
@@ -1820,14 +1897,16 @@ namespace H5AD
 			shapeAttribute.read(H5::PredType::NATIVE_HSIZE, shape);
 
 			const auto rowCount = static_cast<std::uint64_t>(shape[0]);
-			const auto columnCount = static_cast<std::uint64_t>(shape[1]);
+			const auto sourceColumnCount = static_cast<std::uint64_t>(shape[1]);
+			const auto& selectedDimensions = loaderInfo._selectedDimensionIndices;
+			const auto columnCount = selectedDimensions.empty() ? sourceColumnCount : static_cast<std::uint64_t>(selectedDimensions.size());
 			const auto dataSet = group.openDataSet("data");
 			const auto indicesSet = group.openDataSet("indices");
 			const auto indptrSet = group.openDataSet("indptr");
 			const auto& configuration = loaderInfo._tiledStorageConfiguration;
 			const auto elementType = getTiledElementType(dataSet.getDataType(), storageType);
 			auto* benchmark = loaderInfo._importBenchmark ? &loaderInfo._importBenchmark->sparseStaging : nullptr;
-			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, loaderInfo._stagingDirectory, elementType, configuration, loaderInfo._bucketingThreadCount, loaderInfo._stagingThreadCount, loaderInfo._rowChunkTileFactor, progress, loaderInfo._zstdCompressionLevel, benchmark);
+			const auto staging = stageSparseData(dataSet, indicesSet, indptrSet, rowCount, columnCount, sourceColumnCount, selectedDimensions, loaderInfo._stagingDirectory, elementType, configuration, loaderInfo._bucketingThreadCount, loaderInfo._stagingThreadCount, loaderInfo._rowChunkTileFactor, progress, loaderInfo._zstdCompressionLevel, benchmark);
 			const auto backendStart = std::chrono::steady_clock::now();
 			auto backend = createStagedTiledBackend(rowCount, columnCount, elementType, configuration, staging);
 			if (benchmark)
@@ -1836,7 +1915,20 @@ namespace H5AD
 			loaderInfo._pointsDataset->initializeStorageBackend(std::move(backend));
 			if (benchmark)
 				benchmark->datasetBackendInitializationNanoseconds = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - initializeStart).count());
-			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+			if (!selectedDimensions.empty() && selectedDimensions.size() < loaderInfo._originalDimensionNames.size())
+			{
+				std::vector<QString> names;
+				names.reserve(selectedDimensions.size());
+				for (const auto index : selectedDimensions)
+				{
+					if (index < 0 || static_cast<std::size_t>(index) >= loaderInfo._originalDimensionNames.size())
+						throw std::out_of_range("Selected H5AD dimension index is out of range");
+					names.push_back(loaderInfo._originalDimensionNames[static_cast<std::size_t>(index)]);
+				}
+				loaderInfo._pointsDataset->setDimensionNames(names);
+			}
+			else
+				loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 			return true;
 		}
@@ -1865,7 +1957,8 @@ namespace H5AD
 			hsize_t shape[2] = {};
 			shapeAttribute.read(H5::PredType::NATIVE_HSIZE, shape);
 			const auto rows        = static_cast<std::uint64_t>(shape[0]);
-			const auto columns     = static_cast<std::uint64_t>(shape[1]);
+			const auto sourceColumns = static_cast<std::uint64_t>(shape[1]);
+			auto columns = sourceColumns;
 			const auto dataSet     = group.openDataSet("data");
 			const auto indicesSet  = group.openDataSet("indices");
 			const auto indptrSet   = group.openDataSet("indptr");
@@ -1876,7 +1969,7 @@ namespace H5AD
 				return false;
 
 			const auto storedEntryCount = static_cast<std::uint64_t>(dataSpace.getSimpleExtentNpoints());
-			const auto compressedSize   = columnCompressed ? columns : rows;
+			const auto compressedSize   = columnCompressed ? sourceColumns : rows;
 			if (compressedSize >= std::numeric_limits<std::uint64_t>::max() || compressedSize + 1 > std::numeric_limits<std::size_t>::max() || compressedSize + 1 > std::numeric_limits<hssize_t>::max() || storedEntryCount > std::numeric_limits<std::size_t>::max() ||
 				indptrSpace.getSimpleExtentNpoints() != static_cast<hssize_t>(compressedSize + 1))
 				return false;
@@ -1890,10 +1983,135 @@ namespace H5AD
 			auto pointers = readH5ADRange<std::uint64_t>(indptrSet, 0, compressedSize + 1, H5::PredType::NATIVE_UINT64);
 			auto indices  = storedEntryCount > 0 ? readH5ADRange<std::uint64_t>(indicesSet, 0, storedEntryCount, H5::PredType::NATIVE_UINT64) : std::vector<std::uint64_t>();
 			auto values   = readSparseValues(dataSet, storedEntryCount, elementType);
-			const auto layout = columnCompressed ? mv::pointdata::storage::SparseMatrixLayout::ColumnCompressed : mv::pointdata::storage::SparseMatrixLayout::RowCompressed;
-			auto sparseBackend = std::make_unique<mv::pointdata::storage::SparsePointsStorageBackend>(rows, columns, layout, static_cast<std::uint32_t>(elementType), elementSize, std::move(pointers), std::move(indices), std::move(values));
+			const auto& configuration = loaderInfo._sparseStorageConfiguration;
+			const auto storeRows = configuration.storeRowCompressed && !configuration.columnCompressed;
+			const auto storeColumns = configuration.storeColumnCompressed || configuration.columnCompressed;
+			if (!storeRows && !storeColumns)
+				throw std::invalid_argument("Sparse import must store CSR, CSC, or both");
+
+			std::vector<std::uint64_t> rowPointers, columnIndices, columnPointers, rowIndices;
+			std::vector<std::uint8_t> rowValues, columnValues;
+			if (columnCompressed)
+			{
+				columnPointers = std::move(pointers);
+				rowIndices = std::move(indices);
+				columnValues = std::move(values);
+			}
+			else
+			{
+				rowPointers = std::move(pointers);
+				columnIndices = std::move(indices);
+				rowValues = std::move(values);
+			}
+
+			if (!loaderInfo._selectedDimensionIndices.empty() && loaderInfo._selectedDimensionIndices.size() < sourceColumns)
+			{
+				std::vector<std::int64_t> remap(static_cast<std::size_t>(sourceColumns), -1);
+				for (std::size_t destination = 0; destination < loaderInfo._selectedDimensionIndices.size(); ++destination)
+				{
+					const auto source = loaderInfo._selectedDimensionIndices[destination];
+					if (source < 0 || static_cast<std::uint64_t>(source) >= sourceColumns)
+						throw std::out_of_range("Selected H5AD dimension index is out of range");
+					remap[static_cast<std::size_t>(source)] = static_cast<std::int64_t>(destination);
+				}
+				if (columnCompressed)
+				{
+					std::vector<std::uint64_t> filteredPointers(loaderInfo._selectedDimensionIndices.size() + 1, 0);
+					std::vector<std::uint64_t> filteredRows;
+					std::vector<std::uint8_t> filteredValues;
+					for (std::size_t destination = 0; destination < loaderInfo._selectedDimensionIndices.size(); ++destination)
+					{
+						const auto sourceColumn = static_cast<std::uint64_t>(loaderInfo._selectedDimensionIndices[destination]);
+						for (auto index = columnPointers[static_cast<std::size_t>(sourceColumn)]; index < columnPointers[static_cast<std::size_t>(sourceColumn + 1)]; ++index)
+						{
+							filteredRows.push_back(rowIndices[static_cast<std::size_t>(index)]);
+							const auto valueOffset = static_cast<std::size_t>(index) * elementSize;
+							filteredValues.insert(filteredValues.end(), columnValues.begin() + valueOffset, columnValues.begin() + valueOffset + elementSize);
+						}
+						filteredPointers[destination + 1] = filteredRows.size();
+					}
+					columnPointers = std::move(filteredPointers);
+					rowIndices = std::move(filteredRows);
+					columnValues = std::move(filteredValues);
+				}
+				else
+				{
+					std::vector<std::uint64_t> filteredIndices;
+					std::vector<std::uint8_t> filteredValues;
+					std::vector<std::uint64_t> filteredPointers(rows + 1, 0);
+					for (std::uint64_t row = 0; row < rows; ++row)
+					{
+						for (auto index = rowPointers[static_cast<std::size_t>(row)]; index < rowPointers[static_cast<std::size_t>(row + 1)]; ++index)
+						{
+							const auto sourceColumn = columnIndices[static_cast<std::size_t>(index)];
+							if (sourceColumn >= remap.size() || remap[static_cast<std::size_t>(sourceColumn)] < 0)
+								continue;
+							filteredIndices.push_back(static_cast<std::uint64_t>(remap[static_cast<std::size_t>(sourceColumn)]));
+							const auto valueOffset = static_cast<std::size_t>(index) * elementSize;
+							filteredValues.insert(filteredValues.end(), rowValues.begin() + valueOffset, rowValues.begin() + valueOffset + elementSize);
+						}
+						filteredPointers[static_cast<std::size_t>(row + 1)] = filteredIndices.size();
+					}
+					rowPointers = std::move(filteredPointers);
+					columnIndices = std::move(filteredIndices);
+					rowValues = std::move(filteredValues);
+				}
+				columns = loaderInfo._selectedDimensionIndices.size();
+			}
+
+			const auto needRows = storeRows && columnCompressed;
+			const auto needColumns = storeColumns && !columnCompressed;
+			if (needRows || needColumns)
+			{
+				const auto destinationCompressedSize = columnCompressed ? rows : columns;
+				if (destinationCompressedSize >= std::numeric_limits<std::size_t>::max())
+					throw std::overflow_error("Sparse import has too many compressed pointers");
+				auto& destinationPointers = needRows ? rowPointers : columnPointers;
+				auto& destinationIndices = needRows ? columnIndices : rowIndices;
+				auto& destinationValues = needRows ? rowValues : columnValues;
+				const auto& sourcePointers = columnCompressed ? columnPointers : rowPointers;
+				const auto& sourceIndices = columnCompressed ? rowIndices : columnIndices;
+				const auto& sourceValues = columnCompressed ? columnValues : rowValues;
+				destinationPointers.assign(static_cast<std::size_t>(destinationCompressedSize) + 1, 0);
+				for (const auto index : sourceIndices)
+					++destinationPointers[static_cast<std::size_t>(index + 1)];
+				for (std::size_t index = 1; index < destinationPointers.size(); ++index)
+					destinationPointers[index] += destinationPointers[index - 1];
+				auto next = destinationPointers;
+				destinationIndices.resize(sourceIndices.size());
+				destinationValues.resize(sourceValues.size());
+				const auto sourceCompressedSize = columnCompressed ? columns : rows;
+				for (std::uint64_t outer = 0; outer < sourceCompressedSize; ++outer)
+				{
+					for (auto index = sourcePointers[static_cast<std::size_t>(outer)]; index < sourcePointers[static_cast<std::size_t>(outer + 1)]; ++index)
+					{
+						const auto inner = sourceIndices[static_cast<std::size_t>(index)];
+						const auto destination = next[static_cast<std::size_t>(inner)]++;
+						destinationIndices[static_cast<std::size_t>(destination)] = outer;
+						std::memcpy(destinationValues.data() + static_cast<std::size_t>(destination) * elementSize, sourceValues.data() + static_cast<std::size_t>(index) * elementSize, elementSize);
+					}
+				}
+			}
+
+			std::unique_ptr<mv::pointdata::storage::SparsePointsStorageBackend> sparseBackend;
+			if (storeRows && storeColumns)
+				sparseBackend = std::make_unique<mv::pointdata::storage::SparsePointsStorageBackend>(rows, columns, static_cast<std::uint32_t>(elementType), elementSize,
+					std::move(rowPointers), std::move(columnIndices), std::move(rowValues), std::move(columnPointers), std::move(rowIndices), std::move(columnValues));
+			else if (storeRows)
+				sparseBackend = std::make_unique<mv::pointdata::storage::SparsePointsStorageBackend>(rows, columns, mv::pointdata::storage::SparseMatrixLayout::RowCompressed, static_cast<std::uint32_t>(elementType), elementSize, std::move(rowPointers), std::move(columnIndices), std::move(rowValues));
+			else
+				sparseBackend = std::make_unique<mv::pointdata::storage::SparsePointsStorageBackend>(rows, columns, mv::pointdata::storage::SparseMatrixLayout::ColumnCompressed, static_cast<std::uint32_t>(elementType), elementSize, std::move(columnPointers), std::move(rowIndices), std::move(columnValues));
 			loaderInfo._pointsDataset->initializeStorageBackend(std::move(sparseBackend));
-			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+			if (!loaderInfo._selectedDimensionIndices.empty() && loaderInfo._selectedDimensionIndices.size() < loaderInfo._originalDimensionNames.size())
+			{
+				std::vector<QString> names;
+				names.reserve(loaderInfo._selectedDimensionIndices.size());
+				for (const auto index : loaderInfo._selectedDimensionIndices)
+					names.push_back(loaderInfo._originalDimensionNames[static_cast<std::size_t>(index)]);
+				loaderInfo._pointsDataset->setDimensionNames(names);
+			}
+			else
+				loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 			if (progress)
 				progress(1.0f, QStringLiteral("Finished loading sparse HDF5 matrix"));
@@ -1915,10 +2133,26 @@ namespace H5AD
 			const auto& configuration = loaderInfo._tiledStorageConfiguration;
 			const auto sourceDataset = dataset;
 			const auto totalRows = static_cast<std::uint64_t>(dimensions[0]);
-			const auto totalColumns = static_cast<std::uint64_t>(dimensions[1]);
-			const auto staging = stageDenseData(sourceDataset, elementType, totalRows, totalColumns, loaderInfo._stagingDirectory, configuration, progress, loaderInfo._importBenchmark ? &loaderInfo._importBenchmark->denseStaging : nullptr, loaderInfo._zstdCompressionLevel);
+			const auto sourceColumns = static_cast<std::uint64_t>(dimensions[1]);
+			const auto& selectedColumns = loaderInfo._selectedDimensionIndices;
+			const auto totalColumns = selectedColumns.empty() ? sourceColumns : static_cast<std::uint64_t>(selectedColumns.size());
+			auto effectiveSelection = selectedColumns.size() < sourceColumns ? selectedColumns : std::vector<std::int32_t>{};
+			const auto staging = stageDenseData(sourceDataset, elementType, totalRows, sourceColumns, loaderInfo._stagingDirectory, configuration, progress, loaderInfo._importBenchmark ? &loaderInfo._importBenchmark->denseStaging : nullptr, loaderInfo._zstdCompressionLevel, effectiveSelection);
 			loaderInfo._pointsDataset->initializeStorageBackend(createStagedTiledBackend(totalRows, totalColumns, elementType, configuration, staging));
-			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+			if (!selectedColumns.empty() && selectedColumns.size() < loaderInfo._originalDimensionNames.size())
+			{
+				std::vector<QString> names;
+				names.reserve(selectedColumns.size());
+				for (const auto index : selectedColumns)
+				{
+					if (index < 0 || static_cast<std::size_t>(index) >= loaderInfo._originalDimensionNames.size())
+						throw std::out_of_range("Selected H5AD dimension index is out of range");
+					names.push_back(loaderInfo._originalDimensionNames[static_cast<std::size_t>(index)]);
+				}
+				loaderInfo._pointsDataset->setDimensionNames(names);
+			}
+			else
+				loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 			return true;
 		}
@@ -2107,8 +2341,29 @@ namespace H5AD
 		{
 			
 			loaderInfo._pointsDataset->setDataElementType<T>(); // not sure this is needed since we move data below but it shouldn't hurt either
+			std::vector<QString> dimensionNames = loaderInfo._originalDimensionNames;
+			if (!loaderInfo._selectedDimensionIndices.empty() && loaderInfo._selectedDimensionIndices.size() < mdd.size[1])
+			{
+				const auto sourceColumns = mdd.size[1];
+				const auto selectedColumns = loaderInfo._selectedDimensionIndices.size();
+				std::vector<T> selectedData(mdd.size[0] * selectedColumns);
+				for (std::size_t row = 0; row < mdd.size[0]; ++row)
+					for (std::size_t column = 0; column < selectedColumns; ++column)
+					{
+						const auto sourceColumn = loaderInfo._selectedDimensionIndices[column];
+						if (sourceColumn < 0 || static_cast<std::size_t>(sourceColumn) >= sourceColumns)
+							throw std::out_of_range("Selected H5AD dimension index is out of range");
+						selectedData[row * selectedColumns + column] = mdd.data[row * sourceColumns + static_cast<std::size_t>(sourceColumn)];
+					}
+				mdd.data = std::move(selectedData);
+				mdd.size[1] = selectedColumns;
+				dimensionNames.clear();
+				dimensionNames.reserve(selectedColumns);
+				for (const auto sourceColumn : loaderInfo._selectedDimensionIndices)
+					dimensionNames.push_back(loaderInfo._originalDimensionNames[static_cast<std::size_t>(sourceColumn)]);
+			}
 			loaderInfo._pointsDataset->setData(std::move(mdd.data), mdd.size[1]);
-			loaderInfo._pointsDataset->setDimensionNames(loaderInfo._originalDimensionNames);
+			loaderInfo._pointsDataset->setDimensionNames(dimensionNames);
 			loaderInfo._pointsDataset->setProperty("Sample Names", loaderInfo._sampleNames);
 		}
 	}
@@ -2269,88 +2524,43 @@ namespace H5AD
 		Dataset<Points> pointsDataset = datasetInfo._pointsDataset;
 		auto selectedDimensionNames = datasetInfo._originalDimensionNames;
 		std::vector<std::ptrdiff_t>& dimensionIndices = datasetInfo._selectedDimensionsLUT;
-		std::vector<bool>& enabledDimensions = datasetInfo._enabledDimensions;
+		const auto& originalDimensionNames = datasetInfo._originalDimensionNames;
+		const auto& selectedDimensionIndices = datasetInfo._selectedDimensionIndices;
+		const auto selectedCount = selectedDimensionIndices.empty() ? originalDimensionNames.size() : selectedDimensionIndices.size();
+		if (selectedCount == 0)
 		{
-			
-			auto originalDimensionNames = datasetInfo._originalDimensionNames;
-			const std::size_t nrOfOriginalDimensions = originalDimensionNames.size();
-			std::size_t nrOfSelectedDimensions = 0;
-			
+			datasetInfo = {};
+			mv::data().removeDataset(pointsDataset);
+			return;
+		}
+		if (selectedCount < originalDimensionNames.size())
+		{
+			dimensionIndices.assign(originalDimensionNames.size(), -1);
+			selectedDimensionNames.clear();
+			selectedDimensionNames.reserve(selectedCount);
+			for (std::size_t destinationIndex = 0; destinationIndex < selectedCount; ++destinationIndex)
 			{
-				Dataset<Points> tempDataset = mv::data().createDataset("Points", "temp");
-				tempDataset->getDataHierarchyItem().setVisible(false);
-				tempDataset->setData(std::vector<int8_t>(originalDimensionNames.size()), originalDimensionNames.size());
-				tempDataset->setDimensionNames(originalDimensionNames);
-
-				QDialog dialog(Application::getMainWindow());
-				QGridLayout* layout = new QGridLayout;
-
-				DimensionsPickerAction &dimensionPickerAction = tempDataset->getDimensionsPickerAction();;
-				layout->addWidget(new QLabel("Select Dimensions:"));
-				layout->addWidget(dimensionPickerAction.createWidget(Application::getMainWindow()));
-				auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok);
-				buttonBox->connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-				layout->addWidget(buttonBox, 3, 0, 1, 2);
-				dialog.setLayout(layout);
-				auto result = dialog.exec();
-				if (result == 0)
-				{
-					datasetInfo = {};
-					mv::data().removeDataset(tempDataset);
-					mv::data().removeDataset(pointsDataset);
-					return;
-				}
-				nrOfSelectedDimensions = dimensionPickerAction.getSelectedDimensions().size();
-				enabledDimensions = dimensionPickerAction.getEnabledDimensions();
-				mv::data().removeDataset(tempDataset);
+				const auto sourceIndex = selectedDimensionIndices.empty() ? destinationIndex : static_cast<std::size_t>(selectedDimensionIndices[destinationIndex]);
+				if (sourceIndex >= originalDimensionNames.size())
+					throw std::out_of_range("Selected H5AD dimension index is out of range");
+				dimensionIndices[sourceIndex] = static_cast<std::ptrdiff_t>(destinationIndex);
+				selectedDimensionNames.push_back(originalDimensionNames[sourceIndex]);
 			}
-			
 
-			if (nrOfSelectedDimensions == 0)
+			assert(data.size() == indices.size());
+			#pragma omp parallel for
+			for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(indices.size()); ++i)
 			{
-				// nothing is selected
-				datasetInfo = {};
-				mv::data().removeDataset(pointsDataset);
-				return;;
-			} 
-			
-			
-			if(nrOfSelectedDimensions < nrOfOriginalDimensions)
-			{
-				dimensionIndices.assign(nrOfOriginalDimensions, -1);
-				std::vector<std::uint64_t> newDimensionIndex(nrOfOriginalDimensions,  std::numeric_limits<std::uint64_t>::max());
-				selectedDimensionNames.resize(nrOfSelectedDimensions);
-				std::ptrdiff_t newIndex = 0;
-				for (std::ptrdiff_t i = 0; i < nrOfOriginalDimensions; ++i)
+				const auto oldColumnIndex = indices[static_cast<std::size_t>(i)];
+				const auto newColumnIndex = oldColumnIndex < dimensionIndices.size() ? dimensionIndices[oldColumnIndex] : -1;
+				if (newColumnIndex < 0)
 				{
-					if (enabledDimensions[i])
-					{
-						selectedDimensionNames[newIndex] = originalDimensionNames[i];
-						newDimensionIndex[i] = newIndex;
-						dimensionIndices[i] = newIndex;
-						++newIndex;
-					}
+					indices[static_cast<std::size_t>(i)] = std::numeric_limits<std::uint64_t>::max();
+					data[static_cast<std::size_t>(i)] = 0;
 				}
-
-				// update data & indices so data can be ignored later on
-				assert(data.size() == indices.size());
-				#pragma omp parallel for
-				for (std::ptrdiff_t i = 0; i < indices.size(); ++i)
-				{
-					auto oldColumnIndex = indices[i];
-					auto newColumnIndex = dimensionIndices[oldColumnIndex];
-					if(newColumnIndex < 0)
-					{
-						indices[i] = std::numeric_limits<std::uint64_t>::max();
-						data[i] = 0;
-					}
-					else
-					{
-						indices[i] = static_cast<std::uint64_t>(newColumnIndex);
-					}
-					
-				}
-			} 	
+				else
+					indices[static_cast<std::size_t>(i)] = static_cast<std::uint64_t>(newColumnIndex);
+			}
 		}
 
 

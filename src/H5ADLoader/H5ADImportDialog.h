@@ -2,6 +2,7 @@
 
 #include "HDF5_AD_Loader.h"
 #include "actions/ClusterSetSelectionAction.h"
+#include "actions/DimensionSelectionAction.h"
 #include "actions/ObsmMatrixSelectionAction.h"
 #include "actions/TargetElementTypeAction.h"
 
@@ -53,7 +54,7 @@ public:
      * @param loader Shared loader retained for matrix analysis and import checks.
      * @param parent Optional parent dialog.
      */
-    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, std::size_t bucketingThreadCount, std::size_t stagingThreadCount, std::size_t rowChunkTileFactor, int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
+    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const mv::pointdata::storage::SparseStorageBackendConfiguration& sparseConfiguration, std::size_t bucketingThreadCount, std::size_t stagingThreadCount, std::size_t rowChunkTileFactor, int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
 
     /** Returns current import choices; callers should use them after acceptance. */
     H5ADImportOptions options();
@@ -86,6 +87,12 @@ private:
     /** Opens tiled storage configuration and its staging-space observation. */
     void configureTiledStorage();
 
+    /** Opens the pre-import matrix dimension picker. */
+    void selectDimensions();
+
+    /** Opens sparse storage configuration for an HDF5 sparse matrix. */
+    void configureSparseStorage();
+
     /** Opens matrix selection for the obsm metadata group. */
     void configureObsmMatrices();
 
@@ -108,6 +115,9 @@ private:
     mv::gui::StringAction            _fileAction;               /**< Displays the selected H5AD file name. */
     mv::gui::StringAction            _matrixAction;             /**< Displays the dimensions of the H5AD X matrix. */
     mv::gui::StringAction            _datasetNameAction;        /**< Editable name assigned to the imported dataset. */
+    mv::gui::VerticalGroupAction     _dimensionSelectionGroup; /**< Collapsible source-dimension selection. */
+    DimensionSelectionAction         _dimensionSelectionAction; /**< HDF5-owned table selector for X dimensions. */
+    mv::gui::TriggerAction            _dimensionSelectionTrigger; /**< Opens the dimension-selection dialog. */
     TargetElementTypeAction          _storageTypeAction;        /**< Selects the target element type and requests its estimate. */
     StorageBackendConfiguratorAction _backendSelector;          /**< Selects the destination storage backend and opens its configuration. */
     mv::gui::OptionAction            _projectOpenFileStagingAction; /**< Dataset policy for file staging when a saved project is opened. */
@@ -149,6 +159,7 @@ private:
     mv::gui::TriggerAction         _importAction;   /**< Accepts the dialog when the current preflight allows import. */
 
     mv::pointdata::storage::StorageBackendConfiguration _tiledConfiguration;  /**< Tiled-storage settings selected for this import. */
+    mv::pointdata::storage::SparseStorageBackendConfiguration _sparseConfiguration; /**< Sparse CSR/CSC indexes selected for this import. */
 
     H5ADSparseMatrixInfo _sparseMatrixInfo;  /**< Sparse-X layout snapshot used to expose only a compatible backend choice. */
 
