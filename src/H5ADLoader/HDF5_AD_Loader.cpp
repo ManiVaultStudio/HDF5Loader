@@ -1390,22 +1390,48 @@ H5ADMatrixScanResult HDF5_AD_Loader::analyzeTargetElementType(const bool fullSca
 	std::uint64_t sampledValues = 0;
 	std::uint64_t zeroValues = 0;
 	const auto analyzeValues = [&](const std::vector<double>& values) {
-		for (const auto value : values)
+		struct BlockSummary
 		{
-			if (value == 0.0)
-				++zeroValues;
-
-			if (!std::isfinite(value))
+			double minimum = std::numeric_limits<double>::infinity();
+			double maximum = -std::numeric_limits<double>::infinity();
+			bool allIntegral = true;
+			std::uint64_t sampledValues = 0;
+			std::uint64_t zeroValues = 0;
+		};
+		std::vector<BlockSummary> blockSummaries(static_cast<std::size_t>(omp_get_max_threads()));
+		#pragma omp parallel if(values.size() >= 65536)
+		{
+			const auto workerIndex = static_cast<std::size_t>(omp_get_thread_num());
+			const auto workerCount = static_cast<std::size_t>(omp_get_num_threads());
+			const auto firstIndex = values.size() * workerIndex / workerCount;
+			const auto lastIndex = values.size() * (workerIndex + 1) / workerCount;
+			auto& summary = blockSummaries[workerIndex];
+			for (auto index = firstIndex; index < lastIndex; ++index)
 			{
-				allIntegral = false;
-				++sampledValues;
-				continue;
-			}
+				const auto value = values[index];
+				if (value == 0.0)
+					++summary.zeroValues;
 
-			minimum = std::min(minimum, value);
-			maximum = std::max(maximum, value);
-			allIntegral = allIntegral && std::trunc(value) == value;
-			++sampledValues;
+				if (!std::isfinite(value))
+				{
+					summary.allIntegral = false;
+					++summary.sampledValues;
+					continue;
+				}
+
+				summary.minimum = std::min(summary.minimum, value);
+				summary.maximum = std::max(summary.maximum, value);
+				summary.allIntegral = summary.allIntegral && std::trunc(value) == value;
+				++summary.sampledValues;
+			}
+		}
+		for (const auto& summary : blockSummaries)
+		{
+			minimum = std::min(minimum, summary.minimum);
+			maximum = std::max(maximum, summary.maximum);
+			allIntegral = allIntegral && summary.allIntegral;
+			sampledValues += summary.sampledValues;
+			zeroValues += summary.zeroValues;
 		}
 	};
 
@@ -1476,24 +1502,44 @@ H5ADMatrixScanResult HDF5_AD_Loader::analyzeTargetElementType(const bool fullSca
 			result.elementCount = dimensions[0] * dimensions[1];
 		const auto scanRowCount = fullScan ? dimensions[0] : std::min<std::uint64_t>(128, dimensions[0]);
 		const auto sampleColumnCount = std::min<std::uint64_t>(fullScan ? 1024 * 1024 : 512, dimensions[1]);
-		for (std::uint64_t sampleRow = 0; sampleRow < scanRowCount; ++sampleRow)
+		if (fullScan)
 		{
-			const auto row = fullScan ? sampleRow : sampleRow * (dimensions[0] - 1) / std::max<std::uint64_t>(1, scanRowCount - 1);
-			const auto column = fullScan ? 0 : sampleRow * (dimensions[1] - sampleColumnCount) / std::max<std::uint64_t>(1, scanRowCount - 1);
-			const auto rowColumnCount = fullScan ? dimensions[1] : sampleColumnCount;
-			for (std::uint64_t columnOffset = 0; columnOffset < rowColumnCount; columnOffset += sampleColumnCount)
+			constexpr std::uint64_t maximumValuesPerRead = 2 * 1024 * 1024;
+			const auto columnBlockSize = std::min(dimensions[1], maximumValuesPerRead);
+			const auto rowBlockSize = std::max<std::uint64_t>(1, maximumValuesPerRead / columnBlockSize);
+			for (std::uint64_t rowOffset = 0; rowOffset < dimensions[0]; rowOffset += rowBlockSize)
 			{
-				const auto countColumns = std::min(sampleColumnCount, rowColumnCount - columnOffset);
-				const hsize_t start[] = { row, column + columnOffset };
-				const hsize_t count[] = { 1, countColumns };
+				const auto rowsInBlock = std::min(rowBlockSize, dimensions[0] - rowOffset);
+				for (std::uint64_t columnOffset = 0; columnOffset < dimensions[1]; columnOffset += columnBlockSize)
+				{
+					const auto columnsInBlock = std::min(columnBlockSize, dimensions[1] - columnOffset);
+					const hsize_t start[] = { rowOffset, columnOffset };
+					const hsize_t count[] = { rowsInBlock, columnsInBlock };
+					auto fileSpace = dataSet.getSpace();
+					fileSpace.selectHyperslab(H5S_SELECT_SET, count, start);
+					H5::DataSpace memorySpace(2, count);
+					std::vector<double> values(static_cast<std::size_t>(rowsInBlock * columnsInBlock));
+					dataSet.read(values.data(), H5::PredType::NATIVE_DOUBLE, memorySpace, fileSpace);
+					analyzeValues(values);
+				}
+				if (fullScan && progress)
+					progress(static_cast<double>(rowOffset + rowsInBlock) / static_cast<double>(dimensions[0]));
+			}
+		}
+		else
+		{
+			for (std::uint64_t sampleRow = 0; sampleRow < scanRowCount; ++sampleRow)
+			{
+				const auto row = sampleRow * (dimensions[0] - 1) / std::max<std::uint64_t>(1, scanRowCount - 1);
+				const auto column = sampleRow * (dimensions[1] - sampleColumnCount) / std::max<std::uint64_t>(1, scanRowCount - 1);
+				const hsize_t start[] = { row, column };
+				const hsize_t count[] = { 1, sampleColumnCount };
 				auto fileSpace = dataSet.getSpace();
 				fileSpace.selectHyperslab(H5S_SELECT_SET, count, start);
 				H5::DataSpace memorySpace(2, count);
-				std::vector<double> values(static_cast<std::size_t>(countColumns));
+				std::vector<double> values(static_cast<std::size_t>(sampleColumnCount));
 				dataSet.read(values.data(), H5::PredType::NATIVE_DOUBLE, memorySpace, fileSpace);
 				analyzeValues(values);
-				if (fullScan && progress)
-					progress((static_cast<double>(sampleRow) + static_cast<double>(columnOffset + countColumns) / static_cast<double>(rowColumnCount)) / static_cast<double>(dimensions[0]));
 			}
 		}
 		if (fullScan && result.elementCount == sampledValues)
