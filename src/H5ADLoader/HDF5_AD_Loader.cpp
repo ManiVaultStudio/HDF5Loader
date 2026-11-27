@@ -1734,7 +1734,7 @@ static void LoadProperties(H5::Group &group, H5AD::LoaderInfo &datasetInfo)
 								 for (qsizetype i = 0; i < labels.size(); ++i)
 								 {
 									 qsizetype index = values[i];
-									 if (index < category_labels.size())
+									 if (index >= 0 && static_cast<std::size_t>(index) < category_labels.size())
 									 {
 										 labels[i] = category_labels[index];
 									 }
