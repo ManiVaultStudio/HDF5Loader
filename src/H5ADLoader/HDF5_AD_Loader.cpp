@@ -27,7 +27,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <omp.h>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -682,6 +684,594 @@ std::pair<std::uint64_t, std::uint64_t> HDF5_AD_Loader::getMatrixShape() const
 	}
 
 	return { 0, 0 };
+}
+
+std::vector<H5ADDimensionStatistics> HDF5_AD_Loader::scanDimensionStatistics(const std::function<void(double)>& progress) const
+{
+	return analyzeDimensionStatistics(true, progress);
+}
+
+std::vector<H5ADDimensionStatistics> HDF5_AD_Loader::estimateDimensionStatistics(const std::function<void(double)>& progress) const
+{
+	return analyzeDimensionStatistics(false, progress);
+}
+
+std::vector<H5ADDimensionStatistics> HDF5_AD_Loader::analyzeDimensionStatistics(const bool fullScan, const std::function<void(double)>& progress) const
+{
+	const auto [rowCount, columnCount] = getMatrixShape();
+	if (!_file || rowCount == 0 || columnCount == 0 || columnCount > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+		return {};
+	constexpr std::uint64_t maximumSampledRows = 512;
+	constexpr std::uint64_t maximumSampledValues = 1024 * 1024;
+	const auto sampleRowBudget = std::max<std::uint64_t>(1, std::min(maximumSampledRows, maximumSampledValues / columnCount));
+	const auto sampledRowStride = fullScan ? std::uint64_t { 1 } : std::max<std::uint64_t>(1, rowCount / sampleRowBudget + (rowCount % sampleRowBudget != 0));
+	const auto sampledRowCount = fullScan ? rowCount : rowCount / sampledRowStride + (rowCount % sampledRowStride != 0);
+
+	struct WorkerAccumulator
+	{
+		std::uint64_t finiteCount = 0;
+		std::uint64_t zeroCount = 0;
+		std::uint64_t nanCount = 0;
+		double reference = 0.0;
+		double sumDelta = 0.0;
+		double sumSquaredDelta = 0.0;
+		double minimum = std::numeric_limits<double>::infinity();
+		double maximum = -std::numeric_limits<double>::infinity();
+
+		void add(const double value)
+		{
+			if (std::isnan(value))
+			{
+				++nanCount;
+				return;
+			}
+			if (!std::isfinite(value))
+				return;
+			if (value == 0.0)
+				++zeroCount;
+			if (finiteCount == 0)
+				reference = value;
+			const auto delta = value - reference;
+			sumDelta += delta;
+			sumSquaredDelta += delta * delta;
+			++finiteCount;
+			minimum = std::min(minimum, value);
+			maximum = std::max(maximum, value);
+		}
+	};
+
+	struct Accumulator
+	{
+		std::uint64_t finiteCount = 0;
+		std::uint64_t zeroCount = 0;
+		std::uint64_t nanCount = 0;
+		double mean = 0.0;
+		double sumSquaredDelta = 0.0;
+		double minimum = std::numeric_limits<double>::infinity();
+		double maximum = -std::numeric_limits<double>::infinity();
+
+		void add(const double value)
+		{
+			if (std::isnan(value))
+			{
+				++nanCount;
+				return;
+			}
+			if (!std::isfinite(value))
+				return;
+			if (value == 0.0)
+				++zeroCount;
+			++finiteCount;
+			const auto delta = value - mean;
+			mean += delta / static_cast<double>(finiteCount);
+			sumSquaredDelta += delta * (value - mean);
+			minimum = std::min(minimum, value);
+			maximum = std::max(maximum, value);
+		}
+
+		void addZeros(const std::uint64_t count)
+		{
+			if (count == 0)
+				return;
+			zeroCount += count;
+			if (finiteCount == 0)
+			{
+				finiteCount = count;
+				minimum = maximum = mean = 0.0;
+				return;
+			}
+			const auto combinedCount = finiteCount + count;
+			const auto delta = -mean;
+			sumSquaredDelta += delta * delta * static_cast<double>(finiteCount) * static_cast<double>(count) / static_cast<double>(combinedCount);
+			mean += delta * static_cast<double>(count) / static_cast<double>(combinedCount);
+			finiteCount = combinedCount;
+			minimum = std::min(minimum, 0.0);
+			maximum = std::max(maximum, 0.0);
+		}
+
+		void merge(const WorkerAccumulator& other)
+		{
+			nanCount += other.nanCount;
+			zeroCount += other.zeroCount;
+			if (other.finiteCount == 0)
+				return;
+
+			const auto otherMean = other.reference + other.sumDelta / static_cast<double>(other.finiteCount);
+			const auto otherSumSquaredDelta = std::max(0.0, other.sumSquaredDelta - other.sumDelta * other.sumDelta / static_cast<double>(other.finiteCount));
+			if (finiteCount == 0)
+			{
+				finiteCount = other.finiteCount;
+				mean = otherMean;
+				sumSquaredDelta = otherSumSquaredDelta;
+				minimum = other.minimum;
+				maximum = other.maximum;
+				return;
+			}
+
+			const auto combinedCount = finiteCount + other.finiteCount;
+			const auto delta = otherMean - mean;
+			sumSquaredDelta += otherSumSquaredDelta + delta * delta * static_cast<double>(finiteCount) * static_cast<double>(other.finiteCount) / static_cast<double>(combinedCount);
+			mean += delta * static_cast<double>(other.finiteCount) / static_cast<double>(combinedCount);
+			finiteCount = combinedCount;
+			minimum = std::min(minimum, other.minimum);
+			maximum = std::max(maximum, other.maximum);
+		}
+	};
+
+	std::vector<Accumulator> accumulators(static_cast<std::size_t>(columnCount));
+	std::vector<std::uint64_t> storedPerColumn;
+	std::vector<std::uint64_t> totalStoredPerColumn;
+	bool weightedColumnSample = false;
+	struct WorkerStatistics
+	{
+		std::vector<WorkerAccumulator> accumulators;
+		std::vector<std::uint64_t> storedPerColumn;
+	};
+	const auto hardwareThreadCount = std::max(1u, std::thread::hardware_concurrency());
+	const auto bytesPerWorker = static_cast<std::uint64_t>(columnCount) * (sizeof(WorkerAccumulator) + sizeof(std::uint64_t));
+	const auto workersByMemory = std::max<std::uint64_t>(1, (128ULL * 1024 * 1024) / std::max<std::uint64_t>(1, bytesPerWorker));
+	const auto workerCount = static_cast<std::size_t>(std::min<std::uint64_t>({ hardwareThreadCount, 16, workersByMemory }));
+	std::vector<WorkerStatistics> workerStatistics(workerCount);
+	for (auto& worker : workerStatistics)
+	{
+		worker.accumulators.resize(static_cast<std::size_t>(columnCount));
+		worker.storedPerColumn.resize(static_cast<std::size_t>(columnCount), 0);
+	}
+	constexpr std::uint64_t minimumEntriesPerWorker = 128 * 1024;
+	const auto getActiveWorkerCount = [&](const std::uint64_t entryCount) {
+		const auto neededWorkers = std::max<std::uint64_t>(1, entryCount / minimumEntriesPerWorker + (entryCount % minimumEntriesPerWorker != 0));
+		return std::min({ workerCount, static_cast<std::size_t>(omp_get_max_threads()), static_cast<std::size_t>(neededWorkers) });
+	};
+	const auto processEntriesInParallel = [&](const std::uint64_t entryCount, const auto& processEntry) {
+		const auto activeWorkerCount = getActiveWorkerCount(entryCount);
+		if (activeWorkerCount == 1)
+		{
+			for (std::uint64_t entry = 0; entry < entryCount; ++entry)
+				processEntry(std::size_t { 0 }, entry);
+			return;
+		}
+
+		#pragma omp parallel num_threads(static_cast<int>(activeWorkerCount))
+		{
+			const auto workerIndex = static_cast<std::size_t>(omp_get_thread_num());
+			const auto actualWorkerCount = static_cast<std::uint64_t>(omp_get_num_threads());
+			const auto firstEntry = entryCount * workerIndex / actualWorkerCount;
+			const auto lastEntry = entryCount * (workerIndex + 1) / actualWorkerCount;
+			for (auto entry = firstEntry; entry < lastEntry; ++entry)
+				processEntry(workerIndex, entry);
+		}
+	};
+	H5G_obj_t matrixObjectType = H5G_UNKNOWN;
+	for (hsize_t index = 0; index < _file->getNumObjs(); ++index)
+		if (_file->getObjnameByIdx(index) == "X")
+		{
+			matrixObjectType = _file->getObjTypeByIdx(index);
+			break;
+		}
+
+	// Larger blocks amortize OpenMP region setup and HDF5 call overhead.
+	constexpr std::uint64_t maximumValuesPerRead = 2 * 1024 * 1024;
+	if (matrixObjectType == H5G_DATASET)
+	{
+		const auto matrix = _file->openDataSet("X");
+		const auto typeClass = matrix.getDataType().getClass();
+		if (typeClass != H5T_FLOAT && typeClass != H5T_INTEGER && typeClass != H5T_ENUM)
+			return {};
+
+		const auto columnBlockSize = std::min(columnCount, maximumValuesPerRead);
+		const auto rowBlockSize = std::max<std::uint64_t>(1, maximumValuesPerRead / columnBlockSize);
+		for (std::uint64_t sampledRowOffset = 0; sampledRowOffset < sampledRowCount; sampledRowOffset += rowBlockSize)
+		{
+			const auto rowsInBlock = std::min(rowBlockSize, sampledRowCount - sampledRowOffset);
+			const auto rowOffset = sampledRowOffset * sampledRowStride;
+			for (std::uint64_t columnOffset = 0; columnOffset < columnCount; columnOffset += columnBlockSize)
+			{
+				const auto columnsInBlock = std::min(columnBlockSize, columnCount - columnOffset);
+				const hsize_t start[] = { rowOffset, columnOffset };
+				const hsize_t stride[] = { sampledRowStride, 1 };
+				const hsize_t count[] = { rowsInBlock, columnsInBlock };
+				const hsize_t block[] = { 1, 1 };
+				auto fileSpace = matrix.getSpace();
+				fileSpace.selectHyperslab(H5S_SELECT_SET, count, start, stride, block);
+				H5::DataSpace memorySpace(2, count);
+				std::vector<double> values(static_cast<std::size_t>(rowsInBlock * columnsInBlock));
+				matrix.read(values.data(), H5::PredType::NATIVE_DOUBLE, memorySpace, fileSpace);
+				processEntriesInParallel(values.size(), [&](const std::size_t workerIndex, const std::uint64_t valueIndex) {
+					const auto column = columnOffset + valueIndex % columnsInBlock;
+					workerStatistics[workerIndex].accumulators[static_cast<std::size_t>(column)].add(values[static_cast<std::size_t>(valueIndex)]);
+				});
+			}
+			if (progress)
+				progress(static_cast<double>(sampledRowOffset + rowsInBlock) / static_cast<double>(sampledRowCount));
+		}
+	}
+	else if (matrixObjectType == H5G_GROUP)
+	{
+		const auto sparseInfo = getSparseMatrixInfo();
+		if (!sparseInfo.available)
+			return {};
+		weightedColumnSample = !fullScan && sparseInfo.columnCompressed;
+		const auto matrix = _file->openGroup("X");
+		const auto valuesData = matrix.openDataSet("data");
+		const auto indicesData = matrix.openDataSet("indices");
+		const auto pointerData = matrix.openDataSet("indptr");
+		const auto valuesTypeClass = valuesData.getDataType().getClass();
+		if (valuesTypeClass != H5T_FLOAT && valuesTypeClass != H5T_INTEGER && valuesTypeClass != H5T_ENUM)
+			return {};
+		storedPerColumn.resize(static_cast<std::size_t>(columnCount), 0);
+		if (weightedColumnSample)
+			totalStoredPerColumn.resize(static_cast<std::size_t>(columnCount), 0);
+		if (!sparseInfo.columnCompressed)
+		{
+			if (fullScan)
+			{
+				constexpr std::uint64_t majorBlockSize = 65536;
+				for (std::uint64_t rowOffset = 0; rowOffset < rowCount; rowOffset += majorBlockSize)
+				{
+					const auto rowsInBlock = std::min(majorBlockSize, rowCount - rowOffset);
+					const hsize_t pointerStart[] = { rowOffset };
+					const hsize_t pointerCount[] = { rowsInBlock + 1 };
+					auto pointerFileSpace = pointerData.getSpace();
+					pointerFileSpace.selectHyperslab(H5S_SELECT_SET, pointerCount, pointerStart);
+					H5::DataSpace pointerMemorySpace(1, pointerCount);
+					std::vector<std::uint64_t> pointers(static_cast<std::size_t>(rowsInBlock + 1));
+					pointerData.read(pointers.data(), H5::PredType::NATIVE_UINT64, pointerMemorySpace, pointerFileSpace);
+					if (!std::is_sorted(pointers.begin(), pointers.end()))
+						return {};
+
+					const auto firstEntry = pointers.front();
+					const auto lastEntry = pointers.back();
+					for (std::uint64_t entryOffset = firstEntry; entryOffset < lastEntry; entryOffset += maximumValuesPerRead)
+					{
+						const auto entriesInBlock = std::min(maximumValuesPerRead, lastEntry - entryOffset);
+						const hsize_t entryStart[] = { entryOffset };
+						const hsize_t entryCount[] = { entriesInBlock };
+						auto valuesFileSpace = valuesData.getSpace();
+						valuesFileSpace.selectHyperslab(H5S_SELECT_SET, entryCount, entryStart);
+						auto indicesFileSpace = indicesData.getSpace();
+						indicesFileSpace.selectHyperslab(H5S_SELECT_SET, entryCount, entryStart);
+						H5::DataSpace entryMemorySpace(1, entryCount);
+						std::vector<double> values(static_cast<std::size_t>(entriesInBlock));
+						std::vector<std::uint64_t> indices(static_cast<std::size_t>(entriesInBlock));
+						valuesData.read(values.data(), H5::PredType::NATIVE_DOUBLE, entryMemorySpace, valuesFileSpace);
+						indicesData.read(indices.data(), H5::PredType::NATIVE_UINT64, entryMemorySpace, indicesFileSpace);
+
+						processEntriesInParallel(entriesInBlock, [&](const std::size_t workerIndex, const std::uint64_t offset) {
+							const auto column = indices[static_cast<std::size_t>(offset)];
+							if (column < columnCount)
+							{
+								workerStatistics[workerIndex].accumulators[static_cast<std::size_t>(column)].add(values[static_cast<std::size_t>(offset)]);
+								++workerStatistics[workerIndex].storedPerColumn[static_cast<std::size_t>(column)];
+							}
+						});
+					}
+					if (progress)
+						progress(static_cast<double>(rowOffset + rowsInBlock) / static_cast<double>(rowCount));
+				}
+			}
+			else
+			{
+				constexpr std::uint64_t rowPointerBlockSize = 4096;
+				for (std::uint64_t rowOffset = 0; rowOffset < rowCount;)
+				{
+					const auto rowsInBlock = std::min(rowPointerBlockSize, rowCount - rowOffset);
+					const auto rowBlockEnd = rowOffset + rowsInBlock;
+					const auto firstSampledRow = rowOffset + (sampledRowStride - rowOffset % sampledRowStride) % sampledRowStride;
+					if (firstSampledRow >= rowBlockEnd)
+					{
+						if (firstSampledRow >= rowCount)
+							break;
+						rowOffset = (firstSampledRow / rowPointerBlockSize) * rowPointerBlockSize;
+						continue;
+					}
+					const hsize_t pointerStart[] = { rowOffset };
+					const hsize_t pointerCount[] = { rowsInBlock + 1 };
+					auto pointerFileSpace = pointerData.getSpace();
+					pointerFileSpace.selectHyperslab(H5S_SELECT_SET, pointerCount, pointerStart);
+					H5::DataSpace pointerMemorySpace(1, pointerCount);
+					std::vector<std::uint64_t> pointers(static_cast<std::size_t>(rowsInBlock + 1));
+					pointerData.read(pointers.data(), H5::PredType::NATIVE_UINT64, pointerMemorySpace, pointerFileSpace);
+					if (!std::is_sorted(pointers.begin(), pointers.end()))
+						return {};
+
+					std::vector<std::pair<std::uint64_t, std::uint64_t>> selectedEntryRanges;
+					std::uint64_t selectedEntryCount = 0;
+					const auto readSelectedEntries = [&] {
+						if (selectedEntryCount == 0)
+							return;
+
+						const hsize_t memoryDimensions[] = { selectedEntryCount };
+						H5::DataSpace memorySpace(1, memoryDimensions);
+						auto valuesFileSpace = valuesData.getSpace();
+						auto indicesFileSpace = indicesData.getSpace();
+						for (std::size_t rangeIndex = 0; rangeIndex < selectedEntryRanges.size(); ++rangeIndex)
+						{
+							const hsize_t start[] = { selectedEntryRanges[rangeIndex].first };
+							const hsize_t count[] = { selectedEntryRanges[rangeIndex].second };
+							const auto operation = rangeIndex == 0 ? H5S_SELECT_SET : H5S_SELECT_OR;
+							valuesFileSpace.selectHyperslab(operation, count, start);
+							indicesFileSpace.selectHyperslab(operation, count, start);
+						}
+						std::vector<double> values(static_cast<std::size_t>(selectedEntryCount));
+						std::vector<std::uint64_t> indices(static_cast<std::size_t>(selectedEntryCount));
+						valuesData.read(values.data(), H5::PredType::NATIVE_DOUBLE, memorySpace, valuesFileSpace);
+						indicesData.read(indices.data(), H5::PredType::NATIVE_UINT64, memorySpace, indicesFileSpace);
+						processEntriesInParallel(selectedEntryCount, [&](const std::size_t workerIndex, const std::uint64_t entryIndex) {
+							const auto column = indices[static_cast<std::size_t>(entryIndex)];
+							if (column < columnCount)
+							{
+								workerStatistics[workerIndex].accumulators[static_cast<std::size_t>(column)].add(values[static_cast<std::size_t>(entryIndex)]);
+								++workerStatistics[workerIndex].storedPerColumn[static_cast<std::size_t>(column)];
+							}
+						});
+						selectedEntryRanges.clear();
+						selectedEntryCount = 0;
+					};
+
+					for (auto row = firstSampledRow; row < rowBlockEnd; row += sampledRowStride)
+					{
+						const auto localRow = static_cast<std::size_t>(row - rowOffset);
+						const auto rowFirstEntry = pointers[localRow];
+						const auto rowLastEntry = pointers[localRow + 1];
+						if (rowLastEntry < rowFirstEntry)
+							return {};
+						for (auto entryOffset = rowFirstEntry; entryOffset < rowLastEntry;)
+						{
+							const auto entriesInRange = std::min(maximumValuesPerRead, rowLastEntry - entryOffset);
+							if (selectedEntryCount != 0 && selectedEntryCount + entriesInRange > maximumValuesPerRead)
+								readSelectedEntries();
+							selectedEntryRanges.emplace_back(entryOffset, entriesInRange);
+							selectedEntryCount += entriesInRange;
+							entryOffset += entriesInRange;
+							if (selectedEntryCount >= maximumValuesPerRead)
+								readSelectedEntries();
+						}
+					}
+					readSelectedEntries();
+					if (progress)
+						progress(static_cast<double>(rowBlockEnd) / static_cast<double>(rowCount));
+					rowOffset = rowBlockEnd;
+				}
+			}
+		}
+		else
+		{
+			constexpr std::uint64_t majorBlockSize = 4096;
+			for (std::uint64_t majorOffset = 0; majorOffset < columnCount; majorOffset += majorBlockSize)
+			{
+				const auto majorsInBlock = std::min(majorBlockSize, columnCount - majorOffset);
+				const hsize_t pointerStart[] = { majorOffset };
+				const hsize_t pointerCount[] = { majorsInBlock + 1 };
+				auto pointerFileSpace = pointerData.getSpace();
+				pointerFileSpace.selectHyperslab(H5S_SELECT_SET, pointerCount, pointerStart);
+				H5::DataSpace pointerMemorySpace(1, pointerCount);
+				std::vector<std::uint64_t> pointers(static_cast<std::size_t>(majorsInBlock + 1));
+				pointerData.read(pointers.data(), H5::PredType::NATIVE_UINT64, pointerMemorySpace, pointerFileSpace);
+				if (!std::is_sorted(pointers.begin(), pointers.end()))
+					return {};
+				const auto firstEntry = pointers.front();
+				const auto lastEntry = pointers.back();
+				if (lastEntry < firstEntry)
+					return {};
+
+				if (!fullScan)
+				{
+					struct SampleRange
+					{
+						std::uint64_t offset;
+						std::uint64_t count;
+						std::size_t column;
+					};
+					const auto maxSamplesPerColumn = std::max<std::uint64_t>(1, std::min<std::uint64_t>(128, maximumSampledValues / columnCount));
+					std::vector<SampleRange> sampleRanges;
+					std::uint64_t sampleValueCount = 0;
+					for (std::uint64_t localMajor = 0; localMajor < majorsInBlock; ++localMajor)
+					{
+						const auto column = majorOffset + localMajor;
+						const auto columnFirst = pointers[static_cast<std::size_t>(localMajor)];
+						const auto columnLast = pointers[static_cast<std::size_t>(localMajor + 1)];
+						if (columnLast < columnFirst)
+							return {};
+						const auto storedCount = columnLast - columnFirst;
+						totalStoredPerColumn[static_cast<std::size_t>(column)] = storedCount;
+						const auto sampledCount = std::min(storedCount, maxSamplesPerColumn);
+						if (sampledCount == 0)
+							continue;
+						const auto segmentCount = std::min<std::uint64_t>(4, sampledCount);
+						const auto valuesPerSegment = sampledCount / segmentCount;
+						const auto extraValues = sampledCount % segmentCount;
+						std::uint64_t sampledBefore = 0;
+						for (std::uint64_t segment = 0; segment < segmentCount; ++segment)
+						{
+							const auto segmentSize = valuesPerSegment + (segment < extraValues ? 1 : 0);
+							const auto availableGap = storedCount - sampledCount;
+							const auto segmentOffset = segmentCount == 1 ? availableGap / 2 : availableGap * segment / (segmentCount - 1);
+							sampleRanges.push_back({ columnFirst + segmentOffset + sampledBefore, segmentSize, static_cast<std::size_t>(column) });
+							sampleValueCount += segmentSize;
+							sampledBefore += segmentSize;
+						}
+					}
+
+					if (sampleValueCount != 0)
+					{
+						const hsize_t memoryDimensions[] = { sampleValueCount };
+						H5::DataSpace memorySpace(1, memoryDimensions);
+						auto valuesFileSpace = valuesData.getSpace();
+						for (std::size_t rangeIndex = 0; rangeIndex < sampleRanges.size(); ++rangeIndex)
+						{
+							const hsize_t start[] = { sampleRanges[rangeIndex].offset };
+							const hsize_t count[] = { sampleRanges[rangeIndex].count };
+							valuesFileSpace.selectHyperslab(rangeIndex == 0 ? H5S_SELECT_SET : H5S_SELECT_OR, count, start);
+						}
+						std::vector<double> values(static_cast<std::size_t>(sampleValueCount));
+						valuesData.read(values.data(), H5::PredType::NATIVE_DOUBLE, memorySpace, valuesFileSpace);
+						std::uint64_t valueOffset = 0;
+						for (const auto& range : sampleRanges)
+							for (std::uint64_t index = 0; index < range.count; ++index)
+							{
+								workerStatistics[0].accumulators[range.column].add(values[static_cast<std::size_t>(valueOffset++)]);
+								++workerStatistics[0].storedPerColumn[range.column];
+							}
+					}
+				}
+				else
+				{
+					for (std::uint64_t entryOffset = firstEntry; entryOffset < lastEntry; entryOffset += maximumValuesPerRead)
+					{
+						const auto entriesInBlock = std::min(maximumValuesPerRead, lastEntry - entryOffset);
+					const hsize_t entryStart[] = { entryOffset };
+					const hsize_t entryCount[] = { entriesInBlock };
+					auto valuesFileSpace = valuesData.getSpace();
+					valuesFileSpace.selectHyperslab(H5S_SELECT_SET, entryCount, entryStart);
+					auto indicesFileSpace = indicesData.getSpace();
+					indicesFileSpace.selectHyperslab(H5S_SELECT_SET, entryCount, entryStart);
+					H5::DataSpace entryMemorySpace(1, entryCount);
+					std::vector<double> values(static_cast<std::size_t>(entriesInBlock));
+					std::vector<std::uint64_t> indices(static_cast<std::size_t>(entriesInBlock));
+					valuesData.read(values.data(), H5::PredType::NATIVE_DOUBLE, entryMemorySpace, valuesFileSpace);
+					indicesData.read(indices.data(), H5::PredType::NATIVE_UINT64, entryMemorySpace, indicesFileSpace);
+					// CSC entries are already grouped by column. Find each worker's first
+					// column once, then advance through indptr instead of binary-searching
+					// the pointer array for every non-zero value.
+					const auto activeWorkerCount = getActiveWorkerCount(entriesInBlock);
+					#pragma omp parallel num_threads(static_cast<int>(activeWorkerCount))
+					{
+						const auto workerIndex = static_cast<std::size_t>(omp_get_thread_num());
+						const auto actualWorkerCount = static_cast<std::uint64_t>(omp_get_num_threads());
+						const auto firstEntry = entriesInBlock * workerIndex / actualWorkerCount;
+						const auto lastEntry = entriesInBlock * (workerIndex + 1) / actualWorkerCount;
+						auto majorIterator = std::upper_bound(pointers.begin(), pointers.end(), entryOffset + firstEntry);
+						if (majorIterator != pointers.begin())
+						{
+							--majorIterator;
+							auto majorIndex = static_cast<std::uint64_t>(std::distance(pointers.begin(), majorIterator));
+							for (auto offset = firstEntry; offset < lastEntry; ++offset)
+							{
+								const auto absoluteEntry = entryOffset + offset;
+								while (majorIterator + 1 != pointers.end() && absoluteEntry >= *(majorIterator + 1))
+								{
+									++majorIterator;
+									++majorIndex;
+								}
+								const auto major = majorOffset + majorIndex;
+								const auto row = indices[static_cast<std::size_t>(offset)];
+								if (major >= columnCount || row >= rowCount || (!fullScan && row % sampledRowStride != 0))
+									continue;
+								workerStatistics[workerIndex].accumulators[static_cast<std::size_t>(major)].add(values[static_cast<std::size_t>(offset)]);
+								++workerStatistics[workerIndex].storedPerColumn[static_cast<std::size_t>(major)];
+							}
+						}
+					}
+					}
+				}
+				if (progress)
+					progress(static_cast<double>(majorOffset + majorsInBlock) / static_cast<double>(columnCount));
+			}
+		}
+
+		for (const auto& worker : workerStatistics)
+			for (std::size_t column = 0; column < accumulators.size(); ++column)
+			{
+				accumulators[column].merge(worker.accumulators[column]);
+				storedPerColumn[column] += worker.storedPerColumn[column];
+			}
+		if (!weightedColumnSample)
+			for (std::size_t column = 0; column < accumulators.size(); ++column)
+				accumulators[column].addZeros(sampledRowCount - std::min(sampledRowCount, storedPerColumn[column]));
+	}
+	else
+	{
+		return {};
+	}
+
+	if (matrixObjectType == H5G_DATASET)
+		for (const auto& worker : workerStatistics)
+			for (std::size_t column = 0; column < accumulators.size(); ++column)
+				accumulators[column].merge(worker.accumulators[column]);
+
+	std::vector<H5ADDimensionStatistics> statistics;
+	statistics.reserve(accumulators.size());
+	for (std::size_t column = 0; column < accumulators.size(); ++column)
+	{
+		const auto& accumulator = accumulators[column];
+		H5ADDimensionStatistics result;
+		result.exact = fullScan;
+		if (weightedColumnSample)
+		{
+			const auto sampleCount = storedPerColumn[column];
+			const auto storedCount = totalStoredPerColumn[column];
+			const auto implicitZeroCount = rowCount - std::min(rowCount, storedCount);
+			if (sampleCount == 0)
+			{
+				result.finiteValueCount = rowCount;
+				result.zeroFraction = 1.0;
+				result.minimum = result.maximum = 0.0;
+			}
+			else
+			{
+				const auto sampleWeight = static_cast<double>(storedCount) / static_cast<double>(sampleCount);
+				const auto estimatedFiniteStoredCount = static_cast<double>(accumulator.finiteCount) * sampleWeight;
+				const auto finiteCount = estimatedFiniteStoredCount + static_cast<double>(implicitZeroCount);
+				const auto mean = accumulator.finiteCount > 0 ? accumulator.mean * estimatedFiniteStoredCount / std::max(1.0, finiteCount) : 0.0;
+				const auto sampleVariance = accumulator.finiteCount > 0 ? accumulator.sumSquaredDelta / static_cast<double>(accumulator.finiteCount) : 0.0;
+				const auto secondMoment = sampleVariance + accumulator.mean * accumulator.mean;
+				const auto variance = finiteCount > 0 ? std::max(0.0, secondMoment * estimatedFiniteStoredCount / finiteCount - mean * mean) : 0.0;
+				result.mean = mean;
+				result.standardDeviation = std::sqrt(variance);
+				result.finiteValueCount = static_cast<std::uint64_t>(std::llround(finiteCount));
+				result.nanCount = static_cast<std::uint64_t>(std::llround(static_cast<double>(accumulator.nanCount) * sampleWeight));
+				result.zeroFraction = std::min(1.0, static_cast<double>(implicitZeroCount) / static_cast<double>(rowCount) +
+					static_cast<double>(accumulator.zeroCount) * sampleWeight / static_cast<double>(rowCount));
+				if (accumulator.finiteCount > 0)
+				{
+					result.minimum = accumulator.minimum;
+					result.maximum = accumulator.maximum;
+				}
+				if (implicitZeroCount > 0 || accumulator.zeroCount > 0)
+				{
+					result.minimum = std::min(result.minimum, 0.0);
+					result.maximum = std::max(result.maximum, 0.0);
+				}
+			}
+		}
+		else
+		{
+			result.nanCount = accumulator.nanCount;
+			result.finiteValueCount = accumulator.finiteCount;
+			result.zeroFraction = static_cast<double>(std::min(accumulator.zeroCount, sampledRowCount)) / static_cast<double>(sampledRowCount);
+			if (accumulator.finiteCount > 0)
+			{
+				result.mean = accumulator.mean;
+				result.standardDeviation = std::sqrt(accumulator.sumSquaredDelta / static_cast<double>(accumulator.finiteCount));
+				result.minimum = accumulator.minimum;
+				result.maximum = accumulator.maximum;
+			}
+		}
+		result.available = true;
+		result.analyzedRowCount = sampledRowCount;
+		statistics.push_back(result);
+	}
+	return statistics;
 }
 
 H5ADSparseMatrixInfo HDF5_AD_Loader::getSparseMatrixInfo() const

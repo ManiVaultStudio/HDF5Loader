@@ -3,6 +3,7 @@
 #include "HDF5_AD_Loader.h"
 #include "actions/ClusterSetSelectionAction.h"
 #include "actions/DimensionSelectionAction.h"
+#include "actions/MoreLessIntegerAction.h"
 #include "actions/ObsmMatrixSelectionAction.h"
 #include "actions/TargetElementTypeAction.h"
 
@@ -20,7 +21,11 @@
 #include <QMap>
 
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <vector>
+
+namespace mv { class Task; }
 
 /**
  * @brief Collects import settings and data checks for an opened H5AD file.
@@ -54,7 +59,7 @@ public:
      * @param loader Shared loader retained for matrix analysis and import checks.
      * @param parent Optional parent dialog.
      */
-    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const mv::pointdata::storage::SparseStorageBackendConfiguration& sparseConfiguration, std::size_t bucketingThreadCount, std::size_t stagingThreadCount, std::size_t rowChunkTileFactor, int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent = nullptr);
+    H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, std::uint64_t rows, std::uint64_t columns, int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const mv::pointdata::storage::SparseStorageBackendConfiguration& sparseConfiguration, std::size_t bucketingThreadCount, std::size_t stagingThreadCount, std::size_t rowChunkTileFactor, int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, std::function<void(mv::Task*)> taskNotification, QWidget* parent = nullptr);
 
     /** Returns current import choices; callers should use them after acceptance. */
     H5ADImportOptions options();
@@ -90,6 +95,15 @@ private:
     /** Opens the pre-import matrix dimension picker. */
     void selectDimensions();
 
+    /** Estimates dimension statistics, or starts an exact scan after the estimate. */
+    void calculateDimensionStatistics();
+
+    /** Computes exact dimension statistics for every observation. */
+    void scanFullDimensionStatistics();
+
+    /** Runs bounded estimated statistics or an exact full scan. */
+    void runDimensionStatistics(bool fullScan);
+
     /** Opens sparse storage configuration for an HDF5 sparse matrix. */
     void configureSparseStorage();
 
@@ -116,7 +130,10 @@ private:
     mv::gui::StringAction            _matrixAction;             /**< Displays the dimensions of the H5AD X matrix. */
     mv::gui::StringAction            _datasetNameAction;        /**< Editable name assigned to the imported dataset. */
     mv::gui::VerticalGroupAction     _dimensionSelectionGroup; /**< Collapsible source-dimension selection. */
+    mv::gui::VerticalGroupAction     _dimensionSelectionDialogGroup; /**< Groups the dimension filter, table, and statistics trigger in the picker dialog. */
+    MoreLessIntegerAction            _moreLessDimensionsAction; /**< Filters visible dimensions by standard deviation. */
     DimensionSelectionAction         _dimensionSelectionAction; /**< HDF5-owned table selector for X dimensions. */
+    mv::gui::TriggerAction           _computeDimensionStatisticsAction; /**< Estimates statistics first and offers an exact scan afterward. */
     mv::gui::TriggerAction            _dimensionSelectionTrigger; /**< Opens the dimension-selection dialog. */
     TargetElementTypeAction          _storageTypeAction;        /**< Selects the target element type and requests its estimate. */
     StorageBackendConfiguratorAction _backendSelector;          /**< Selects the destination storage backend and opens its configuration. */
@@ -176,9 +193,15 @@ private:
     int                     _recommendedTypeIndex     = -1;                             /**< Recommended option index, or -1 before analysis completes. */
     bool                    _fullScanComplete         = false;                          /**< Whether an exhaustive matrix-value scan completed successfully. */
     bool                    _analysisRunning          = false;                          /**< Whether a matrix sampling or full-scan workflow is active. */
+    bool                    _dimensionStatisticsRequested = false;                     /**< Whether dimension selection requested a statistics scan. */
+    bool                    _dimensionStatisticsRunning = false;                       /**< Whether the dimension-statistics computation is active. */
+    bool                    _dimensionStatisticsEstimated = false;                    /**< Whether bounded estimated statistics completed successfully. */
+    bool                    _dimensionStatisticsExact = false;                         /**< Whether the full statistics computation completed successfully. */
     bool                    _denseMemoryLimitExceeded = false;                          /**< Whether the selected dense or sparse payload exceeds the configured RAM budget. */
 
     std::shared_ptr<HDF5_AD_Loader> _loader;       /**< Shared loader retained while estimating and checking this import. */
+    std::function<void(mv::Task*)> _taskNotification; /**< Importer-provided task notification callback. */
     std::uint64_t                   _rows    = 0;  /**< Row count of the H5AD X matrix. */
     std::uint64_t                   _columns = 0;  /**< Column count of the H5AD X matrix. */
+    std::vector<double>             _dimensionStandardDeviations; /**< Distinct exact standard deviations used by the integer slider. */
 };

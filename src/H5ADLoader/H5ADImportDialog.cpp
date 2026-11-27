@@ -36,6 +36,7 @@
 #include <CoreInterface.h>
 #include <Project.h>
 #include <ProjectCompressionAction.h>
+#include <Task.h>
 #include <workflow/WorkflowOptions.h>
 #include <workflow/WorkflowPlan.h>
 #include <util/BlobCodec.h>
@@ -45,6 +46,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 
@@ -153,14 +155,17 @@ bool isPotentiallyLossyStorageType(const int storageType, const bool sourceMayLo
 
 }
 
-H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const mv::pointdata::storage::SparseStorageBackendConfiguration& sparseConfiguration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, const int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, QWidget* parent) :
+H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagingDirectory, const QStringList& optionalObjects, const QStringList& selectedOptionalObjects, const QString& benchmarkDirectory, const std::uint64_t rows, const std::uint64_t columns, const int storageTypeIndex, const QString& backendType, const H5ADSparseMatrixInfo& sparseMatrixInfo, const mv::pointdata::storage::StorageBackendConfiguration& tiledConfiguration, const mv::pointdata::storage::SparseStorageBackendConfiguration& sparseConfiguration, const std::size_t bucketingThreadCount, const std::size_t stagingThreadCount, const std::size_t rowChunkTileFactor, const int zstdCompressionLevel, std::shared_ptr<HDF5_AD_Loader> loader, std::function<void(mv::Task*)> taskNotification, QWidget* parent) :
     QDialog(parent),
     _settingsAction(this, "Import settings"),
     _fileAction(&_settingsAction, "File", QFileInfo(fileName).fileName()),
     _matrixAction(&_settingsAction, "Matrix", rows > 0 && columns > 0 ? tr("%1 rows × %2 columns").arg(rows).arg(columns) : tr("Unknown")),
     _datasetNameAction(&_settingsAction, "Dataset name", QFileInfo(fileName).baseName()),
     _dimensionSelectionGroup(&_settingsAction, "Dimension selection", true),
+    _dimensionSelectionDialogGroup(this, "Dimension selection"),
+    _moreLessDimensionsAction(this, "More/Less"),
     _dimensionSelectionAction(this),
+    _computeDimensionStatisticsAction(this, "Estimate statistics"),
     _dimensionSelectionTrigger(&_dimensionSelectionGroup, "Select dimensions…"),
     _storageTypeAction(&_settingsAction, "Data type"),
     _backendSelector(&_settingsAction, sparseMatrixInfo.available ? QStringList { "Dense", "Tiled", "Sparse" } : QStringList { "Dense", "Tiled" }, "Tiled"),
@@ -196,6 +201,7 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _sparseMatrixInfo(sparseMatrixInfo),
     _sourceMayLosePrecision(loader && loader->sourceMayLosePrecision()),
     _loader(std::move(loader)),
+    _taskNotification(std::move(taskNotification)),
     _rows(rows),
     _columns(columns)
 {
@@ -288,6 +294,16 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
     _dimensionSelectionGroup.setDescription(tr("<p>Choose which matrix dimensions to import. This selection applies to Dense, Sparse, and Tiled storage.</p>"));
     _dimensionSelectionGroup.setExpanded(false);
     _dimensionSelectionAction.setDimensions(static_cast<std::uint32_t>(columns), _loader ? _loader->getDimensionNames() : std::vector<QString>{});
+    _dimensionSelectionDialogGroup.setShowLabels(false);
+    _dimensionSelectionDialogGroup.setDefaultWidgetFlag(mv::gui::GroupAction::NoMargins);
+    _dimensionSelectionDialogGroup.addAction(&_moreLessDimensionsAction);
+    _dimensionSelectionDialogGroup.addAction(&_dimensionSelectionAction);
+    _dimensionSelectionDialogGroup.addAction(&_computeDimensionStatisticsAction);
+    _moreLessDimensionsAction.setToolTip(tr("Filter dimensions by standard deviation. Estimates are marked with ~ until exact statistics are computed. Hidden rows retain their Include checkbox state."));
+    _moreLessDimensionsAction.setEnabled(false);
+    _computeDimensionStatisticsAction.setIconByName("calculator");
+    _computeDimensionStatisticsAction.setDefaultWidgetFlags(mv::gui::TriggerAction::IconText);
+    _computeDimensionStatisticsAction.setToolTip(tr("Estimate statistics from a bounded sample. Activate again to compute exact statistics across the full matrix."));
     _dimensionSelectionTrigger.setToolTip(tr("Choose which matrix dimensions to include in the imported dataset."));
     _dimensionSelectionGroup.addAction(&_dimensionSelectionTrigger);
     _settingsAction.addAction(&_dimensionSelectionGroup);
@@ -357,6 +373,21 @@ H5ADImportDialog::H5ADImportDialog(const QString& fileName, const QString& stagi
             ? QString()
             : tr("%1 of %2 selected").arg(selectedCount).arg(_columns));
     });
+    connect(&_dimensionSelectionAction, &DimensionSelectionAction::statisticsChanged, this, [this] {
+        _dimensionStandardDeviations = _dimensionSelectionAction.distinctStandardDeviations();
+        const auto maximum = static_cast<std::int32_t>(std::min<std::size_t>(_dimensionStandardDeviations.size(), static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())));
+        _moreLessDimensionsAction.setRange(0, maximum);
+        _moreLessDimensionsAction.setValue(0);
+        _moreLessDimensionsAction.setEnabled(maximum > 0);
+        _dimensionSelectionAction.setMinimumStandardDeviation(-std::numeric_limits<double>::infinity());
+    });
+    connect(&_moreLessDimensionsAction, &mv::gui::IntegralAction::valueChanged, this, [this](const std::int32_t value) {
+        const auto threshold = value <= 0 || static_cast<std::size_t>(value) > _dimensionStandardDeviations.size()
+            ? -std::numeric_limits<double>::infinity()
+            : _dimensionStandardDeviations[static_cast<std::size_t>(value - 1)];
+        _dimensionSelectionAction.setMinimumStandardDeviation(threshold);
+    });
+    connect(&_computeDimensionStatisticsAction, &mv::gui::TriggerAction::triggered, this, &H5ADImportDialog::calculateDimensionStatistics);
     connect(&_dimensionSelectionTrigger, &mv::gui::TriggerAction::triggered, this, &H5ADImportDialog::selectDimensions);
     connect(&_importAction, &mv::gui::TriggerAction::triggered, this, &QDialog::accept);
     connect(&_cancelAction, &mv::gui::TriggerAction::triggered, this, &QDialog::reject);
@@ -462,7 +493,7 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
         return;
 
     _storageTypeAction.setAnalysisRunning(true, !fullScan);
-    const auto analysisDescription = fullScan ? tr("Scanning every matrix value to determine a compact target type. This may take some time.") : tr("Analyzing a bounded sample of the matrix to estimate a compact target type.");
+    const auto analysisDescription = fullScan ? tr("Scanning every matrix value to determine a compact target type. This may take some time.") : tr("Estimating the target type and sparsity from a bounded sample. This may take some time.");
     updatePrecisionCheck(mv::util::SeverityLevel::Info, analysisDescription);
     _analysisRunning = true;
     updateImportActionState();
@@ -482,10 +513,9 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
         else
             *scanResult = loader->estimateTargetElementType();
     }, mv::workflow::WorkflowPlan::JobThreadAffinity::CurrentWorkerThread, 1);
-
     mv::workflow::WorkflowOptions options;
     options.cancellation.enabled = true;
-    options.reporting.progress = true;
+    options.reporting.progress = fullScan;
     options.reporting.finishedNotification = false;
     auto future = mv::Application::getWorkflowPlanExecutor().execute(std::move(workflow), nullptr, options);
     future.onFinished(this, [guardedDialog, scanResult, fullScan](const mv::workflow::SharedWorkflowResult& result) {
@@ -494,6 +524,8 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
 
         guardedDialog->_storageTypeAction.setAnalysisRunning(false);
         guardedDialog->_analysisRunning = false;
+        if (guardedDialog->_dimensionStatisticsRequested)
+            guardedDialog->calculateDimensionStatistics();
         guardedDialog->updateImportActionState();
         if (!result || result->getStatus() != mv::workflow::WorkflowResultBase::Status::Success || scanResult->recommendedTypeIndex < 0)
         {
@@ -547,6 +579,100 @@ void H5ADImportDialog::analyzeTargetElementType(const bool fullScan)
             guardedDialog->tr("The recommendation is based on a bounded sample. Values outside the sample may require a wider type.");
         guardedDialog->updatePrecisionCheck(precisionSeverity, precisionDescription);
     });
+}
+
+void H5ADImportDialog::calculateDimensionStatistics()
+{
+    if (!_loader || _dimensionStatisticsExact || _dimensionStatisticsRunning)
+        return;
+
+    if (_analysisRunning)
+    {
+        _dimensionStatisticsRequested = true;
+        return;
+    }
+
+    _dimensionStatisticsRequested = false;
+    if (_dimensionStatisticsEstimated)
+        scanFullDimensionStatistics();
+    else
+        runDimensionStatistics(false);
+}
+
+void H5ADImportDialog::scanFullDimensionStatistics()
+{
+	if (!_loader || _dimensionStatisticsExact || _dimensionStatisticsRunning || _analysisRunning)
+        return;
+	runDimensionStatistics(true);
+}
+
+void H5ADImportDialog::runDimensionStatistics(const bool fullScan)
+{
+	if (!_loader || _dimensionStatisticsRunning || _analysisRunning)
+		return;
+
+    _dimensionStatisticsRunning = true;
+    _analysisRunning = true;
+    _storageTypeAction.setAnalysisRunning(true);
+	_computeDimensionStatisticsAction.setText(tr("Computing statistics..."));
+    _computeDimensionStatisticsAction.setEnabled(false);
+    updateImportActionState();
+
+    const auto loader = _loader;
+    const auto statistics = std::make_shared<std::vector<H5ADDimensionStatistics>>();
+	const auto taskName = fullScan ? tr("Compute exact H5AD dimension statistics") : tr("Estimate H5AD dimension statistics");
+    auto workflow = std::make_unique<mv::workflow::WorkflowPlan>(taskName);
+	workflow->addSequentialStage(fullScan ? tr("Scan every observation") : tr("Sample matrix observations"), [loader, statistics, fullScan](const mv::workflow::WorkflowPlan::Job&, const mv::workflow::SharedWorkflowExecutionContext& context) {
+		const auto progressCallback = [context](const double progress) {
+            if (const auto task = context->getTask(); task && (task->isAboutToBeAborted() || task->isAborting() || task->isAborted()))
+                throw std::runtime_error("H5AD dimension statistics scan canceled");
+            context->setProgress(progress);
+		};
+		*statistics = fullScan ? loader->scanDimensionStatistics(progressCallback) : loader->estimateDimensionStatistics(progressCallback);
+    }, mv::workflow::WorkflowPlan::JobThreadAffinity::CurrentWorkerThread, 1);
+
+    mv::workflow::WorkflowOptions options;
+    options.cancellation.enabled = true;
+    options.reporting.finishedNotification = false;
+    auto* task = new mv::Task(nullptr, taskName, mv::Task::GuiScopes{ mv::Task::GuiScope::None }, mv::Task::Status::Running, true);
+	task->setProgressDescription(fullScan ? tr("Computing exact statistics across all observations") : tr("Estimating statistics from a bounded sample"));
+    if (_taskNotification)
+        _taskNotification(task);
+
+    const QPointer<H5ADImportDialog> guardedDialog(this);
+	std::thread([workflow = std::move(workflow), statistics, task, guardedDialog, options, fullScan]() mutable {
+        mv::workflow::SharedWorkflowResult result;
+        try
+        {
+            result = mv::Application::getWorkflowPlanExecutor().executeBlocking(std::move(workflow), task, options);
+        }
+        catch (...)
+        {
+            task->setFinished();
+        }
+
+		QMetaObject::invokeMethod(qApp, [guardedDialog, statistics, result, task, fullScan] {
+            if (guardedDialog)
+            {
+                guardedDialog->_dimensionStatisticsRunning = false;
+                guardedDialog->_analysisRunning = false;
+                guardedDialog->_storageTypeAction.setAnalysisRunning(false);
+				const auto statisticsSucceeded = result && result->getStatus() == mv::workflow::WorkflowResultBase::Status::Success && !statistics->empty();
+				if (fullScan)
+					guardedDialog->_dimensionStatisticsExact = statisticsSucceeded;
+				else
+					guardedDialog->_dimensionStatisticsEstimated = statisticsSucceeded;
+				if (statisticsSucceeded)
+                    guardedDialog->_dimensionSelectionAction.setStatistics(*statistics);
+				guardedDialog->_computeDimensionStatisticsAction.setText(guardedDialog->_dimensionStatisticsExact ? guardedDialog->tr("Statistics complete") : guardedDialog->_dimensionStatisticsEstimated ? guardedDialog->tr("Compute exact statistics") : guardedDialog->tr("Estimate statistics"));
+                guardedDialog->_computeDimensionStatisticsAction.setEnabled(!guardedDialog->_dimensionStatisticsExact);
+				guardedDialog->_computeDimensionStatisticsAction.setToolTip(guardedDialog->_dimensionStatisticsExact ? guardedDialog->tr("Exact statistics were computed across the full matrix.") : guardedDialog->_dimensionStatisticsEstimated ? guardedDialog->tr("The table shows bounded estimates. Activate to scan every observation for exact statistics.") : guardedDialog->tr("Estimate statistics from a bounded sample."));
+                guardedDialog->updateImportActionState();
+                guardedDialog->updateDataSummaryCard();
+            }
+            QTimer::singleShot(30000, task, &QObject::deleteLater);
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 void H5ADImportDialog::updateDataSummaryCard()
@@ -831,7 +957,7 @@ void H5ADImportDialog::selectDimensions()
     description->setWordWrap(true);
     layout->addWidget(description);
 
-    layout->addWidget(_dimensionSelectionAction.createWidget(&dialog), 1);
+    layout->addWidget(_dimensionSelectionDialogGroup.createWidget(&dialog), 1);
     auto* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);

@@ -10,6 +10,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
@@ -197,7 +198,7 @@ void H5ADLoader::loadData()
 		if (!getSetting(Keys::sparseStorageConfigurationKey, QVariantMap()).toMap().contains("storeRowCompressed"))
 			sparseConfiguration = getSparseConfiguration({}, sparseMatrixInfo.columnCompressed);
 		const auto availableOptionalMetadata = loader->getOptionalObjects();
-		H5ADImportDialog dialog(fileName, stagingDirectory, availableOptionalMetadata, selectedOptionalMetadata, importBenchmarkDirectory, rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, sparseConfiguration, bucketingThreadCount, stagingThreadCount, rowChunkTileFactor, zstdCompressionLevel, loader, QApplication::activeWindow());
+		H5ADImportDialog dialog(fileName, stagingDirectory, availableOptionalMetadata, selectedOptionalMetadata, importBenchmarkDirectory, rows, columns, storageTypeIndex, backendType, sparseMatrixInfo, _tiledStorageConfiguration, sparseConfiguration, bucketingThreadCount, stagingThreadCount, rowChunkTileFactor, zstdCompressionLevel, loader, [](mv::Task* task) { help().addTaskNotification(QPointer<mv::Task>(task)); }, QApplication::activeWindow());
 		if (dialog.exec() != QDialog::Accepted)
 			continue;
 

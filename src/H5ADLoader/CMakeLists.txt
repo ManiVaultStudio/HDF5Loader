@@ -8,6 +8,8 @@ set(H5AD_ACTIONS
 	actions/ClusterSetTableViewAction.cpp
 	actions/DimensionSelectionAction.h
 	actions/DimensionSelectionAction.cpp
+	actions/MoreLessIntegerAction.h
+	actions/MoreLessIntegerAction.cpp
 	actions/TargetElementTypeAction.h
 	actions/TargetElementTypeAction.cpp
 	actions/ObsmMatrixConfigurationAction.h
@@ -18,6 +20,7 @@ set(H5AD_ACTIONS
 
 set(H5AD_SOURCES
 	H5ADClusterSetInfo.h
+	H5ADDimensionStatistics.h
 	H5ADUtils.h
 	H5ADUtils.cpp
 	H5ADImportDialog.h
@@ -36,6 +39,7 @@ set(H5AD_SOURCES
 
 source_group(H5ADLoader FILES
 	H5ADClusterSetInfo.h
+	H5ADDimensionStatistics.h
 	H5ADUtils.h
 	H5ADUtils.cpp
 	H5ADImportDialog.h
@@ -55,6 +59,8 @@ source_group(Actions FILES
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/ClusterSetTableViewAction.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/DimensionSelectionAction.h
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/DimensionSelectionAction.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/actions/MoreLessIntegerAction.h
+	${CMAKE_CURRENT_SOURCE_DIR}/actions/MoreLessIntegerAction.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/TargetElementTypeAction.h
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/TargetElementTypeAction.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/actions/ObsmMatrixConfigurationAction.h

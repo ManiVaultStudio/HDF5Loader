@@ -16,6 +16,7 @@ class QObject;
 
 #include "H5Utils.h"
 #include "H5ADClusterSetInfo.h"
+#include "H5ADDimensionStatistics.h"
 #include <PointData/storage/interface/PointsStorageBackendTypes.h>
 #include <util/ProjectResourceStagingPolicy.h>
 
@@ -151,6 +152,10 @@ public:
 
 	/** Returns the logical rows and columns of X, or zeroes when its shape is unavailable. */
 	std::pair<std::uint64_t, std::uint64_t> getMatrixShape() const;
+	/** Estimates per-column statistics from a bounded, stratified sample. */
+	std::vector<H5ADDimensionStatistics> estimateDimensionStatistics(const std::function<void(double)>& progress = {}) const;
+	/** Scans every row of X for exact per-column statistics; includes implicit sparse zeros. */
+	std::vector<H5ADDimensionStatistics> scanDimensionStatistics(const std::function<void(double)>& progress = {}) const;
 
 	/**
 	 * Inspects X metadata to determine whether it has a supported CSR or CSC
@@ -191,6 +196,7 @@ public:
 	
 private:
 	H5ADMatrixScanResult analyzeTargetElementType(bool fullScan, const std::function<void(double)>& progress) const;
+	std::vector<H5ADDimensionStatistics> analyzeDimensionStatistics(bool fullScan, const std::function<void(double)>& progress) const;
 
 	mv::CoreInterface* _core = nullptr;
 	QObject* _workflowReceiver = nullptr;
