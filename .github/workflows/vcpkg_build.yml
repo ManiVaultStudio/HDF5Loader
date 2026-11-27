@@ -1,0 +1,92 @@
+name: VcpkgTestWorkflow
+
+# This is a test of building using vcpkg to handle dependencies
+
+# 1. ImageLoaderPlugin declares its dependencies in a vcpkg.json
+# 2. Internal ManiVault Studio dependencies are defined in mv_deps.toml
+# 3. ManiVault Studio dependency repos are added as submodule on the branch
+# 4. An overlays directory is created on the file containing a subdir for each dpendency
+#    Each overlay has a portfile pointing to the submodule and a generic vcpkg.json to 
+#    build the dependency
+# 5. vcpkg install builds alldependencies  
+# 6. cmake -B build followed by cmake --build build build this repo
+#
+# Ultimately the inplace python will be moved to the ManiVaultStudio/github-actions repos
+# along with the portfile.cmake template
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_TYPE: Release
+
+# Get centrally defined build matrix
+jobs:
+  prepare_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix_setup.outputs.matrix }}
+    steps:
+    - name: Get matrix from file
+      id: matrix_setup
+      uses: ManiVaultStudio/github-actions/matrix_setup@feature/vcpkg_artifactory
+
+        
+  cross-platform-build:
+    name: Cross platform build
+    needs: prepare_matrix
+    # The CMake configure and build commands are platform agnostic and should work equally
+    # well on Windows or Mac.  You can convert this to a matrix build if you need
+    # cross-platform coverage.
+    # See: https://docs.github.com/en/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout the source
+        if: ${{ github.event_name != 'pull_request'}}
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Checkout the source (pull_request version)
+        if: ${{ github.event_name == 'pull_request'}}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          submodules: recursive
+          fetch-depth: 0
+      
+      - name: Select Xcode for Mac only
+        if: startsWith(runner.os, 'macOS')
+        run: |
+          sudo xcode-select -switch /Applications/Xcode_${{matrix.xcode}}.app
+          
+      - name: Common build
+        uses: ManiVaultStudio/github-actions/vcpkg_common_build@feature/vcpkg_artifactory
+        with:
+          vcpkg-preset: ${{matrix.preset}}
+          vcpkg-artifactory-url: ${{secrets.VCPKG_ARTIFACTORY_URL}}
+          vcpkg-artifactory-token: ${{secrets.VCPKG_ARTIFACTORY_TOKEN}}
+
+      - name: Sentry upload
+        if: startsWith(runner.os, 'Windows')
+        uses: ManiVaultStudio/github-actions/sentry@feature/vcpkg_artifactory
+        with:
+            sentry-upload: startsWith(github.ref, 'refs/heads/release/')
+            sentry-url: ${{secrets.LKEB_SENTRY_URL }}
+            sentry-org: ${{secrets.LKEB_SENTRY_ORG }}
+            sentry-project: ${{secrets.LKEB_SENTRY_PROJECT }}
+            sentry-auth-token: ${{secrets.LKEB_SENTRY_AUTH_TOKEN }}
